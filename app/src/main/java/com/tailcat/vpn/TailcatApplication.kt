@@ -5,6 +5,7 @@ import com.tailcat.vpn.core.NetworkMonitor
 import com.tailcat.vpn.data.PreferencesStore
 import com.tailcat.vpn.data.ProfileRepository
 import com.tailcat.vpn.service.TunnelController
+import com.tailcat.vpn.service.TunnelEngine
 import com.tailcat.vpn.service.VpnNotificationManager
 
 class TailcatApplication : Application() {
@@ -16,6 +17,9 @@ class TailcatApplication : Application() {
         private set
 
     lateinit var tunnelController: TunnelController
+        private set
+
+    lateinit var tunnelEngine: TunnelEngine
         private set
 
     lateinit var networkMonitor: NetworkMonitor
@@ -32,7 +36,8 @@ class TailcatApplication : Application() {
         profileRepository = ProfileRepository(preferencesStore)
         notificationManager = VpnNotificationManager(this)
         networkMonitor = NetworkMonitor(this)
-        tunnelController = TunnelController(this, profileRepository, preferencesStore, networkMonitor)
+        tunnelEngine = TunnelEngine()
+        tunnelController = TunnelController(this, profileRepository, networkMonitor, tunnelEngine)
 
         notificationManager.createNotificationChannels()
     }

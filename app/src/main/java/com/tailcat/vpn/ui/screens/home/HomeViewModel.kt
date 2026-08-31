@@ -28,9 +28,19 @@ class HomeViewModel : ViewModel() {
     val activeProfile: StateFlow<GatewayProfile?> = profileRepository.activeProfile
     val profiles: StateFlow<List<GatewayProfile>> = profileRepository.profiles
     val activeNetworkType: StateFlow<NetworkType> = networkMonitor.activeNetworkType
+    val lastError = tunnelController.lastError
+    val engineAvailability = tunnelController.engineAvailability
 
     private val _uiEvent = MutableSharedFlow<String>()
     val uiEvent: SharedFlow<String> = _uiEvent.asSharedFlow()
+
+    init {
+        viewModelScope.launch {
+            tunnelController.tunnelEvents.collect { message ->
+                _uiEvent.emit(message)
+            }
+        }
+    }
 
     fun isOnline(): Boolean = networkMonitor.isOnline
 
@@ -45,20 +55,26 @@ class HomeViewModel : ViewModel() {
             }
             return
         }
-        tunnelController.refreshEgressIp()
+        tunnelController.refreshPublicIp()
+    }
+
+    fun canStartTunnel(): Boolean {
+        val error = tunnelController.validateStartRequest()
+        if (error != null) {
+            viewModelScope.launch { _uiEvent.emit(error) }
+            return false
+        }
+        return true
+    }
+
+    fun showMessage(message: String) {
+        viewModelScope.launch { _uiEvent.emit(message) }
     }
 
     fun toggleVpn(): Boolean {
-        if (!isOnline() && tunnelState.value == TunnelState.DISCONNECTED) {
-            viewModelScope.launch {
-                _uiEvent.emit("Cannot start VPN: No internet connection detected. Connect to Wi-Fi or cellular.")
-            }
-            return false
-        }
-
         when (tunnelState.value) {
             TunnelState.DISCONNECTED, TunnelState.DEGRADED -> {
-                tunnelController.startTunnel()
+                return tunnelController.startTunnel()
             }
             TunnelState.CONNECTED, TunnelState.CONNECTING, TunnelState.RECONNECTING -> {
                 tunnelController.stopTunnel()
@@ -71,7 +87,9 @@ class HomeViewModel : ViewModel() {
         profileRepository.setActiveProfile(profile)
         if (tunnelState.value == TunnelState.CONNECTED) {
             tunnelController.stopTunnel()
-            tunnelController.startTunnel()
+            viewModelScope.launch {
+                _uiEvent.emit("Gateway changed. Tap connect to start the new tunnel.")
+            }
         }
     }
 
@@ -80,6 +98,10 @@ class HomeViewModel : ViewModel() {
     }
 
     fun deleteProfile(id: String) {
+        if (activeProfile.value?.id == id && tunnelState.value != TunnelState.DISCONNECTED) {
+            tunnelController.stopTunnel()
+        }
         profileRepository.deleteProfile(id)
+        showMessage("Gateway profile deleted")
     }
 }

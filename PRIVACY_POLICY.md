@@ -1,49 +1,44 @@
-# Privacy Policy for Tailcat VPN
+# Privacy Policy for Tailcat
 
-**Last Updated:** August 31, 2026
+**Last updated:** August 31, 2026
 
-Tailcat ("we", "our", or "the application") is committed to protecting your privacy. This Privacy Policy explains our practices regarding user data, network traffic, and permissions when using the Tailcat Android application.
+Tailcat is designed without accounts, advertising, analytics SDKs, or a proprietary coordination service. This policy describes the current source tree; downstream builds that add a native engine, relays, or different endpoints must update it before distribution.
 
----
+## Data stored on the device
 
-## 1. Zero-Log Policy (No Data Collection)
+Tailcat stores gateway names, connection tokens, selected profile, MTU defaults, and split-tunnel package names locally. These preferences are encrypted with AES-256 schemes using a key protected by Android Keystore. Existing plaintext preferences from earlier builds are migrated into encrypted storage and then removed.
 
-Tailcat is designed from the ground up to be **control-plane-free and decentralized**. 
+Gateway tokens are secrets. Anyone who obtains a token may learn connection metadata or be able to attempt a gateway connection, depending on the gateway protocol. Protect device backups and screenshots accordingly. Tailcat disables Android backup and device-to-device transfer for its app data.
 
-* **No Traffic Logging:** We do not collect, monitor, store, or log your browsing history, DNS queries, traffic destinations, data content, or packet payloads.
-* **No Centralized User Tracking:** We do not have user accounts, tracking analytics, advertising IDs, or telemetry SDKs.
-* **No Centralized Servers:** Tailcat does not connect to any proprietary centralized authentication or coordination servers. Your client communicates directly with the gateway listener you pair via your token.
+## Network requests made by the Android app
 
----
+- On app startup and manual refresh, Tailcat requests Cloudflare's `https://1.1.1.1/cdn-cgi/trace` to display the app process' public IP and country code. If that fails, it requests `https://api.ipify.org?format=json` for the IP only.
+- When the user explicitly starts a speed test, Tailcat requests Cloudflare endpoints at `1.1.1.1` and `speed.cloudflare.com` to measure HTTP latency, download throughput, and upload throughput.
 
-## 2. On-Device Storage & Local Processing
+These providers receive ordinary connection metadata such as the source IP, time, TLS information, and request headers under their own policies. Tailcat does not attach an account ID or advertising identifier.
 
-All application configuration and state are stored **exclusively on your local device**:
+The public-IP card is labeled **Device IP**. The app process is excluded from the Android TUN to prevent native transport loops, so this lookup is not proof of VPN egress.
 
-* **Gateway Profiles & Tokens:** Stored locally in Android's `EncryptedSharedPreferences` backed by the Android Keystore.
-* **Network Settings:** MTU, TCP MSS preferences, split-tunneling lists, and kill-switch configurations are stored locally on your device and are never transmitted to any third party.
-* **Public IP & Speed Benchmarking:** When you run the Egress IP auditor or Speed Test, lightweight diagnostic requests are sent directly to Cloudflare edge endpoints (`1.1.1.1` / `speed.cloudflare.com`) to calculate public WAN IP, latency, and throughput. No personal identifiers or payload data are included.
+## VPN traffic
 
----
+This repository does not include a working WireGuard/Magicsock data plane and therefore does not currently transmit user traffic to a Tailcat gateway. The app refuses to establish a VPN route without a compatible engine capability handshake.
 
-## 3. Permissions Used by Tailcat
+A future engine-enabled build would make traffic visible to the user-selected gateway operator and, when used, the selected relay operator. The operator can observe connection metadata and decrypted exit traffic to the same extent as any VPN provider. Tailcat cannot make privacy promises on behalf of a gateway chosen by the user.
 
-* **`android.permission.INTERNET`:** Required to transmit encrypted WireGuard UDP packets and DERP relay traffic.
-* **`android.permission.ACCESS_NETWORK_STATE`:** Required to monitor network connectivity changes (Wi-Fi to Cellular handoffs) to maintain persistent tunnel state.
-* **`android.permission.FOREGROUND_SERVICE` & `FOREGROUND_SERVICE_SYSTEM_EXEMPTED`:** Required by Android to run the `VpnService` background packet pump continuously without being killed by the operating system.
-* **`android.permission.POST_NOTIFICATIONS`:** Required on Android 13+ to display the ongoing VPN status notification with live throughput stats and a one-tap disconnect button.
-* **`android.permission.CAMERA` (Optional):** Used strictly for on-device QR code scanning to import gateway pairing tokens. No photos or video frames are ever recorded or transmitted.
+## Android permissions
 
----
+- `INTERNET`: public-IP checks, speed tests, and future encrypted tunnel transport.
+- `ACCESS_NETWORK_STATE`: validated connectivity and roaming detection.
+- `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_SYSTEM_EXEMPTED`: continuous operation of an active Android VPN service.
+- `POST_NOTIFICATIONS`: optional display of foreground VPN status on Android 13+.
+- `BIND_VPN_SERVICE`: enforced by Android on the VPN service declaration.
 
-## 4. Third-Party Dependencies
+Tailcat does not request camera, location, contacts, storage, or advertising permissions.
 
-Tailcat incorporates open-source components:
-* **Tailscale Magicsock & WireGuard-Go:** Open-source cryptographic tunnel and NAT traversal engine (BSD / MIT licensed).
-* **Cloudflare STUN / DERP Nodes:** Used strictly for public STUN endpoint discovery and relay fallback when direct UDP hole-punching fails.
+## Logging and diagnostics
 
----
+The application contains no analytics or remote crash-reporting SDK. Network benchmark results and public-IP results are held in memory for display and are not uploaded by Tailcat to a project-owned server. Android, the device vendor, a gateway, and external endpoint operators may maintain their own logs independently.
 
-## 5. Contact & Security
+## Contact
 
-If you have questions regarding this Privacy Policy or discover any security vulnerabilities, please refer to [`SECURITY.md`](file:///Users/omar/developer/tailcat%20vpn%20client/SECURITY.md) or open an issue in the project repository.
+For security issues, follow [SECURITY.md](SECURITY.md). For non-sensitive policy questions, use the project repository's normal maintainer contact channel.

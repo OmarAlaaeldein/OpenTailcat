@@ -6,13 +6,13 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.tailcat.vpn.R
 import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TransportType
 import com.tailcat.vpn.core.model.TunnelState
 import com.tailcat.vpn.ui.MainActivity
+import java.util.Locale
 
 class VpnNotificationManager(private val context: Context) {
 
@@ -20,17 +20,15 @@ class VpnNotificationManager(private val context: Context) {
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
     fun createNotificationChannels() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                context.getString(R.string.vpn_channel_name),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = context.getString(R.string.vpn_channel_desc)
-                setShowBadge(false)
-            }
-            notificationManager.createNotificationChannel(channel)
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            context.getString(R.string.vpn_channel_name),
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = context.getString(R.string.vpn_channel_desc)
+            setShowBadge(false)
         }
+        notificationManager.createNotificationChannel(channel)
     }
 
     fun buildNotification(
@@ -78,25 +76,31 @@ class VpnNotificationManager(private val context: Context) {
             "Tap to manage your VPN connection"
         }
 
-        return NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
+        val isActive = state != TunnelState.DISCONNECTED
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_vpn_status)
             .setContentTitle(title)
             .setContentText(content)
             .setContentIntent(openPendingIntent)
-            .setOngoing(state == TunnelState.CONNECTED || state == TunnelState.CONNECTING)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Disconnect", stopPendingIntent)
+            .setOngoing(isActive)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
+        if (isActive) {
+            builder.addAction(R.drawable.ic_vpn_status, "Disconnect", stopPendingIntent)
+        }
+        return builder.build()
     }
 
     private fun formatBytes(bytes: Long): String {
         if (bytes < 1024) return "$bytes B"
         val kb = bytes / 1024.0
-        if (kb < 1024) return "%.1f KB".format(kb)
+        if (kb < 1024) return String.format(Locale.getDefault(), "%.1f KB", kb)
         val mb = kb / 1024.0
-        if (mb < 1024) return "%.1f MB".format(mb)
+        if (mb < 1024) return String.format(Locale.getDefault(), "%.1f MB", mb)
         val gb = mb / 1024.0
-        return "%.2f GB".format(gb)
+        return String.format(Locale.getDefault(), "%.2f GB", gb)
     }
 
     companion object {

@@ -50,6 +50,7 @@ import com.tailcat.vpn.ui.theme.VioletDerp
 fun TelemetryCard(
     metrics: NetworkMetrics,
     egressInfo: EgressInfo,
+    mtu: Int,
     onRefreshIp: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -62,7 +63,8 @@ fun TelemetryCard(
             .padding(16.dp)
     ) {
         Column {
-            // 1. Live Public IP Banner
+            // App traffic is intentionally excluded from the TUN so native transport sockets
+            // cannot loop. This is the device's direct public IP, not a tunnel egress claim.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -83,7 +85,7 @@ fun TelemetryCard(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "IP: ${egressInfo.ip}",
+                                text = "Device IP: ${egressInfo.ip}",
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     color = TextPrimary,
                                     fontSize = 14.sp
@@ -157,7 +159,11 @@ fun TelemetryCard(
                 }
 
                 Text(
-                    text = "${metrics.rttLatencyMs} ms (±${metrics.jitterMs})",
+                    text = if (metrics.transportType == TransportType.UNKNOWN) {
+                        "—"
+                    } else {
+                        "${metrics.rttLatencyMs} ms (±${metrics.jitterMs})"
+                    },
                     style = MaterialTheme.typography.labelMedium.copy(
                         color = TextSecondary,
                         fontSize = 12.sp
@@ -188,7 +194,7 @@ fun TelemetryCard(
                             style = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary)
                         )
                         Text(
-                            text = "${metrics.rxRateKbps} KB/s",
+                            text = "${metrics.rxRateKbps} Kb/s",
                             style = MaterialTheme.typography.labelMedium
                         )
                     }
@@ -209,7 +215,7 @@ fun TelemetryCard(
                             style = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary)
                         )
                         Text(
-                            text = "${metrics.txRateKbps} KB/s",
+                            text = "${metrics.txRateKbps} Kb/s",
                             style = MaterialTheme.typography.labelMedium
                         )
                     }
@@ -223,7 +229,7 @@ fun TelemetryCard(
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "MTU 1280",
+                        text = "MTU $mtu",
                         style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
                     )
                 }

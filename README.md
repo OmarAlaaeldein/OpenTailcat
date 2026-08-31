@@ -1,118 +1,107 @@
-# Tailcat VPN Client 🐾⚡
+# Tailcat VPN Client
 
-> **Control-Plane-Free WireGuard & Magicsock VPN Client for Android, Linux & macOS**
+Tailcat is an Android client shell for a control-plane-free WireGuard and Magicsock VPN. Gateway connection parameters are carried in compact, URL-safe `tc...` tokens.
 
-Tailcat is an ultra-lean, privacy-first VPN client engineered for decentralized, control-plane-free WireGuard mesh networking. It connects directly to gateway listeners via compact, permanent or time-limited connection tokens (`tc...`), eliminating centralized coordination servers, login portals, and external account tracking.
+> [!IMPORTANT]
+> This repository does **not** currently contain a working WireGuard/Magicsock packet engine or `libtailcat.aar`. The Android app fails closed: it will not create a VPN route or report a connection until a compatible native engine advertises a working data plane. The Go package under `core-engine/` is an integration scaffold, not a VPN implementation.
 
----
+This is the product's central missing capability, not an optional feature: entering a token and establishing the corresponding encrypted gateway tunnel is Tailcat's primary purpose. The current APK is therefore a safe integration/debug build, **not a functional VPN client**. Its UI, token storage, validation, diagnostics, and Android service boundary are implemented, but it cannot connect until the native data plane described in [`handoff.md`](handoff.md) is implemented, packaged, and tested with the matching gateway listener.
 
-## 🌟 Multiplatform Support
+## Current status
 
-| Platform | Interface | Highlights |
-| :--- | :--- | :--- |
-| **📱 Android** | Jetpack Compose Cyberpunk UI | 1.1 MB APK · Live Egress IP Auditor · Speedometer Benchmark · Split-Tunneling · Offline Alarms |
-| **🐧 Linux** | Lightweight CLI (`tailcat-cli`) | WireGuard-Go + Magicsock daemon · Headless server & desktop support · Zero daemon dependencies |
-| **🍎 macOS** | CLI Daemon (`tailcat-cli`) | Native Darwin TUN routing · Apple Silicon & Intel support · One-command token connect |
+Implemented and usable as application scaffolding:
 
----
+- Strict CBOR/Base64URL token parsing with exact 32-byte public-key validation and expiry enforcement.
+- Encrypted local profile storage backed by Android Keystore.
+- Offline detection using validated Android network capabilities.
+- Android VPN consent and service scaffolding with fail-closed engine startup.
+- Per-app exclusions applied when a real tunnel starts.
+- Real, user-initiated Cloudflare latency/download/upload measurements; failures are never replaced with synthetic results.
+- Direct device public-IP lookup using Cloudflare with an ipify fallback.
+- Compose UI for profiles, connection state, diagnostics, and settings.
 
-## ✨ Key Features
+Not implemented in this repository:
 
-* **⚡ Control-Plane-Free P2P Tunneling:** Uses WireGuard + Magicsock + STUN for direct UDP hole-punching and automatic DERP relay fallback.
-* **🔑 Connection Tokens (`tc...` with Expiration):** Base64URL/CBOR-encoded server public keys, DERP regions, and optional expiration (`exp`) timestamps. Real-time syntax and expiry validation preview.
-* **📡 Real-Time Offline Detection & Alarms:** Animated Cyberpunk offline banner and pairing warnings when the device has no active internet connection.
-* **🌍 Live Public Egress IP Auditor:** Real-time WAN IP, country, and city geolocation displayed right on the home dashboard with a one-tap refresh.
-* **🏎️ Network Benchmark & Speedometer:** Multi-probe RTT Latency, Jitter variance, Download throughput, and Upload throughput with an animated Cyberpunk arc gauge.
-* **🛡️ Kill-Switch & Auto-DERP:** Blocks unencrypted network traffic on disconnect, and forces reliable DERP encapsulation when roaming on isolated Enterprise Wi-Fi.
-* **🔀 Split Tunneling:** Per-app routing allowing selected applications to bypass the VPN tunnel.
-* **🪶 Ultra-Compact 1.1 MB Android Release:** Fully minified with R8, tree-shaking, resource shrinking, and zero GC allocation overhead during benchmarking.
-* **🔒 Strict Zero-Log Privacy:** Complete local cryptographic storage using Android Keystore and `EncryptedSharedPreferences`.
-* **📱 Android 15 & 16 Ready:** Fully compliant with Android SDK 35 and 16KB memory page size architectures.
+- WireGuard encryption or packet pumping.
+- Magicsock, STUN hole punching, or DERP relay transport.
+- Gateway handshake or egress verification through the tunnel.
+- TCP MSS clamping.
+- An app-managed kill switch. Use Android's Always-on VPN and **Block connections without VPN** controls after a real engine is integrated.
+- QR token scanning.
+- A functional Linux/macOS VPN CLI.
 
----
+## Fail-closed engine contract
 
-## 🚀 Getting Started
+Place a compatible Go Mobile AAR in `app/libs/`. The generated Java API must be available as `engine.Engine` or `com.tailcat.vpn.engine.Engine` and expose these static methods:
 
-### 📱 Android Application
-
-#### 1. Build the Ultra-Lean Release APK (1.1 MB)
-```bash
-./gradlew assembleRelease
+```text
+getCapabilitiesJSON() -> String
+prepare(token)
+attachTun(tunFd)
+getStatsJSON() -> String
+stop()
 ```
-The optimized APK will be generated at:
-`app/build/outputs/apk/release/app-release.apk` (or root `Tailcat-v1.0.0-release.apk`)
 
-#### 2. Run Unit Tests & Lint
+Before Android creates a full-device route, `getCapabilitiesJSON()` must return at least:
+
+```json
+{
+  "apiVersion": 1,
+  "dataPlane": true,
+  "wireGuard": true,
+  "magicsock": true,
+  "twoPhaseStart": true
+}
+```
+
+`prepare` completes the authenticated gateway/transport handshake before Android creates a route. After that succeeds, Android establishes the TUN and calls `attachTun`, which must start packet pumps immediately. `getStatsJSON` must report real transport and byte counters. The service closes the TUN immediately if attachment fails and disconnects after repeated telemetry failures.
+
+## Token format
+
+```text
+"tc" + Base64URL(CBOR({
+  "p": 32-byte WireGuard server public key,
+  "r": positive DERP region ID,
+  "exp"?: Unix epoch seconds,
+  "iat"?: Unix epoch seconds
+}))
+```
+
+Aliases `pub`, `nodekey`, and `region` are accepted for compatibility. Duplicate aliases, invalid timestamps, missing regions, malformed CBOR, trailing CBOR objects, and non-32-byte keys are rejected. Expired tokens cannot be saved or started.
+
+## Build and verification
+
+Requirements: OpenJDK 21 and Android SDK 35.
+
 ```bash
 ./gradlew testDebugUnitTest
-./gradlew check
-```
+./gradlew lintDebug
+./gradlew assembleDebug
+./gradlew assembleRelease
 
-#### 3. Install on Connected Device / Emulator
-```bash
-# Direct install via ADB
-adb install -r Tailcat-v1.0.0-release.apk
-
-# Launch App
-adb shell am start -n com.tailcat.vpn/.ui.MainActivity
-```
-
----
-
-### 🖥️ Linux & macOS CLI (`tailcat-cli`)
-
-The core Go engine includes a standalone CLI client for Linux and macOS.
-
-#### 1. Build the CLI Binary
-```bash
 cd core-engine
-go build -o tailcat-cli ./cmd/tailcat-cli
+go test ./...
 ```
 
-#### 2. Connect to a Gateway Token
-```bash
-# Connect with a Tailcat token
-./tailcat-cli up tcXYZ...
+Debug output: `app/build/outputs/apk/debug/app-debug.apk`.
 
-# Query active telemetry
-./tailcat-cli status
+Release output is intentionally unsigned. Configure a private release signing key outside the repository before distribution; production releases must never use the debug key.
 
-# Disconnect
-./tailcat-cli down
+## Repository layout
+
+```text
+app/                         Android application
+  src/main/java/.../core/    token, network, IP, and speed-test logic
+  src/main/java/.../data/    encrypted preferences and profiles
+  src/main/java/.../service/ fail-closed VPN and native-engine boundary
+  src/main/java/.../ui/      Jetpack Compose UI
+core-engine/                 Go Mobile integration scaffold
+handoff.md                   native-engine integration requirements
+PRIVACY_POLICY.md            local data and external request disclosure
+SECURITY.md                  current security posture
+THIRD_PARTY_NOTICES.md       dependency notices
 ```
 
----
+## License
 
-## 📂 Repository Structure
-
-```
-tailcat vpn client/
-├── core-engine/                   # Multiplatform Go Engine (WireGuard + Magicsock)
-│   ├── cmd/tailcat-cli/           # Standalone CLI for Linux & macOS
-│   ├── go.mod
-│   └── main.go                    # WireGuard JNI bridge & packet pump
-│
-├── app/                           # Android Application Module
-│   └── src/main/java/com/tailcat/vpn/
-│       ├── core/                  # Token parser, IP auditor, speed engine
-│       ├── service/               # Android VpnService & Foreground Service
-│       ├── data/                  # Encrypted preferences & profile store
-│       └── ui/                    # Jetpack Compose Cyberpunk UI
-│
-├── README.md                      # Project overview & quickstart
-├── handoff.md                     # Integration handoff guide for nullexit
-├── agents.md                      # Architecture & engineering specification
-├── LICENSE                        # Apache 2.0 Open Source License
-├── PRIVACY_POLICY.md              # Zero-logs privacy disclosure
-├── SECURITY.md                    # Vulnerability reporting & crypto standards
-└── THIRD_PARTY_NOTICES.md         # Open source attributions
-```
-
----
-
-## 📜 Legal & Compliance
-
-* **[LICENSE](LICENSE):** Apache License, Version 2.0.
-* **[PRIVACY_POLICY.md](PRIVACY_POLICY.md):** Strict Zero-Logs commitment, local on-device processing, and VpnService disclosures.
-* **[SECURITY.md](SECURITY.md):** Cryptographic specifications, DNS leak prevention, and vulnerability reporting.
-* **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md):** Open source attributions for WireGuard-Go, Tailscale Magicsock, and AndroidX.
+Apache License 2.0. See [LICENSE](LICENSE).

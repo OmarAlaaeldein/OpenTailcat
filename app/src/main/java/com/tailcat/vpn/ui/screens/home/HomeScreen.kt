@@ -1,7 +1,10 @@
 package com.tailcat.vpn.ui.screens.home
 
 import android.app.Activity
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.VpnService
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -23,10 +26,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Router
@@ -41,6 +47,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -64,6 +71,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.content.ContextCompat
 import com.tailcat.vpn.core.NetworkType
 import com.tailcat.vpn.core.model.TunnelState
 import com.tailcat.vpn.core.token.TokenParser
@@ -96,6 +104,7 @@ fun HomeScreen(
     val activeProfile by viewModel.activeProfile.collectAsState()
     val profiles by viewModel.profiles.collectAsState()
     val networkType by viewModel.activeNetworkType.collectAsState()
+    val lastError by viewModel.lastError.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -116,15 +125,47 @@ fun HomeScreen(
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             viewModel.toggleVpn()
+        } else {
+            viewModel.showMessage("VPN permission was not granted. No connection was started.")
         }
     }
 
+    val requestVpnConsent: () -> Unit = {
+        try {
+            val vpnIntent = VpnService.prepare(context)
+            if (vpnIntent != null) {
+                vpnPermissionLauncher.launch(vpnIntent)
+            } else {
+                viewModel.toggleVpn()
+            }
+        } catch (e: Exception) {
+            viewModel.showMessage(e.message ?: "Android could not request VPN permission")
+        }
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) {
+        // Notification denial does not prevent a foreground VPN, but Android may only show it
+        // in the active-apps surface. Continue to the system VPN consent screen either way.
+        requestVpnConsent()
+    }
+
     val onToggleClicked: () -> Unit = {
-        val vpnIntent = VpnService.prepare(context)
-        if (vpnIntent != null) {
-            vpnPermissionLauncher.launch(vpnIntent)
-        } else {
+        if (tunnelState != TunnelState.DISCONNECTED && tunnelState != TunnelState.DEGRADED) {
             viewModel.toggleVpn()
+        } else if (activeProfile == null && profiles.isEmpty()) {
+            showAddDialog = true
+        } else if (viewModel.canStartTunnel()) {
+            if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                requestVpnConsent()
+            }
         }
     }
 
@@ -178,20 +219,6 @@ fun HomeScreen(
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         IconButton(
-                            onClick = { showAddDialog = true },
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(SurfaceDark)
-                                .border(1.dp, BorderSubtle, RoundedCornerShape(12.dp))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = "Add Gateway Token",
-                                tint = AccentCyan
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        IconButton(
                             onClick = onNavigateToSettings,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
@@ -240,6 +267,30 @@ fun HomeScreen(
                         }
                     }
                 }
+
+                AnimatedVisibility(
+                    visible = !viewModel.engineAvailability.isAvailable,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    StatusBanner(
+                        message = viewModel.engineAvailability.message,
+                        color = YellowWarning,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = lastError != null && viewModel.engineAvailability.isAvailable,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    StatusBanner(
+                        message = lastError.orEmpty(),
+                        color = RedDegraded,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                }
             }
         }
     ) { innerPadding ->
@@ -249,6 +300,7 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 20.dp)
+                .verticalScroll(rememberScrollState())
         ) {
             Spacer(modifier = Modifier.height(10.dp))
 
@@ -319,14 +371,39 @@ fun HomeScreen(
                                 onClick = {
                                     viewModel.selectProfile(profile)
                                     showProfileDropdown = false
+                                },
+                                trailingIcon = {
+                                    IconButton(
+                                        onClick = {
+                                            viewModel.deleteProfile(profile.id)
+                                            showProfileDropdown = false
+                                        }
+                                    ) {
+                                        Icon(
+                                            Icons.Default.DeleteOutline,
+                                            contentDescription = "Delete ${profile.name}",
+                                            tint = RedDegraded
+                                        )
+                                    }
                                 }
                             )
                         }
+                        HorizontalDivider(color = BorderSubtle)
+                        DropdownMenuItem(
+                            text = { Text("Pair another gateway", color = AccentCyan) },
+                            leadingIcon = {
+                                Icon(Icons.Default.Add, contentDescription = null, tint = AccentCyan)
+                            },
+                            onClick = {
+                                showProfileDropdown = false
+                                showAddDialog = true
+                            }
+                        )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(48.dp))
 
             // Center Power Toggle Button
             PowerToggleRing(
@@ -341,6 +418,7 @@ fun HomeScreen(
             // Connection Subtitle Status
             val statusLabel = when {
                 isDeviceOffline && tunnelState == TunnelState.DISCONNECTED -> "OFFLINE • NO INTERNET"
+                !viewModel.engineAvailability.isAvailable && tunnelState == TunnelState.DISCONNECTED -> "ENGINE REQUIRED • VPN DISABLED"
                 tunnelState == TunnelState.CONNECTED -> "SECURE & ENCRYPTED"
                 tunnelState == TunnelState.CONNECTING -> "ESTABLISHING WIREGUARD TUNNEL..."
                 tunnelState == TunnelState.RECONNECTING -> "ROAMING / RECONNECTING..."
@@ -350,6 +428,7 @@ fun HomeScreen(
 
             val statusColor = when {
                 isDeviceOffline && tunnelState == TunnelState.DISCONNECTED -> RedDegraded
+                !viewModel.engineAvailability.isAvailable && tunnelState == TunnelState.DISCONNECTED -> YellowWarning
                 tunnelState == TunnelState.CONNECTED -> EmeraldConnected
                 tunnelState == TunnelState.CONNECTING || tunnelState == TunnelState.RECONNECTING -> AccentCyan
                 tunnelState == TunnelState.DEGRADED -> YellowWarning
@@ -365,12 +444,13 @@ fun HomeScreen(
                 )
             )
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(32.dp))
 
             // Bottom Telemetry Card with Public Egress IP
             TelemetryCard(
                 metrics = metrics,
                 egressInfo = egressInfo,
+                mtu = activeProfile?.mtu ?: 1280,
                 onRefreshIp = viewModel::refreshIp,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -435,21 +515,21 @@ fun HomeScreen(
                     }
 
                     OutlinedTextField(
-                        value = nameInput,
-                        onValueChange = { nameInput = it },
-                        label = { Text("Gateway Name (Optional)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    OutlinedTextField(
                         value = tokenInput,
                         onValueChange = {
                             tokenInput = it
                             errorMessage = null
                         },
                         label = { Text("Connection Token (tc...)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = nameInput,
+                        onValueChange = { nameInput = it },
+                        label = { Text("Gateway Name (Optional)") },
+                        singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -574,6 +654,38 @@ fun HomeScreen(
                     Text("Cancel", color = TextSecondary)
                 }
             }
+        )
+    }
+}
+
+@Composable
+private fun StatusBanner(
+    message: String,
+    color: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(color.copy(alpha = 0.14f))
+            .border(1.dp, color.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Default.WarningAmber,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall.copy(
+                color = color,
+                fontWeight = FontWeight.Medium
+            )
         )
     }
 }

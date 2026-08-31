@@ -35,15 +35,14 @@ func main() {
 			os.Exit(1)
 		}
 
-		fmt.Printf("🐾 Tailcat (Linux/macOS) • Initializing mesh tunnel...\n")
-		fmt.Printf("Token: %s\n", token)
+		fmt.Println("Tailcat: initializing tunnel engine...")
 
-		if err := engine.InitAndConnect(0, token); err != nil {
+		if err := engine.Prepare(token); err != nil {
 			fmt.Printf("Failed to connect: %v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Println("✓ WireGuard + Magicsock tunnel active. Press Ctrl+C to terminate.")
+		fmt.Println("Tunnel engine reports active. Press Ctrl+C to terminate.")
 
 		// Handle graceful shutdown on SIGINT/SIGTERM
 		sigChan := make(chan os.Signal, 1)

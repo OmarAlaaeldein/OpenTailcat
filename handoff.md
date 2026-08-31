@@ -1,169 +1,165 @@
-# Tailcat VPN Client 🐾 — Engineering Handoff & Multiplatform Architecture Guide
+# Tailcat native-engine integration handoff
 
-> **Prepared for:** Nullexit / Tailcat Integration  
-> **Repository:** `/Users/omar/developer/tailcat vpn client`  
-> **Target Platforms:** Android 8.0+ (API 26–35+, 16KB pages) · Linux (x86_64 / ARM64) · macOS (Darwin / Apple Silicon & Intel)  
-> **Toolchain:** Kotlin 2.2.10 · AGP 9.3.0 · Gradle 9.5.0 · Compose BOM 2025.02.00 · Go 1.22+ · OpenJDK 21
+## Executive status
 
----
+The Android application layer is present, but the data plane is not. `core-engine/main.go` is deliberately fail-closed and `libtailcat.aar` is absent. Earlier builds established `0.0.0.0/0` and `::/0` routes without reading the TUN, then displayed generated telemetry. That behavior has been removed.
 
-## 1. Executive Summary & Philosophy
+The missing data plane is the product's essential function. Tailcat's intended primary flow—enter a `tc...` token, authenticate the named gateway, and carry device traffic through an encrypted WireGuard/Magicsock tunnel—does not work in the current source tree. The remaining native work is an implementation project, not an AAR packaging step: binding the existing Go scaffold without adding the components below would only produce a nonfunctional library.
 
-Tailcat is a **control-plane-free, decentralized WireGuard & Magicsock VPN client** built specifically as the multiplatform counterpart to **nullexit** gateway listeners.
+Do not distribute Tailcat as a working VPN until every item in the release gate at the end of this document passes on physical Android devices.
 
-### The Core Problem Solved
-Traditional WireGuard and Tailscale deployments rely on centralized coordination servers (Tailscale SaaS, Headscale) or static point-to-point IP configurations that break when moving across NATs, mobile cellular radios, and captive Wi-Fi networks.
+## Responsibility boundary
 
-### The Tailcat Solution
-Tailcat decouples the data plane from centralized control planes:
-1. **Permanent & Time-Limited Tokens (`tc...`):** Connection parameters (Server Public Key + DERP Region ID + optional Unix expiration timestamp) are encoded into compact, URL-safe Base64URL-CBOR strings.
-2. **Magicsock NAT Traversal:** Direct STUN UDP hole-punching for low-latency P2P connections, with automatic fallback to DERP relays on symmetric or enterprise NATs.
-3. **Double-Tunnel Invariants:** Pre-configured MTU (`1280`) and TCP MSS (`1120`) to prevent packet fragmentation and stall hazards when paired with nullexit's Cloudflare WARP double-tunneling or Tor egress.
-4. **Multiplatform Go Data-Plane:** Shared Go engine (`core-engine/`) compiled into `libtailcat.aar` for Android and a standalone CLI binary (`tailcat-cli`) for Linux and macOS.
-5. **Lean Resource Footprint:** Android APK shrunk to **1.1 MB** with R8 optimization, zero GC allocations during throughput streaming, and event-driven network monitoring.
+The Android app owns:
 
-```
-┌────────────────────────────────────────────────────────┐
-│                   Client Layer                         │
-│  ├── 📱 Android Compose App (1.1 MB APK)               │
-│  └── 💻 Linux & macOS CLI (tailcat-cli)                │
-└───────────────────────────┬────────────────────────────┘
-                            │ WireGuard over UDP/DERP (Token: tc...)
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│             Nullexit Gateway Listener                  │
-│  [Mac / Linux / VPS Daemon]                            │
-│  ├── WireGuard Decapsulation & Masquerade (NAT)        │
-│  ├── Upstream Double-Tunnel (Cloudflare WARP / Tor)    │
-│  ├── Optional Token Expiration ('exp' Unix timestamp)  │
-│  └── Direct WAN Egress                                 │
-└────────────────────────────────────────────────────────┘
-```
+- VPN consent and foreground-service lifecycle.
+- TUN construction, MTU, DNS route, and per-app exclusions.
+- Strict token validation and encrypted profile storage.
+- Fail-closed native-engine capability and startup checks.
+- Presentation of engine-reported telemetry.
 
----
+The native engine must own:
 
-## 2. What Has Been Built
+- WireGuard key generation, session state, encryption, and replay protection.
+- Magicsock discovery, endpoint updates, STUN, direct UDP, and DERP fallback.
+- Reading every packet from the Android TUN and writing decrypted packets back.
+- Protecting or otherwise bypassing transport sockets so they do not loop into the VPN.
+- Network-roaming recovery and a verifiable gateway handshake.
+- Real byte counters, RTT, jitter, transport type, and DERP region telemetry.
+- Clean cancellation and file-descriptor shutdown.
 
-### 2.1 Core Subsystems & Logic
+The paired gateway owns decapsulation, forwarding, DNS resolution, NAT, and any upstream WARP/Tor/direct-egress policy. Those upstream choices must not leak into the APK's protocol contract.
 
-```
-com.tailcat.vpn/
-├── core/
-│   ├── ip/
-│   │   └── IpAuditor.kt           # Background Egress IP & GeoIP auditor
-│   ├── model/
-│   │   ├── EgressInfo.kt          # Public IP, City, Country, ISP model
-│   │   ├── GatewayProfile.kt      # Saved token & DERP profile
-│   │   ├── NetworkMetrics.kt      # Live RTT, throughput, transport type
-│   │   └── TunnelState.kt         # DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING
-│   ├── speedtest/
-│   │   ├── SpeedTestEngine.kt     # Multi-probe Ping/Jitter & CDN throughput benchmark
-│   │   └── SpeedTestState.kt      # Benchmark stages & telemetry metrics
-│   ├── token/
-│   │   └── TokenParser.kt         # CBOR/Base64URL decoder with live syntax & expiry validation
-│   └── NetworkMonitor.kt          # Wi-Fi / Cellular network roaming & offline listener
-│
-├── service/
-│   ├── TailcatVpnService.kt       # Android VpnService, TUN FD lifecycle & DNS routing
-│   ├── VpnNotificationManager.kt  # Ongoing foreground notification with telemetry & Stop action
-│   └── TunnelController.kt        # Singleton orchestrator bridging UI to Go Mobile Engine
-│
-├── data/
-│   ├── PreferencesStore.kt        # EncryptedSharedPreferences (MTU, MSS, Kill-Switch)
-│   └── ProfileRepository.kt       # CRUD for saved gateway tokens
-│
-└── ui/
-    ├── MainActivity.kt            # Edge-to-Edge host with BackHandler navigation
-    ├── theme/                     # Cyberpunk Dark theme (Cyan, Emerald, Violet, Yellow)
-    └── screens/
-        ├── home/                  # Power ring, profile picker, live Egress IP, offline alarm banner
-        ├── speedtest/             # Animated Speedometer gauge & 4-metric benchmark grid
-        └── settings/              # Kill-Switch, Auto-DERP, MTU/MSS tuning, Split Tunneling, About & Legal
+## Android/native API contract
+
+Build the Go implementation with Go Mobile and place the result at `app/libs/libtailcat.aar`. The generated class must be resolvable as `engine.Engine` or `com.tailcat.vpn.engine.Engine`.
+
+### Capability handshake
+
+```text
+getCapabilitiesJSON() -> String
 ```
 
----
+Required successful response:
 
-## 3. Detailed Technical Architecture
-
-### 3.1 Connection Token Specification (`ConnBlob`)
-Tailcat connections use deterministic, Base64URL-encoded CBOR maps:
-
-$$\text{Token} = \texttt{"tc"} + \text{Base64URL}\Big(\text{CBOR}\big(\{\text{"p"}: \text{KeyBytes (32)}, \text{"r"}: \text{RegionID (int)}, \text{"exp"}?: \text{UnixEpoch (long)}, \text{"iat"}?: \text{UnixEpoch (long)}\}\big)\Big)$$
-
-* **Fields Supported:**
-  * `"p"` / `"pub"`: 32-byte WireGuard public key.
-  * `"r"` / `"region"`: Integer DERP region ID (e.g. `1` = NYC, `2` = SFO, `4` = Frankfurt, `7` = Tokyo).
-  * `"exp"` (Optional): Expiration UNIX epoch timestamp in seconds. If present and `now > exp`, token is flagged as expired.
-  * `"iat"` (Optional): Issuance timestamp.
-* **Live UI Validation (`TokenParser.validate()`):**
-  * Real-time preview chip inside the pairing dialog (e.g. `✓ NYC (Region 1) • Key: 7f8a...c39d • Exp: 2026-09-15`).
-  * Expired tokens automatically disable the "Save & Pair" button and display a clear error.
-
-### 3.2 Offline Detection & Failure Alarm Engine
-* **Device Offline Detection:** `NetworkMonitor.kt` tracks Android network capabilities (`NET_CAPABILITY_INTERNET`).
-* **UI Alarms:**
-  * Animated Cyberpunk red/amber alert banner at the top of the dashboard.
-  * Power ring prevents VPN start when offline and displays a direct Snackbar alert.
-  * Token pairing dialog displays an offline warning badge.
-
-### 3.3 WireGuard & Magicsock Tunneling (`TailcatVpnService.kt`)
-* **TUN Interface Construction:** Configures `tun0` via Android's `VpnService.Builder`.
-* **MTU Clamping (`1280`):** Enforces standard IPv6 minimum to guarantee zero packet fragmentation.
-* **DNS Interception:** Captures DNS queries (ports `53` and `853` DoT) and routes them into the tunnel.
-* **Go Mobile Bridge (`libtailcat.aar`):** Hands the file descriptor (`ParcelFileDescriptor`) over JNI to the Go data plane (`core-engine/`).
-
-### 3.4 Live Public Egress IP Auditor (`IpAuditor.kt`)
-* Verifies traffic exit through the nullexit gateway and displays WAN IP, city, and country on the home dashboard.
-* Resolves on connect, network roaming (Wi-Fi $\leftrightarrow$ Cellular), and manual user tap.
-
-### 3.5 Speed & Ping Benchmark Engine (`SpeedTestEngine.kt`)
-* **Ping & Jitter:** 5 sequential RTT probes measuring latency (`ms`) and jitter (`±ms`).
-* **Download & Upload:** Chunked streaming from Cloudflare edge nodes with 1-decimal precision (`String.format(Locale.US, "%.1f", speed)`).
-* **Speedometer Gauge:** Jetpack Compose Canvas dial with animated glowing arc and needle.
-
-### 3.6 Multiplatform CLI for Linux & macOS (`tailcat-cli`)
-* Located at `core-engine/cmd/tailcat-cli/main.go`.
-* Allows running the identical data-plane engine on Linux and macOS without a GUI:
-  ```bash
-  tailcat-cli up tcXYZ...      # Connects and negotiates tunnel
-  tailcat-cli status          # Emits live JSON telemetry
-  tailcat-cli down            # Clean disconnect
-  ```
-
----
-
-## 4. Binary Footprint & Optimization
-
-| Build Flavor | Target | Size | Optimizations |
-| :--- | :--- | :--- | :--- |
-| **Android Release APK** | Android 8.0–16 | **1.1 MB** | **R8 Minification, Dead-code stripping, Resource shrinking (`isShrinkResources = true`)** |
-| **Linux/macOS Binary** | Linux/macOS CLI | **~8–12 MB** | Static standalone executable with zero external runtime dependencies |
-
----
-
-## 5. Build, Verification & Test Commands
-
-```bash
-# 1. Run Android unit test suite (Token validation, Expiration, CBOR parsing)
-./gradlew testDebugUnitTest
-
-# 2. Run static analysis & lint checks
-./gradlew check
-
-# 3. Build optimized 1.1 MB Release APK
-./gradlew assembleRelease
-
-# 4. Build Linux / macOS CLI
-cd core-engine && go build -o tailcat-cli ./cmd/tailcat-cli
+```json
+{
+  "apiVersion": 1,
+  "dataPlane": true,
+  "wireGuard": true,
+  "magicsock": true,
+  "twoPhaseStart": true
+}
 ```
 
----
+The Android app checks this before requesting VPN consent or starting the foreground service. Missing, malformed, false, or incompatible capabilities keep Connect disabled.
 
-## 6. Recommended Next Steps for Nullexit Integration
+### Prepare transport
 
-1. **Host Daemon Pairing CLI:**
-   * Implement `nullexit token` (with optional `--expires-in 7d`) to export pairing tokens matching Tailcat's CBOR schema.
-2. **DNS TXT Rendezvous:**
-   * Support resolving `_tailcat.yourdomain.com` for human-readable hostname pairing.
-3. **Live Engine Rebuilds:**
-   * Build `libtailcat.aar` using `gomobile bind` in `core-engine/` when updating upstream Tailscale dependencies.
+```text
+prepare(token)
+```
+
+This call runs before Android creates a TUN route. It must validate the token again and return successfully only when:
+
+1. Transport sockets bypass the TUN.
+2. WireGuard state is initialized.
+3. The gateway identity matches the token public key.
+4. Direct or DERP transport is usable.
+
+Any error must be returned synchronously with a user-safe message. On prepare failure, Android never establishes the TUN.
+
+### Attach TUN
+
+```text
+attachTun(tunFd)
+```
+
+After preparation succeeds, Android installs the TUN routes and calls `attachTun`. This call must start read/write packet pumps immediately and return only when they are live. Any error closes the TUN immediately.
+
+### Telemetry
+
+```text
+getStatsJSON() -> String
+```
+
+```json
+{
+  "transport": "DIRECT_P2P",
+  "derpRegionId": null,
+  "derpRegionName": null,
+  "rttMs": 24,
+  "jitterMs": 4,
+  "txBytes": 1024,
+  "rxBytes": 2048,
+  "txRateKbps": 12,
+  "rxRateKbps": 48
+}
+```
+
+Never estimate or randomize these values. Three consecutive telemetry failures cause Android to tear down the tunnel.
+
+### Stop
+
+```text
+stop()
+```
+
+Stop packet pumps, close native sockets, release secrets, and return. The Android service then closes its `ParcelFileDescriptor`.
+
+## Token schema
+
+```text
+tc + Base64URL(CBOR map)
+```
+
+| Key | Required | Type | Rule |
+| --- | --- | --- | --- |
+| `p` | yes | bytes or hex text | exactly 32 bytes |
+| `r` | yes | integer | positive, within signed 32-bit range |
+| `exp` | no | integer | positive Unix seconds; token invalid at or after this time |
+| `iat` | no | integer | positive Unix seconds; cannot be later than `exp` |
+
+The Android parser accepts documented aliases but rejects duplicate aliases and multiple/trailing CBOR objects. The engine and gateway token generator must match these rules exactly. Add shared golden vectors before integration.
+
+## Networking notes
+
+- Current TUN addresses are `100.64.0.2/32` and `fd7a:115c:a1e0::2/128`.
+- Current default MTU is 1280 and the valid UI range is 1280–1500.
+- Android adds IPv4 and IPv6 default routes plus the profile DNS server.
+- The application UID is excluded from the TUN so native sockets do not loop. Consequently, the in-app public-IP card is explicitly labeled **Device IP** and is not egress verification.
+- If true in-tunnel egress auditing is required, move the audit into the native engine or expose a protected/bound HTTP path. Do not relabel the current lookup.
+- TCP MSS clamping is not implemented. It must happen in a real packet path and needs IPv4/IPv6 TCP checksum tests.
+
+## Android platform behavior
+
+The service declares the `systemExempted` foreground-service type used by active VPN apps on Android 14+. Always-on and “Block connections without VPN” are Android system settings; the app no longer presents a switch that pretends to configure them.
+
+Release APKs are unsigned by default. A production signing configuration must be supplied outside source control.
+
+## Required tests
+
+Add at minimum:
+
+- Shared gateway/client token golden vectors, including expiry and malformed inputs.
+- TUN packet round trips for IPv4, IPv6, TCP, UDP, ICMP, DNS, MTU edges, and malformed packets.
+- Gateway identity mismatch and expired-token rejection in the native engine.
+- Direct-to-DERP and DERP-to-direct transitions without traffic leaks.
+- Wi-Fi/cellular handoff, captive portal, airplane mode, process death, service revoke, and device sleep.
+- Socket-loop prevention and confirmation that all non-excluded app traffic enters the tunnel.
+- DNS and IPv6 leak tests.
+- Always-on/lockdown behavior on Android 8, 13, 15, and 16.
+- 16 KB page-size physical or official emulator validation for every bundled native ABI.
+
+## Production release gate
+
+- [ ] Working native AAR is included for every supported ABI.
+- [ ] Capability handshake advertises the implemented two-phase API.
+- [ ] No generated or placeholder telemetry exists.
+- [ ] A cryptographic gateway handshake precedes CONNECTED state.
+- [ ] Direct and DERP paths pass packet and roaming tests.
+- [ ] DNS, IPv6, MTU, and leak tests pass.
+- [ ] Privacy policy lists every external endpoint and relay operator actually used.
+- [ ] Third-party notices are generated from resolved Android and Go dependencies.
+- [ ] Release is signed with a protected production key, not the debug key.
+- [ ] `./gradlew testDebugUnitTest lintDebug assembleRelease` and `go test ./...` pass.

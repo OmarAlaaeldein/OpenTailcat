@@ -1,38 +1,29 @@
-# Third-Party Notices & Open Source Attributions
+# Third-party notices
 
-Tailcat Android incorporates open-source software packages under various permissive licenses:
+This file is an overview, not a substitute for the license files distributed with resolved dependencies. Generate and review a complete dependency/license report before every production release.
 
----
+## Android application dependencies
 
-### 1. WireGuard & Tailscale Magicsock (Go Engine)
-* **Components:** `tailscale/wireguard-go`, `tailscale/magicsock`, `golang.org/x/mobile`
-* **License:** BSD 3-Clause / MIT License
-* **Notice:** Copyright (c) 2015-2024 WireGuard LLC, Tailscale Inc. All rights reserved.
+- AndroidX Core, Activity, Lifecycle, Compose UI, Material, test libraries, and AndroidX Security Crypto — Apache License 2.0.
+- Kotlin and kotlinx.coroutines — Apache License 2.0.
+- `co.nstant.in:cbor` — Apache License 2.0.
+- JUnit 4 — Eclipse Public License 1.0.
 
----
+Exact versions are defined in `gradle/libs.versions.toml` and the resolved Gradle dependency graph.
 
-### 2. AndroidX & Jetpack Compose
-* **Components:** `androidx.compose.ui`, `androidx.compose.material3`, `androidx.lifecycle`, `androidx.navigation`
-* **License:** Apache License, Version 2.0
-* **Notice:** Copyright (c) The Android Open Source Project.
+## Go module declarations
 
----
+`core-engine/go.mod` currently declares:
 
-### 3. Kotlin & Kotlin Coroutines
-* **Components:** `org.jetbrains.kotlinx:kotlinx-coroutines-android`
-* **License:** Apache License, Version 2.0
-* **Notice:** Copyright (c) 2010-2024 JetBrains s.r.o.
+- `tailscale.com` — BSD 3-Clause components; review each linked package and its notices when a real engine is implemented.
+- `golang.org/x/mobile` — BSD 3-Clause.
 
----
+The current Go source is an integration scaffold and does not import or link a WireGuard/Magicsock data plane. Do not claim those components are present in an APK unless the resolved native artifact actually contains them.
 
-### 4. Jackson CBOR Dataformat
-* **Components:** `com.fasterxml.jackson.dataformat:jackson-dataformat-cbor`
-* **License:** Apache License, Version 2.0
-* **Notice:** Copyright (c) FasterXML, LLC.
+## External services
 
----
+Cloudflare and ipify are network services, not bundled libraries. Their use is disclosed in `PRIVACY_POLICY.md`.
 
-### 5. AndroidX Security Crypto
-* **Components:** `androidx.security:security-crypto`
-* **License:** Apache License, Version 2.0
-* **Notice:** Copyright (c) The Android Open Source Project.
+## Trademarks
+
+WireGuard, Tailscale, Android, Kotlin, Cloudflare, and other names belong to their respective owners. Their appearance describes compatibility or dependencies and does not imply endorsement.
