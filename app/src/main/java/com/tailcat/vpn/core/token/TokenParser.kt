@@ -20,7 +20,7 @@ data class ParsedToken(
     val issuedAtUnixSec: Long? = null
 ) {
     val isExpired: Boolean
-        get() = expiresAtUnixSec != null && (System.currentTimeMillis() / 1000L > expiresAtUnixSec)
+        get() = expiresAtUnixSec != null && (System.currentTimeMillis() / 1000L >= expiresAtUnixSec)
 
     val expirationFormatted: String?
         get() = expiresAtUnixSec?.let {
@@ -119,7 +119,7 @@ object TokenParser {
 
         return try {
             val dataItems = CborDecoder(ByteArrayInputStream(cborBytes)).decode()
-            if (dataItems.isEmpty() || dataItems[0] !is Map) {
+            if (dataItems.size != 1 || dataItems[0] !is Map) {
                 return Result.failure(IllegalArgumentException("Invalid CBOR payload: Expected map"))
             }
 
@@ -128,6 +128,10 @@ object TokenParser {
             var regionId: Int? = null
             var expSec: Long? = null
             var iatSec: Long? = null
+            var foundPublicKey = false
+            var foundRegion = false
+            var foundExpiration = false
+            var foundIssuedAt = false
 
             for (key in map.keys) {
                 val keyStr = when (key) {
@@ -139,43 +143,54 @@ object TokenParser {
                 val value = map.get(key)
                 when (keyStr.lowercase()) {
                     "p", "pub", "nodekey" -> {
+                        require(!foundPublicKey) { "Token contains duplicate public key fields" }
+                        foundPublicKey = true
                         pubKeyBytes = when (value) {
                             is ByteString -> value.bytes
                             is UnicodeString -> value.string.hexToByteArray()
-                            else -> null
+                            else -> throw IllegalArgumentException("Public key must be bytes or hexadecimal text")
                         }
                     }
                     "r", "region" -> {
+                        require(!foundRegion) { "Token contains duplicate region fields" }
+                        foundRegion = true
                         regionId = when (value) {
-                            is Number -> value.value.toInt()
-                            else -> null
+                            is Number -> value.value.toLong().also {
+                                require(it in 1..Int.MAX_VALUE.toLong()) { "DERP region must be a positive integer" }
+                            }.toInt()
+                            else -> throw IllegalArgumentException("DERP region must be an integer")
                         }
                     }
                     "exp", "expires", "expires_at" -> {
+                        require(!foundExpiration) { "Token contains duplicate expiration fields" }
+                        foundExpiration = true
                         expSec = when (value) {
-                            is Number -> value.value.toLong()
-                            else -> null
+                            is Number -> value.value.toLong().also {
+                                require(it in 1..MAX_UNIX_TIMESTAMP_SEC) { "Expiration timestamp is out of range" }
+                            }
+                            else -> throw IllegalArgumentException("Expiration timestamp must be an integer")
                         }
                     }
                     "iat", "issued", "issued_at" -> {
+                        require(!foundIssuedAt) { "Token contains duplicate issued-at fields" }
+                        foundIssuedAt = true
                         iatSec = when (value) {
-                            is Number -> value.value.toLong()
-                            else -> null
+                            is Number -> value.value.toLong().also {
+                                require(it in 1..MAX_UNIX_TIMESTAMP_SEC) { "Issued-at timestamp is out of range" }
+                            }
+                            else -> throw IllegalArgumentException("Issued-at timestamp must be an integer")
                         }
                     }
                 }
             }
 
-            if (pubKeyBytes == null || pubKeyBytes.isEmpty()) {
-                if (cborBytes.size >= 32) {
-                    pubKeyBytes = cborBytes.copyOfRange(0, 32)
-                } else {
-                    return Result.failure(IllegalArgumentException("Missing 32-byte public key in token payload"))
-                }
+            require(pubKeyBytes != null) { "Missing 32-byte public key in token payload" }
+            require(pubKeyBytes.size == PUBLIC_KEY_SIZE_BYTES) {
+                "Public key must be exactly $PUBLIC_KEY_SIZE_BYTES bytes (was ${pubKeyBytes.size})"
             }
-
-            if (pubKeyBytes.size < 16) {
-                return Result.failure(IllegalArgumentException("Public key length is too short (${pubKeyBytes.size} bytes)"))
+            require(regionId != null) { "Missing DERP region in token payload" }
+            require(expSec == null || iatSec == null || expSec >= iatSec) {
+                "Expiration timestamp cannot be earlier than issued-at timestamp"
             }
 
             val hexString = pubKeyBytes.joinToString("") { "%02x".format(it) }
@@ -196,24 +211,29 @@ object TokenParser {
     }
 
     private fun decodeBase64Url(input: String): ByteArray {
-        val clean = input.replace('-', '+').replace('_', '/')
-        val padded = when (clean.length % 4) {
-            2 -> "$clean=="
-            3 -> "$clean="
-            else -> clean
+        require(BASE64_URL_PATTERN.matches(input)) { "Payload contains non-Base64URL characters" }
+        val unpadded = input.trimEnd('=')
+        require(unpadded.length % 4 != 1) { "Invalid Base64URL payload length" }
+        val padded = when (unpadded.length % 4) {
+            2 -> "$unpadded=="
+            3 -> "$unpadded="
+            else -> unpadded
         }
-        return Base64.getDecoder().decode(padded)
+        return Base64.getUrlDecoder().decode(padded)
     }
 
     private fun String.hexToByteArray(): ByteArray {
         val clean = this.removePrefix("0x").trim()
-        val len = clean.length
-        val data = ByteArray(len / 2)
-        var i = 0
-        while (i < len) {
-            data[i / 2] = ((Character.digit(clean[i], 16) shl 4) + Character.digit(clean[i + 1], 16)).toByte()
-            i += 2
+        require(clean.length == PUBLIC_KEY_SIZE_BYTES * 2) {
+            "Hex public key must contain ${PUBLIC_KEY_SIZE_BYTES * 2} characters"
         }
-        return data
+        require(clean.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
+            "Hex public key contains invalid characters"
+        }
+        return clean.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
     }
+
+    private const val PUBLIC_KEY_SIZE_BYTES = 32
+    private const val MAX_UNIX_TIMESTAMP_SEC = 253_402_300_799L
+    private val BASE64_URL_PATTERN = Regex("^[A-Za-z0-9_-]+={0,2}$")
 }

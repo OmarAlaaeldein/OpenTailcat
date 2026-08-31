@@ -24,4 +24,4 @@ val RedDegraded = Color(0xFFFF5252)
 
 val TextPrimary = Color(0xFFF0F6FC)
 val TextSecondary = Color(0xFF8B949E)
-val TextMuted = Color(0xFF484F58)
+val TextMuted = Color(0xFF6E7681)

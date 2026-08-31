@@ -1,7 +1,6 @@
 <resources>
     <string name="app_name">Tailcat</string>
-    <string name="vpn_service_desc">Tailcat Control-Plane-Free WireGuard &amp; Magicsock Mesh Gateway</string>
-    <string name="vpn_channel_id">tailcat_vpn_channel</string>
+    <string name="vpn_service_desc">Tailcat encrypted gateway tunnel</string>
     <string name="vpn_channel_name">Tailcat VPN Status</string>
     <string name="vpn_channel_desc">Active connection telemetry and tunnel status</string>
 </resources>

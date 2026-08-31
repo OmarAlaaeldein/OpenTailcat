@@ -1,13 +1,16 @@
 package com.tailcat.vpn.ui.screens.settings
 
-import android.content.pm.ApplicationInfo
-import android.content.pm.PackageManager
+import android.content.Intent
+import android.content.pm.LauncherApps
+import android.os.Process
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,25 +21,26 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material.icons.filled.SettingsEthernet
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -52,68 +56,58 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tailcat.vpn.BuildConfig
 import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.ui.theme.AccentCyan
 import com.tailcat.vpn.ui.theme.BgDark
 import com.tailcat.vpn.ui.theme.BorderSubtle
+import com.tailcat.vpn.ui.theme.EmeraldConnected
+import com.tailcat.vpn.ui.theme.RedDegraded
 import com.tailcat.vpn.ui.theme.SurfaceDark
-import com.tailcat.vpn.ui.theme.SurfaceElevated
 import com.tailcat.vpn.ui.theme.TextMuted
 import com.tailcat.vpn.ui.theme.TextPrimary
 import com.tailcat.vpn.ui.theme.TextSecondary
 
-data class AppInfoItem(
-    val packageName: String,
-    val appName: String,
-    val isExcluded: Boolean
-)
+data class AppInfoItem(val packageName: String, val appName: String)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(
-    onNavigateBack: () -> Unit = {}
-) {
+fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
     val context = LocalContext.current
-    val store = remember { TailcatApplication.instance.preferencesStore }
+    val app = remember { TailcatApplication.instance }
+    val store = app.preferencesStore
+    val engineAvailability = app.tunnelEngine.availability
 
     var selectedTab by remember { mutableIntStateOf(0) }
-
-    var killSwitch by remember { mutableStateOf(store.isKillSwitchEnabled) }
-    var autoDerp by remember { mutableStateOf(store.isAutoDerpOnEnterpriseWifi) }
     var mtuText by remember { mutableStateOf(store.defaultMtu.toString()) }
-    var mssText by remember { mutableStateOf(store.defaultTcpMss.toString()) }
-
     var excludedApps by remember { mutableStateOf(store.splitTunnelExcludedApps) }
 
     val installedApps = remember {
-        val pm = context.packageManager
-        val mainIntent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
-            addCategory(android.content.Intent.CATEGORY_LAUNCHER)
-        }
-        val launcherApps = pm.queryIntentActivities(mainIntent, 0).map { resolveInfo ->
-            AppInfoItem(
-                packageName = resolveInfo.activityInfo.packageName,
-                appName = resolveInfo.loadLabel(pm).toString(),
-                isExcluded = excludedApps.contains(resolveInfo.activityInfo.packageName)
-            )
-        }.distinctBy { it.packageName }.sortedBy { it.appName }
-        launcherApps
+        val launcherApps = context.getSystemService(LauncherApps::class.java)
+        launcherApps.getActivityList(null, Process.myUserHandle())
+            .map { activity ->
+                AppInfoItem(
+                    packageName = activity.applicationInfo.packageName,
+                    appName = activity.label.toString()
+                )
+            }
+            .filterNot { it.packageName == context.packageName }
+            .distinctBy { it.packageName }
+            .sortedBy { it.appName.lowercase() }
     }
 
     Scaffold(
         containerColor = BgDark,
         topBar = {
             TopAppBar(
-                title = { Text("Settings & Split Tunneling", color = TextPrimary) },
+                title = { Text("Settings", color = TextPrimary) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = TextPrimary
-                        )
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = TextPrimary)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = BgDark)
@@ -133,139 +127,104 @@ fun SettingsScreen(
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("Network & Security") }
+                    text = { Text("Connection") }
                 )
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    text = { Text("Split Tunneling (${excludedApps.size})") }
+                    text = { Text("Apps (${excludedApps.size})") }
                 )
             }
 
             if (selectedTab == 0) {
-                // Network Settings Tab
                 Column(
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                     modifier = Modifier
                         .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
                         .padding(20.dp)
                 ) {
-                    // Kill-Switch Card
-                    SettingToggleCard(
-                        title = "Kill-Switch (Always-On Mode)",
-                        subtitle = "Blocks all unencrypted traffic if tunnel disconnects",
-                        icon = Icons.Default.Security,
-                        checked = killSwitch,
-                        onCheckedChange = {
-                            killSwitch = it
-                            store.isKillSwitchEnabled = it
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Auto-DERP Card
-                    SettingToggleCard(
-                        title = "Auto-DERP on Enterprise Wi-Fi",
-                        subtitle = "Forces DERP on 802.1x/isolated APs to prevent packet blackholing",
-                        icon = Icons.Default.Tune,
-                        checked = autoDerp,
-                        onCheckedChange = {
-                            autoDerp = it
-                            store.isAutoDerpOnEnterpriseWifi = it
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Invariants (MTU / MSS)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(SurfaceDark)
-                            .border(1.dp, BorderSubtle, RoundedCornerShape(16.dp))
-                            .padding(16.dp)
+                    SettingsCard(
+                        icon = Icons.Default.SettingsEthernet,
+                        title = "Native tunnel engine"
                     ) {
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Dns,
-                                    contentDescription = "MTU",
-                                    tint = AccentCyan,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = "Tunnel Invariants (Double-Tunnel Safety)",
-                                    style = MaterialTheme.typography.titleMedium.copy(color = TextPrimary)
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                OutlinedTextField(
-                                    value = mtuText,
-                                    onValueChange = {
-                                        mtuText = it
-                                        it.toIntOrNull()?.let { v -> store.defaultMtu = v }
-                                    },
-                                    label = { Text("TUN MTU (1280)") },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                OutlinedTextField(
-                                    value = mssText,
-                                    onValueChange = {
-                                        mssText = it
-                                        it.toIntOrNull()?.let { v -> store.defaultTcpMss = v }
-                                    },
-                                    label = { Text("TCP MSS (1120)") },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
+                        val color = if (engineAvailability.isAvailable) EmeraldConnected else RedDegraded
+                        Text(
+                            text = engineAvailability.message,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = color,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                        if (!engineAvailability.isAvailable) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Connections stay disabled until a compatible libtailcat AAR advertises a working WireGuard and Magicsock data plane.",
+                                style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
+                            )
                         }
                     }
 
-                    // Card 4: About & Legal
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(SurfaceDark)
-                            .border(1.dp, BorderSubtle, RoundedCornerShape(16.dp))
-                            .padding(16.dp)
-                    ) {
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Info,
-                                    contentDescription = "About",
-                                    tint = AccentCyan,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = "About & Legal",
-                                    style = MaterialTheme.typography.titleMedium.copy(color = TextPrimary)
-                                )
+                    SettingsCard(icon = Icons.Default.Security, title = "Always-on & kill switch") {
+                        Text(
+                            "Android owns these protections. Select Tailcat as the Always-on VPN, then enable ‘Block connections without VPN’ in system settings.",
+                            style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary)
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = {
+                                runCatching { context.startActivity(Intent(Settings.ACTION_VPN_SETTINGS)) }
                             }
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Text(
-                                text = "Tailcat VPN for Android • v1.0.0",
-                                style = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Licensed under Apache License 2.0. Strict Zero-Log architecture with decentralized on-device WireGuard + Magicsock processing.",
-                                style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary, lineHeight = 18.sp)
-                            )
+                        ) {
+                            Text("Open Android VPN settings")
                         }
+                    }
+
+                    SettingsCard(icon = Icons.Default.Dns, title = "Defaults for new profiles") {
+                        Text(
+                            "MTU 1280 is the safe default for mobile and nested tunnels.",
+                            style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = mtuText,
+                            onValueChange = { input ->
+                                if (input.length <= 4 && input.all(Char::isDigit)) {
+                                    mtuText = input
+                                    input.toIntOrNull()?.takeIf { it in 1280..1500 }?.let {
+                                        store.defaultMtu = it
+                                    }
+                                }
+                            },
+                            label = { Text("TUN MTU (1280–1500)") },
+                            supportingText = {
+                                if (mtuText.toIntOrNull() !in 1280..1500) {
+                                    Text("Enter a value from 1280 to 1500")
+                                }
+                            },
+                            isError = mtuText.toIntOrNull() !in 1280..1500,
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    SettingsCard(icon = Icons.Default.Info, title = "About & legal") {
+                        Text(
+                            "Tailcat for Android • v${BuildConfig.VERSION_NAME}",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = TextPrimary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Apache License 2.0. Gateway tokens and settings are encrypted on this device. This build never reports a tunnel as connected without a verified native engine.",
+                            style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
+                        )
                     }
                 }
             } else {
-                // Split Tunneling App List Tab
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
@@ -273,15 +232,14 @@ fun SettingsScreen(
                 ) {
                     item {
                         Text(
-                            text = "Checked apps will bypass the VPN tunnel and connect directly via your local network.",
+                            "Checked apps bypass the VPN. Changes apply the next time the tunnel starts.",
                             style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary),
                             modifier = Modifier.padding(bottom = 12.dp, top = 6.dp)
                         )
                     }
 
-                    items(installedApps) { app ->
-                        val isExcluded = excludedApps.contains(app.packageName)
-
+                    items(installedApps, key = { it.packageName }) { item ->
+                        val isExcluded = item.packageName in excludedApps
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -292,52 +250,33 @@ fun SettingsScreen(
                                 .background(SurfaceDark)
                                 .border(1.dp, BorderSubtle, RoundedCornerShape(12.dp))
                                 .clickable {
-                                    val updated = if (isExcluded) {
-                                        excludedApps - app.packageName
+                                    excludedApps = if (isExcluded) {
+                                        excludedApps - item.packageName
                                     } else {
-                                        excludedApps + app.packageName
+                                        excludedApps + item.packageName
                                     }
-                                    excludedApps = updated
-                                    store.splitTunnelExcludedApps = updated
+                                    store.splitTunnelExcludedApps = excludedApps
                                 }
                                 .padding(horizontal = 14.dp, vertical = 12.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Apps,
-                                    contentDescription = "App",
-                                    tint = AccentCyan,
-                                    modifier = Modifier.size(22.dp)
+                            Icon(Icons.Default.Apps, null, tint = AccentCyan, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(item.appName, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    item.packageName,
+                                    style = MaterialTheme.typography.labelMedium.copy(color = TextMuted)
                                 )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = app.appName,
-                                        style = MaterialTheme.typography.bodyLarge.copy(
-                                            color = TextPrimary,
-                                            fontSize = 15.sp
-                                        )
-                                    )
-                                    Text(
-                                        text = app.packageName,
-                                        style = MaterialTheme.typography.labelMedium.copy(color = TextMuted)
-                                    )
-                                }
                             }
-
                             Checkbox(
                                 checked = isExcluded,
                                 onCheckedChange = { checked ->
-                                    val updated = if (checked) {
-                                        excludedApps + app.packageName
+                                    excludedApps = if (checked) {
+                                        excludedApps + item.packageName
                                     } else {
-                                        excludedApps - app.packageName
+                                        excludedApps - item.packageName
                                     }
-                                    excludedApps = updated
-                                    store.splitTunnelExcludedApps = updated
+                                    store.splitTunnelExcludedApps = excludedApps
                                 },
                                 colors = CheckboxDefaults.colors(
                                     checkedColor = AccentCyan,
@@ -353,12 +292,10 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SettingToggleCard(
-    title: String,
-    subtitle: String,
+private fun SettingsCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -368,47 +305,14 @@ private fun SettingToggleCard(
             .border(1.dp, BorderSubtle, RoundedCornerShape(16.dp))
             .padding(16.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = AccentCyan,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleMedium.copy(color = TextPrimary)
-                    )
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            color = TextSecondary,
-                            fontSize = 12.sp
-                        )
-                    )
-                }
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, null, tint = AccentCyan, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(title, style = MaterialTheme.typography.titleMedium.copy(color = TextPrimary))
             }
-
-            Switch(
-                checked = checked,
-                onCheckedChange = onCheckedChange,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = BgDark,
-                    checkedTrackColor = AccentCyan,
-                    uncheckedThumbColor = TextMuted,
-                    uncheckedTrackColor = SurfaceElevated
-                )
-            )
+            Spacer(Modifier.height(10.dp))
+            content()
         }
     }
 }

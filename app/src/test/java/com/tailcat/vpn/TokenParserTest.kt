@@ -148,6 +148,38 @@ class TokenParserTest {
 
         val result = TokenParser.parse(token)
         assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull()?.message?.contains("too short") == true)
+        assertTrue(result.exceptionOrNull()?.message?.contains("exactly 32 bytes") == true)
+    }
+
+    @Test
+    fun testOversizedKeyRejected() {
+        val token = generateTestToken(ByteArray(33) { 1 }, 1)
+        val result = TokenParser.parse(token)
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("exactly 32 bytes") == true)
+    }
+
+    @Test
+    fun testExpirationCannotPredateIssuedAt() {
+        val issuedAt = (System.currentTimeMillis() / 1000L) + 3_600L
+        val token = generateTestToken(
+            pubKeyBytes = ByteArray(32) { 2 },
+            derpRegionId = 1,
+            expiresAtUnixSec = issuedAt - 1,
+            issuedAtUnixSec = issuedAt
+        )
+
+        val result = TokenParser.parse(token)
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("earlier than issued-at") == true)
+    }
+
+    @Test
+    fun testRawBytesCannotMasqueradeAsCborMap() {
+        val raw = ByteArray(32) { 0x42 }
+        val token = "tc" + Base64.getUrlEncoder().withoutPadding().encodeToString(raw)
+
+        assertTrue(TokenParser.parse(token).isFailure)
     }
 }

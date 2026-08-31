@@ -2,6 +2,7 @@ package com.tailcat.vpn.data
 
 import com.tailcat.vpn.core.model.GatewayProfile
 import com.tailcat.vpn.core.token.TokenParser
+import com.tailcat.vpn.core.token.TokenValidationState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,7 +46,8 @@ class ProfileRepository(private val preferencesStore: PreferencesStore) {
                     )
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                // Corrupt local data must not produce a partially trusted profile list.
+                list.clear()
             }
         }
 
@@ -77,12 +79,18 @@ class ProfileRepository(private val preferencesStore: PreferencesStore) {
     }
 
     fun addOrUpdateFromToken(name: String, rawToken: String, customDns: String = "100.100.21.8"): Result<GatewayProfile> {
-        val parsed = TokenParser.parse(rawToken)
-        if (parsed.isFailure) {
-            return Result.failure(parsed.exceptionOrNull() ?: IllegalArgumentException("Invalid token"))
+        val validation = TokenParser.validate(rawToken)
+        if (validation !is TokenValidationState.Valid) {
+            val message = when (validation) {
+                is TokenValidationState.Expired -> "This gateway token expired on ${validation.expiredDate}"
+                is TokenValidationState.Invalid -> validation.reason
+                TokenValidationState.Empty -> "Connection token cannot be empty"
+                is TokenValidationState.Valid -> error("unreachable")
+            }
+            return Result.failure(IllegalArgumentException(message))
         }
 
-        val tokenData = parsed.getOrThrow()
+        val tokenData = validation.parsed
         val existing = _profiles.value.find { it.serverPublicKey == tokenData.serverPublicKeyHex }
 
         val profile = GatewayProfile(
@@ -94,21 +102,22 @@ class ProfileRepository(private val preferencesStore: PreferencesStore) {
             customDns = customDns,
             mtu = preferencesStore.defaultMtu,
             tcpMss = preferencesStore.defaultTcpMss,
-            isDefault = _profiles.value.isEmpty()
+            isDefault = existing?.isDefault ?: _profiles.value.isEmpty(),
+            createdAt = existing?.createdAt ?: System.currentTimeMillis()
         )
 
         val updatedList = _profiles.value.filter { it.id != profile.id } + profile
         _profiles.value = updatedList
         saveProfiles()
 
-        if (_activeProfile.value == null || profile.isDefault) {
-            setActiveProfile(profile)
-        }
+        // Always activate the newly paired or updated profile immediately
+        setActiveProfile(profile)
 
         return Result.success(profile)
     }
 
     fun setActiveProfile(profile: GatewayProfile) {
+        require(_profiles.value.any { it.id == profile.id }) { "Profile is not saved" }
         _activeProfile.value = profile
         preferencesStore.activeProfileId = profile.id
     }

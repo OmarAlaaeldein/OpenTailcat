@@ -1,40 +1,33 @@
 # Security Policy
 
-## 1. Supported Versions
+## Release status
 
-Security updates and patches are applied to the latest release on the `main` branch.
+Tailcat 1.0.0 in this repository is a pre-production Android client scaffold. It is not a supported VPN release because the WireGuard/Magicsock data plane is absent. No version should be represented as providing encrypted tunneling until the integration and release gates in [handoff.md](handoff.md) pass.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.0.x   | :white_check_mark: |
-| < 1.0   | :x:                |
+## Current controls
 
----
+- Connection tokens require a single CBOR map, an exact 32-byte public key, a positive DERP region, consistent timestamps, and valid Base64URL encoding.
+- Expired tokens cannot be saved or used to start a tunnel.
+- Profiles and tokens are stored in encrypted preferences backed by Android Keystore; legacy plaintext preferences are migrated and removed.
+- Android backups and device-to-device transfer are disabled for app data.
+- Cleartext HTTP is disabled.
+- The VPN service requires Android's `BIND_VPN_SERVICE` permission.
+- The app checks an explicit native capability contract before requesting VPN consent.
+- A TUN is marked connected only after native startup succeeds. Startup errors close it immediately; repeated telemetry errors stop it.
+- Speed tests report network failures rather than generated measurements.
+- Production release builds are not signed with the debug key.
 
-## 2. Cryptographic & Architecture Standards
+## Not yet provided
 
-Tailcat enforces the following security and cryptographic standards:
+- WireGuard cryptography, packet pumping, Magicsock, STUN, or DERP.
+- A gateway identity handshake.
+- DNS or IPv6 leak protection verified against a working engine.
+- TCP MSS clamping.
+- App-controlled kill-switch behavior. Lockdown is configured through Android's Always-on VPN settings.
+- Native-engine security tests, fuzzing, or independent review.
 
-* **Cryptographic Primitives:** Standard WireGuard protocol using ChaCha20-Poly1305 for authenticated encryption, Curve25519 (X25519) for ECDH key exchange, and BLAKE2s for hashing.
-* **Token Encoding:** Base64URL-encoded CBOR structs with strict 32-byte public key validation.
-* **Keystore Protection:** Persistent secrets (tokens and private keys) are encrypted using Android `EncryptedSharedPreferences` with AES-256 GCM backed by the hardware Android Keystore.
-* **DNS Leak Prevention:** All DNS queries on ports `53` and `853` (DoT) are intercepted and forced into the encrypted tunnel interface (`tun0`).
-* **Kill-Switch:** When enabled, non-VPN network routes are blocked in the event of an unexpected tunnel drop.
+## Reporting a vulnerability
 
----
+Do not publish secrets, working exploits, gateway tokens, or personal traffic in a public issue. Use the repository owner's private security-reporting channel if one is configured. If no private channel is available, open a minimal non-sensitive issue asking the maintainer to establish private contact; do not include exploit details in that issue.
 
-## 3. Reporting a Vulnerability
-
-We take the security and privacy of Tailcat users very seriously. If you discover a security vulnerability or cryptographic flaw:
-
-1. **Do NOT disclose the issue publicly** in an open GitHub issue or public forum.
-2. Please submit a detailed report describing the vulnerability, proof of concept (if applicable), and affected versions.
-3. You will receive an acknowledgment within 48 hours and regular updates on the patch progress.
-
----
-
-## 4. Responsible Disclosure
-
-We kindly ask reporters to adhere to responsible disclosure principles:
-* Allow reasonable time for investigation and patch deployment before making any public disclosure.
-* Avoid accessing or modifying data that does not belong to you during testing.
+A useful report includes the affected commit/version, Android version and device, reproduction conditions, expected and observed behavior, and the least-sensitive proof of concept possible. No response-time guarantee is currently offered for this pre-production project.

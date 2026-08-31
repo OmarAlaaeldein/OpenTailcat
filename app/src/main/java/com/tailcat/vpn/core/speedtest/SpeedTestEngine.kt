@@ -1,7 +1,7 @@
 package com.tailcat.vpn.core.speedtest
 
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,15 +13,12 @@ import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.round
 
 class SpeedTestEngine {
 
     private val _testState = MutableStateFlow(SpeedTestResult())
     val testState: StateFlow<SpeedTestResult> = _testState.asStateFlow()
-
-    private var activeTestJob: Job? = null
 
     suspend fun runSpeedTest() = withContext(Dispatchers.IO) {
         _testState.value = SpeedTestResult(stage = SpeedTestStage.MEASURING_PING, progress = 0.05f)
@@ -36,18 +33,19 @@ class SpeedTestEngine {
                     pingSamples.add(ping)
                 }
                 _testState.value = _testState.value.copy(
-                    pingMs = if (pingSamples.isNotEmpty()) pingSamples.average().toLong() else 24L,
+                    pingMs = if (pingSamples.isNotEmpty()) pingSamples.average().toLong() else 0L,
                     progress = 0.05f + (i * 0.03f)
                 )
                 delay(150)
             }
 
-            val finalPing = if (pingSamples.isNotEmpty()) pingSamples.average().toLong() else 28L
+            check(pingSamples.isNotEmpty()) { "The latency endpoint did not respond" }
+            val finalPing = pingSamples.average().toLong()
             val jitter = if (pingSamples.size > 1) {
                 val diffs = pingSamples.zipWithNext { a, b -> abs(a - b) }
                 diffs.average().toLong()
             } else {
-                3L
+                0L
             }
 
             _testState.value = _testState.value.copy(
@@ -91,6 +89,8 @@ class SpeedTestEngine {
                 progress = 1.0f
             )
 
+        } catch (error: CancellationException) {
+            throw error
         } catch (e: Exception) {
             _testState.value = _testState.value.copy(
                 stage = SpeedTestStage.FAILED,
@@ -101,7 +101,7 @@ class SpeedTestEngine {
 
     private fun measureSinglePing(): Long {
         return try {
-            val startTime = System.currentTimeMillis()
+            val startTime = System.nanoTime()
             val url = URL("https://1.1.1.1/cdn-cgi/trace")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 connectTimeout = 2500
@@ -109,11 +109,18 @@ class SpeedTestEngine {
                 requestMethod = "GET"
                 useCaches = false
             }
-            conn.inputStream.use { it.readBytes() }
-            val endTime = System.currentTimeMillis()
-            max(1L, endTime - startTime)
-        } catch (e: Exception) {
-            (20..45).random().toLong()
+            try {
+                check(conn.responseCode in 200..299) { "Latency endpoint returned HTTP ${conn.responseCode}" }
+                conn.inputStream.use { stream ->
+                    val buffer = ByteArray(1024)
+                    while (stream.read(buffer) != -1) Unit
+                }
+                ((System.nanoTime() - startTime) / 1_000_000L).coerceAtLeast(1L)
+            } finally {
+                conn.disconnect()
+            }
+        } catch (error: Exception) {
+            -1L
         }
     }
 
@@ -133,6 +140,7 @@ class SpeedTestEngine {
             }
 
             val buffer = ByteArray(32768)
+            check(conn.responseCode in 200..299) { "Download endpoint returned HTTP ${conn.responseCode}" }
             val stream: InputStream = conn.inputStream
 
             while (System.currentTimeMillis() - startTime < testDurationMs) {
@@ -150,13 +158,15 @@ class SpeedTestEngine {
                 }
             }
             stream.close()
+            conn.disconnect()
+        } catch (error: CancellationException) {
+            throw error
         } catch (e: Exception) {
-            if (lastReportedSpeed == 0.0) {
-                lastReportedSpeed = round((45..120).random().toDouble() * 10.0) / 10.0
-            }
+            throw IllegalStateException("Download test failed: ${e.message ?: "network error"}", e)
         }
 
-        return round(max(0.5, lastReportedSpeed) * 10.0) / 10.0
+        check(lastReportedSpeed > 0.0) { "Download test returned no data" }
+        return round(lastReportedSpeed * 10.0) / 10.0
     }
 
     private suspend fun measureUploadSpeed(onProgress: (Double, Float) -> Unit): Double {
@@ -194,13 +204,17 @@ class SpeedTestEngine {
             }
             stream.flush()
             stream.close()
+            check(conn.responseCode in 200..299) { "Upload endpoint returned HTTP ${conn.responseCode}" }
+            conn.inputStream?.close()
+            conn.disconnect()
+        } catch (error: CancellationException) {
+            throw error
         } catch (e: Exception) {
-            if (lastReportedSpeed == 0.0) {
-                lastReportedSpeed = round((20..55).random().toDouble() * 10.0) / 10.0
-            }
+            throw IllegalStateException("Upload test failed: ${e.message ?: "network error"}", e)
         }
 
-        return round(max(0.5, lastReportedSpeed) * 10.0) / 10.0
+        check(lastReportedSpeed > 0.0) { "Upload test returned no data" }
+        return round(lastReportedSpeed * 10.0) / 10.0
     }
 
     fun reset() {

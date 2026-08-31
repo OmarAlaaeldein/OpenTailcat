@@ -3,6 +3,8 @@
 # 1. Keep Tailcat domain models & JNI interfaces
 -keep class com.tailcat.vpn.core.model.** { *; }
 -keep class com.tailcat.vpn.service.TailcatVpnService { *; }
+-keep class engine.Engine { *; }
+-keep class com.tailcat.vpn.engine.Engine { *; }
 -keepclasseswithmembernames class * {
     native <methods>;
 }
@@ -27,3 +29,12 @@
 # 5. Suppress harmless warnings
 -dontwarn java.lang.invoke.**
 -dontwarn sun.misc.Unsafe
+
+# Tink references these compile-time-only nullness/error-prone annotations. They do not
+# participate in encrypted preference behavior at runtime.
+-dontwarn com.google.errorprone.annotations.CanIgnoreReturnValue
+-dontwarn com.google.errorprone.annotations.CheckReturnValue
+-dontwarn com.google.errorprone.annotations.Immutable
+-dontwarn com.google.errorprone.annotations.RestrictedApi
+-dontwarn javax.annotation.Nullable
+-dontwarn javax.annotation.concurrent.GuardedBy

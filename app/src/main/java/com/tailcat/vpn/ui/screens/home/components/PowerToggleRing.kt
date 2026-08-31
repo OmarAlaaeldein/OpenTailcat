@@ -25,6 +25,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.tailcat.vpn.core.model.TransportType
 import com.tailcat.vpn.core.model.TunnelState
@@ -85,7 +90,19 @@ fun PowerToggleRing(
 
     Box(
         contentAlignment = Alignment.Center,
-        modifier = modifier.size(240.dp)
+        modifier = modifier
+            .size(240.dp)
+            .clip(CircleShape)
+            .semantics {
+                role = Role.Button
+                contentDescription = if (isConnected || isConnecting) "Disconnect VPN" else "Connect VPN"
+                stateDescription = state.name.lowercase().replace('_', ' ')
+            }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            )
     ) {
         // Outer Glow Layer
         Box(
@@ -113,15 +130,10 @@ fun PowerToggleRing(
                 .clip(CircleShape)
                 .background(SurfaceElevated)
                 .border(width = 1.dp, color = BorderSubtle, shape = CircleShape)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onClick
-                )
         ) {
             Icon(
                 imageVector = Icons.Default.PowerSettingsNew,
-                contentDescription = "VPN Power Toggle",
+                contentDescription = null,
                 tint = if (isConnected || isConnecting) activeColor else TextMuted,
                 modifier = Modifier.size(64.dp)
             )

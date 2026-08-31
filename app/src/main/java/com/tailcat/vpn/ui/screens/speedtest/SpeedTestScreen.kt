@@ -183,6 +183,16 @@ fun SpeedTestScreen(
 
             Spacer(modifier = Modifier.weight(1f))
 
+            if (testState.stage == SpeedTestStage.FAILED) {
+                Text(
+                    text = testState.errorMessage ?: "The benchmark could not complete",
+                    style = MaterialTheme.typography.bodyMedium.copy(color = RedDegraded),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                )
+            }
+
             // Start / Retest Action Button
             Button(
                 onClick = { viewModel.startSpeedTest() },

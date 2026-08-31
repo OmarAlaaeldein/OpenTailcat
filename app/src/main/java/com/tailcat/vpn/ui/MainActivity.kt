@@ -6,9 +6,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.tailcat.vpn.ui.screens.home.HomeScreen
 import com.tailcat.vpn.ui.screens.settings.SettingsScreen
 import com.tailcat.vpn.ui.screens.speedtest.SpeedTestScreen
@@ -18,9 +17,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
         setContent {
             TailcatTheme {
-                var currentScreen by remember { mutableStateOf("home") }
+                var currentScreen by rememberSaveable { androidx.compose.runtime.mutableStateOf("home") }
 
                 BackHandler(enabled = currentScreen != "home") {
                     currentScreen = "home"

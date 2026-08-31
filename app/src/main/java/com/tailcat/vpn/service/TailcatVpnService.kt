@@ -9,48 +9,65 @@ import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.core.model.GatewayProfile
 import com.tailcat.vpn.core.model.TunnelState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class TailcatVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
-    private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var startJob: Job? = null
     private var metricsCollectorJob: Job? = null
+    @Volatile private var shuttingDown = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val action = intent?.action
-
-        if (action == ACTION_STOP_VPN) {
-            stopVpn()
+        if (intent?.action == ACTION_STOP_VPN) {
+            shutdown()
             return START_NOT_STICKY
         }
 
         val app = TailcatApplication.instance
-        val activeProfile = app.profileRepository.activeProfile.value
-
-        if (activeProfile == null) {
-            stopVpn()
+        val profile = app.profileRepository.activeProfile.value
+        val validationError = app.tunnelController.validateStartRequest()
+        if (profile == null || validationError != null) {
+            app.tunnelController.onVpnStartFailed(
+                validationError ?: "No gateway profile is selected"
+            )
+            stopSelf()
             return START_NOT_STICKY
         }
 
-        startVpn(activeProfile)
-        return START_STICKY
-    }
+        if (startJob?.isActive == true || vpnInterface != null) return START_NOT_STICKY
 
-    private fun startVpn(profile: GatewayProfile) {
-        try {
-            val app = TailcatApplication.instance
-            app.tunnelController.setTunnelState(TunnelState.CONNECTING)
-
-            val initialNotification = app.notificationManager.buildNotification(
+        shuttingDown = false
+        app.tunnelController.setTunnelState(TunnelState.CONNECTING)
+        startForeground(
+            VpnNotificationManager.NOTIFICATION_ID,
+            app.notificationManager.buildNotification(
                 state = TunnelState.CONNECTING,
                 profileName = profile.name,
                 metrics = app.tunnelController.networkMetrics.value
             )
-            startForeground(VpnNotificationManager.NOTIFICATION_ID, initialNotification)
+        )
+
+        startJob = serviceScope.launch { establishAndStartEngine(profile) }
+        return START_NOT_STICKY
+    }
+
+    private suspend fun establishAndStartEngine(profile: GatewayProfile) {
+        val app = TailcatApplication.instance
+        try {
+            // Complete the cryptographic gateway and transport handshake before installing any
+            // full-device route. A failed or cancelled prepare phase cannot affect device traffic.
+            app.tunnelEngine.prepare(profile.token)
+            currentCoroutineContext().ensureActive()
 
             val builder = Builder()
                 .setSession("Tailcat - ${profile.name}")
@@ -60,87 +77,81 @@ class TailcatVpnService : VpnService() {
                 .addDnsServer(profile.customDns)
                 .setBlocking(false)
 
-            // IPv6 Route
-            try {
+            runCatching {
                 builder.addAddress("fd7a:115c:a1e0::2", 128)
                 builder.addRoute("::", 0)
-            } catch (e: Exception) {
-                // Ignore if IPv6 unsupported
             }
 
-            // Split Tunneling (Excluded Apps)
-            val excludedPackages = app.preferencesStore.splitTunnelExcludedApps
-            for (pkg in excludedPackages) {
-                try {
-                    builder.addDisallowedApplication(pkg)
-                } catch (e: Exception) {
-                    // Ignore missing packages
-                }
+            for (packageName in app.preferencesStore.splitTunnelExcludedApps) {
+                runCatching { builder.addDisallowedApplication(packageName) }
             }
 
-            // Disallow our own app from being tunneled to avoid loopback
+            // Native transport sockets must bypass the TUN to avoid routing back into themselves.
+            // This also means in-process diagnostics report the device's direct public IP.
             builder.addDisallowedApplication(packageName)
 
-            vpnInterface = builder.establish()
+            val established = builder.establish()
+                ?: throw IllegalStateException("Android could not establish the VPN interface")
+            vpnInterface = established
+            currentCoroutineContext().ensureActive()
 
-            if (vpnInterface == null) {
-                app.tunnelController.setTunnelState(TunnelState.DISCONNECTED)
-                stopSelf()
-                return
-            }
-
-            val fd = vpnInterface!!.fd
-            app.tunnelController.onVpnInterfaceEstablished(fd, profile)
-
+            // The route becomes active just before this fast attachment call. Any attachment
+            // error immediately tears it down.
+            app.tunnelEngine.attachTun(established.fd)
+            app.tunnelController.onEngineConnected(app.tunnelEngine.getStats())
             startMetricsNotificationUpdater(profile)
-
-        } catch (e: Exception) {
-            e.printStackTrace()
-            stopVpn()
+        } catch (_: CancellationException) {
+            return
+        } catch (error: Exception) {
+            app.tunnelController.onVpnStartFailed(
+                error.message ?: "VPN engine failed to start"
+            )
+            shutdown()
         }
     }
 
     private fun startMetricsNotificationUpdater(profile: GatewayProfile) {
         val app = TailcatApplication.instance
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         metricsCollectorJob?.cancel()
         metricsCollectorJob = serviceScope.launch {
             app.tunnelController.networkMetrics.collectLatest { metrics ->
-                val state = app.tunnelController.tunnelState.value
-                val notification = app.notificationManager.buildNotification(
-                    state = state,
-                    profileName = profile.name,
-                    metrics = metrics
+                manager.notify(
+                    VpnNotificationManager.NOTIFICATION_ID,
+                    app.notificationManager.buildNotification(
+                        state = app.tunnelController.tunnelState.value,
+                        profileName = profile.name,
+                        metrics = metrics
+                    )
                 )
-                notificationManager.notify(VpnNotificationManager.NOTIFICATION_ID, notification)
             }
         }
     }
 
-    private fun stopVpn() {
+    private fun shutdown() {
+        if (shuttingDown) return
+        shuttingDown = true
+        startJob?.cancel()
         metricsCollectorJob?.cancel()
-        val app = TailcatApplication.instance
-        app.tunnelController.onVpnStopped()
 
-        try {
-            vpnInterface?.close()
-            vpnInterface = null
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        runCatching { TailcatApplication.instance.tunnelEngine.stop() }
+        runCatching { vpnInterface?.close() }
+        vpnInterface = null
 
+        TailcatApplication.instance.tunnelController.onVpnStopped()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     override fun onDestroy() {
-        stopVpn()
+        shutdown()
+        serviceScope.cancel()
         super.onDestroy()
     }
 
     override fun onRevoke() {
-        stopVpn()
+        shutdown()
         super.onRevoke()
     }
 
