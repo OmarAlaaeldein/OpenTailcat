@@ -1,0 +1,50 @@
+# Built Binaries & Application Packages
+*.apk
+*.aab
+*.ap_
+*.dex
+Tailcat-*.apk
+
+# Gradle files & Build Caches
+.gradle/
+build/
+app/build/
+core-engine/build/
+
+# Go Binaries & Native Libraries
+bin/
+*.exe
+*.test
+*.out
+*.o
+*.a
+*.so
+*.dylib
+core-engine/*.aar
+
+# Local configuration files
+local.properties
+
+# Log Files
+*.log
+
+# IDE & Editor files
+.idea/
+*.iml
+.navigation/
+captures/
+.externalNativeBuild/
+.cxx/
+.vscode/
+
+# OS Specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Profiler & Memory Dumps
+*.hprof
