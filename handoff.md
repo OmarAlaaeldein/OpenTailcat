@@ -1,15 +1,15 @@
-# Tailcat Android 🐾 — Engineering Handoff & Architecture Guide
+# Tailcat VPN Client 🐾 — Engineering Handoff & Multiplatform Architecture Guide
 
 > **Prepared for:** Nullexit / Tailcat Integration  
 > **Repository:** `/Users/omar/developer/tailcat vpn client`  
-> **Target OS:** Android 8.0 (API 26) through Android 15 & 16 (API 35+ with 16KB memory page alignment)  
-> **Toolchain:** Kotlin 2.2.10 · AGP 9.3.0 · Gradle 9.5.0 · Compose BOM 2025.02.00 · OpenJDK 21 · Go Mobile (`libtailcat.aar`)
+> **Target Platforms:** Android 8.0+ (API 26–35+, 16KB pages) · Linux (x86_64 / ARM64) · macOS (Darwin / Apple Silicon & Intel)  
+> **Toolchain:** Kotlin 2.2.10 · AGP 9.3.0 · Gradle 9.5.0 · Compose BOM 2025.02.00 · Go 1.22+ · OpenJDK 21
 
 ---
 
 ## 1. Executive Summary & Philosophy
 
-Tailcat Android is a **control-plane-free, decentralized WireGuard & Magicsock VPN client** built specifically as the mobile counterpart to **nullexit** gateway listeners.
+Tailcat is a **control-plane-free, decentralized WireGuard & Magicsock VPN client** built specifically as the multiplatform counterpart to **nullexit** gateway listeners.
 
 ### The Core Problem Solved
 Traditional WireGuard and Tailscale deployments rely on centralized coordination servers (Tailscale SaaS, Headscale) or static point-to-point IP configurations that break when moving across NATs, mobile cellular radios, and captive Wi-Fi networks.
@@ -19,12 +19,14 @@ Tailcat decouples the data plane from centralized control planes:
 1. **Permanent & Time-Limited Tokens (`tc...`):** Connection parameters (Server Public Key + DERP Region ID + optional Unix expiration timestamp) are encoded into compact, URL-safe Base64URL-CBOR strings.
 2. **Magicsock NAT Traversal:** Direct STUN UDP hole-punching for low-latency P2P connections, with automatic fallback to DERP relays on symmetric or enterprise NATs.
 3. **Double-Tunnel Invariants:** Pre-configured MTU (`1280`) and TCP MSS (`1120`) to prevent packet fragmentation and stall hazards when paired with nullexit's Cloudflare WARP double-tunneling or Tor egress.
-4. **Lean Resource Footprint:** Shrunk from 30 MB to **1.1 MB** with R8 optimization, zero GC allocations during throughput streaming, and event-driven network monitoring.
+4. **Multiplatform Go Data-Plane:** Shared Go engine (`core-engine/`) compiled into `libtailcat.aar` for Android and a standalone CLI binary (`tailcat-cli`) for Linux and macOS.
+5. **Lean Resource Footprint:** Android APK shrunk to **1.1 MB** with R8 optimization, zero GC allocations during throughput streaming, and event-driven network monitoring.
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│                   Android Client                       │
-│  [Tailcat APK - 1.1 MB] ── tun0 ── MTU 1280 / MSS 1120 │
+│                   Client Layer                         │
+│  ├── 📱 Android Compose App (1.1 MB APK)               │
+│  └── 💻 Linux & macOS CLI (tailcat-cli)                │
 └───────────────────────────┬────────────────────────────┘
                             │ WireGuard over UDP/DERP (Token: tc...)
                             ▼
@@ -119,27 +121,30 @@ $$\text{Token} = \texttt{"tc"} + \text{Base64URL}\Big(\text{CBOR}\big(\{\text{"p
 * **Download & Upload:** Chunked streaming from Cloudflare edge nodes with 1-decimal precision (`String.format(Locale.US, "%.1f", speed)`).
 * **Speedometer Gauge:** Jetpack Compose Canvas dial with animated glowing arc and needle.
 
-### 3.6 Settings, Split Tunneling & Legal Subsystem
-* **Kill-Switch:** Blocks non-VPN routes on unexpected tunnel drops.
-* **Auto-DERP on Enterprise Wi-Fi:** Forces DERP relay encapsulation on 802.1X / AP-isolated networks.
-* **Split Tunneling:** Allows user-selected apps to bypass the VPN.
-* **About & Legal:** In-app card linking to Apache 2.0 open-source license and zero-log privacy policy.
+### 3.6 Multiplatform CLI for Linux & macOS (`tailcat-cli`)
+* Located at `core-engine/cmd/tailcat-cli/main.go`.
+* Allows running the identical data-plane engine on Linux and macOS without a GUI:
+  ```bash
+  tailcat-cli up tcXYZ...      # Connects and negotiates tunnel
+  tailcat-cli status          # Emits live JSON telemetry
+  tailcat-cli down            # Clean disconnect
+  ```
 
 ---
 
 ## 4. Binary Footprint & Optimization
 
-| Build Flavor | APK Size | Optimizations |
-| :--- | :--- | :--- |
-| **Debug Build** | ~30 MB | Debug symbols, full DEX inspection |
-| **Production Release** | **1.1 MB** | **R8 Minification, Dead-code stripping, Resource shrinking (`isShrinkResources = true`)** |
+| Build Flavor | Target | Size | Optimizations |
+| :--- | :--- | :--- | :--- |
+| **Android Release APK** | Android 8.0–16 | **1.1 MB** | **R8 Minification, Dead-code stripping, Resource shrinking (`isShrinkResources = true`)** |
+| **Linux/macOS Binary** | Linux/macOS CLI | **~8–12 MB** | Static standalone executable with zero external runtime dependencies |
 
 ---
 
 ## 5. Build, Verification & Test Commands
 
 ```bash
-# 1. Run unit test suite (Token validation, Expiration, CBOR parsing)
+# 1. Run Android unit test suite (Token validation, Expiration, CBOR parsing)
 ./gradlew testDebugUnitTest
 
 # 2. Run static analysis & lint checks
@@ -148,8 +153,8 @@ $$\text{Token} = \texttt{"tc"} + \text{Base64URL}\Big(\text{CBOR}\big(\{\text{"p
 # 3. Build optimized 1.1 MB Release APK
 ./gradlew assembleRelease
 
-# 4. Install APK onto connected device / emulator
-adb install -r Tailcat-v1.0.0-release.apk
+# 4. Build Linux / macOS CLI
+cd core-engine && go build -o tailcat-cli ./cmd/tailcat-cli
 ```
 
 ---
