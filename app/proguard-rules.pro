@@ -3,8 +3,9 @@
 # 1. Keep Tailcat domain models & JNI interfaces
 -keep class com.tailcat.vpn.core.model.** { *; }
 -keep class com.tailcat.vpn.service.TailcatVpnService { *; }
--keep class engine.Engine { *; }
--keep class com.tailcat.vpn.engine.Engine { *; }
+-keep class engine.** { *; }
+-keep class com.tailcat.vpn.engine.** { *; }
+-keep class go.** { *; }
 -keepclasseswithmembernames class * {
     native <methods>;
 }

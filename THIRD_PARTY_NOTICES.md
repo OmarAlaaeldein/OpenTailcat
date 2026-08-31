@@ -11,14 +11,14 @@ This file is an overview, not a substitute for the license files distributed wit
 
 Exact versions are defined in `gradle/libs.versions.toml` and the resolved Gradle dependency graph.
 
-## Go module declarations
+## Native engine & Go module dependencies
 
-`core-engine/go.mod` currently declares:
+The native VPN engine (`core-engine` and `libtailcat.aar`) incorporates:
 
-- `tailscale.com` — BSD 3-Clause components; review each linked package and its notices when a real engine is implemented.
-- `golang.org/x/mobile` — BSD 3-Clause.
-
-The current Go source is an integration scaffold and does not import or link a WireGuard/Magicsock data plane. Do not claim those components are present in an APK unless the resolved native artifact actually contains them.
+- **Tailcat / Tailscale**: `github.com/tailscale/tailcat` pinned to signed release `v0.4.0` in `third_party/tailcat`, licensed under the BSD 3-Clause License.
+- **Go Mobile**: `golang.org/x/mobile`, licensed under the BSD 3-Clause License.
+- **CBOR Go**: `github.com/fxamacker/cbor/v2`, licensed under the MIT License.
+- **Mem**: `go4.org/mem`, licensed under the Apache License 2.0.
 
 ## External services
 

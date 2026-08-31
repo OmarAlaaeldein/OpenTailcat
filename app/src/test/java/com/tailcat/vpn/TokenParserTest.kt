@@ -176,6 +176,87 @@ class TokenParserTest {
     }
 
     @Test
+    fun testOfficialShortTokenParsing() {
+        // Official v0.4.0 token with p, k, i
+        val fakeNodeKey = ByteArray(32) { (it + 1).toByte() }
+        val fakeDiscoKey = ByteArray(32) { (it + 33).toByte() }
+
+        val baos = ByteArrayOutputStream()
+        val mapBuilder = CborBuilder()
+            .addMap()
+            .put("p", fakeNodeKey)
+            .put("k", fakeDiscoKey)
+            .put("i", 302L)
+
+        CborEncoder(baos).encode(mapBuilder.end().build())
+        val token = "tc" + Base64.getUrlEncoder().withoutPadding().encodeToString(baos.toByteArray())
+
+        val result = TokenParser.parse(token)
+        assertTrue(result.isSuccess)
+        val parsed = result.getOrThrow()
+        assertEquals(302, parsed.derpRegionId)
+        assertEquals("San Francisco (Region 302)", parsed.regionDisplayName)
+        assertNotNull(parsed.serverDiscoKeyBytes)
+        assertEquals(32, parsed.serverDiscoKeyBytes!!.size)
+    }
+
+    @Test
+    fun testOfficialResolvedTokenWithEmbeddedRegion() {
+        // Official v0.4.0 resolved token with p, k, r (array of region maps)
+        val fakeNodeKey = ByteArray(32) { 0x01 }
+        val fakeDiscoKey = ByteArray(32) { 0x02 }
+
+        val baos = ByteArrayOutputStream()
+        val mapBuilder = CborBuilder()
+            .addMap()
+            .put("p", fakeNodeKey)
+            .put("k", fakeDiscoKey)
+            .putArray("r")
+                .addMap()
+                    .put("i", 10L)
+                    .put("c", "sea")
+                    .put("m", "Seattle")
+                .end()
+            .end()
+
+        CborEncoder(baos).encode(mapBuilder.end().build())
+        val token = "tc" + Base64.getUrlEncoder().withoutPadding().encodeToString(baos.toByteArray())
+
+        val result = TokenParser.parse(token)
+        assertTrue(result.isSuccess)
+        val parsed = result.getOrThrow()
+        assertEquals(10, parsed.derpRegionId)
+        assertTrue(parsed.hasEmbeddedRegion)
+        assertEquals("Seattle (Region 10)", parsed.regionDisplayName)
+    }
+
+    @Test
+    fun testOfficialReadmeSampleToken() {
+        // Token from official Tailcat README:
+        // tailcat parse tcomFwWCCcjS5nKNqAod034nWoJZW0LZqDhhC8U_dKdnDRYQ8uNGFpGQEu
+        // ServerPublic: nodekey:9c8d2e6728da80a1dd37e275a82595b42d9a838610bc53f74a7670d1610f2e34
+        // RegionID: 302
+        val token = "tcomFwWCCcjS5nKNqAod034nWoJZW0LZqDhhC8U_dKdnDRYQ8uNGFpGQEu"
+        val result = TokenParser.parse(token)
+        assertTrue(result.isSuccess)
+        val parsed = result.getOrThrow()
+        assertEquals(302, parsed.derpRegionId)
+        assertEquals("9c8d2e6728da80a1dd37e275a82595b42d9a838610bc53f74a7670d1610f2e34", parsed.serverPublicKeyHex)
+        assertEquals("San Francisco (Region 302)", parsed.regionDisplayName)
+    }
+
+    @Test
+    fun testOfficialReadmeResolvedSampleToken() {
+        // Resolved token from official Tailcat README:
+        val token = "tcomFwWCCcjS5nKNqAod034nWoJZW0LZqDhhC8U_dKdnDRYQ8uNGFygaFhToGjYWhudGMzMDJhLmlwbi5kZXZhNG0yMDguMTExLjM5LjM4YTZzMjYwNzpmNzQwOjA6M2Y6OjcyMA"
+        val result = TokenParser.parse(token)
+        assertTrue(result.isSuccess)
+        val parsed = result.getOrThrow()
+        assertEquals("9c8d2e6728da80a1dd37e275a82595b42d9a838610bc53f74a7670d1610f2e34", parsed.serverPublicKeyHex)
+        assertTrue(parsed.hasEmbeddedRegion)
+    }
+
+    @Test
     fun testRawBytesCannotMasqueradeAsCborMap() {
         val raw = ByteArray(32) { 0x42 }
         val token = "tc" + Base64.getUrlEncoder().withoutPadding().encodeToString(raw)
