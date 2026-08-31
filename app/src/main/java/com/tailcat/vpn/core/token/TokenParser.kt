@@ -1,6 +1,7 @@
 package com.tailcat.vpn.core.token
 
 import co.nstant.`in`.cbor.CborDecoder
+import co.nstant.`in`.cbor.model.Array as CborArray
 import co.nstant.`in`.cbor.model.ByteString
 import co.nstant.`in`.cbor.model.Map
 import co.nstant.`in`.cbor.model.Number
@@ -15,7 +16,10 @@ data class ParsedToken(
     val rawToken: String,
     val serverPublicKeyHex: String,
     val serverPublicKeyBytes: ByteArray,
+    val serverDiscoKeyHex: String? = null,
+    val serverDiscoKeyBytes: ByteArray? = null,
     val derpRegionId: Int?,
+    val hasEmbeddedRegion: Boolean = false,
     val expiresAtUnixSec: Long? = null,
     val issuedAtUnixSec: Long? = null
 ) {
@@ -47,7 +51,8 @@ data class ParsedToken(
             8 -> "Toronto (Region 8)"
             9 -> "Dallas (Region 9)"
             10 -> "Seattle (Region 10)"
-            null -> "Default DERP"
+            302 -> "San Francisco (Region 302)"
+            null -> if (hasEmbeddedRegion) "Embedded DERP Map" else "Default DERP"
             else -> "DERP Region $derpRegionId"
         }
 
@@ -98,6 +103,8 @@ object TokenParser {
 
     /**
      * Parses a Tailcat token (tc-prefixed Base64URL-encoded CBOR map).
+     * Supports official Tailcat v0.4.0 format (p: nodeKey, k: discoKey, i: regionId, r: embedded regions)
+     * as well as legacy token schema (p: nodeKey, r: regionId, exp/iat timestamps).
      * @param input Raw token string, e.g., "tcABC..."
      */
     fun parse(input: String): Result<ParsedToken> {
@@ -125,11 +132,15 @@ object TokenParser {
 
             val map = dataItems[0] as Map
             var pubKeyBytes: ByteArray? = null
+            var discoKeyBytes: ByteArray? = null
             var regionId: Int? = null
+            var hasEmbeddedRegion = false
             var expSec: Long? = null
             var iatSec: Long? = null
             var foundPublicKey = false
-            var foundRegion = false
+            var foundDiscoKey = false
+            var foundRegionId = false
+            var foundEmbeddedRegion = false
             var foundExpiration = false
             var foundIssuedAt = false
 
@@ -151,14 +162,60 @@ object TokenParser {
                             else -> throw IllegalArgumentException("Public key must be bytes or hexadecimal text")
                         }
                     }
-                    "r", "region" -> {
-                        require(!foundRegion) { "Token contains duplicate region fields" }
-                        foundRegion = true
+                    "k", "disco", "discokey" -> {
+                        require(!foundDiscoKey) { "Token contains duplicate disco key fields" }
+                        foundDiscoKey = true
+                        discoKeyBytes = when (value) {
+                            is ByteString -> value.bytes
+                            is UnicodeString -> value.string.hexToByteArray()
+                            else -> throw IllegalArgumentException("Disco key must be bytes or hexadecimal text")
+                        }
+                    }
+                    "i", "region_id" -> {
+                        require(!foundRegionId) { "Token contains duplicate region ID fields" }
+                        foundRegionId = true
                         regionId = when (value) {
                             is Number -> value.value.toLong().also {
-                                require(it in 1..Int.MAX_VALUE.toLong()) { "DERP region must be a positive integer" }
+                                require(it in 1..Int.MAX_VALUE.toLong()) { "DERP region ID must be a positive integer" }
                             }.toInt()
-                            else -> throw IllegalArgumentException("DERP region must be an integer")
+                            else -> throw IllegalArgumentException("DERP region ID must be an integer")
+                        }
+                    }
+                    "r", "region" -> {
+                        when (value) {
+                            is Number -> {
+                                require(!foundRegionId) { "Token contains duplicate region ID fields" }
+                                foundRegionId = true
+                                regionId = value.value.toLong().also {
+                                    require(it in 1..Int.MAX_VALUE.toLong()) { "DERP region must be a positive integer" }
+                                }.toInt()
+                            }
+                            is CborArray -> {
+                                require(!foundEmbeddedRegion) { "Token contains duplicate embedded region fields" }
+                                foundEmbeddedRegion = true
+                                hasEmbeddedRegion = true
+                                val items = value.dataItems
+                                if (items.isNotEmpty() && items[0] is Map) {
+                                    val firstRegionMap = items[0] as Map
+                                    for (rk in firstRegionMap.keys) {
+                                        val rkStr = when (rk) {
+                                            is UnicodeString -> rk.string
+                                            is ByteString -> rk.bytes.decodeToString()
+                                            else -> rk.toString()
+                                        }
+                                        if (rkStr == "i") {
+                                            val rVal = firstRegionMap.get(rk)
+                                            if (rVal is Number) {
+                                                val id = rVal.value.toLong()
+                                                if (id in 1..Int.MAX_VALUE.toLong()) {
+                                                    regionId = id.toInt()
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            else -> throw IllegalArgumentException("DERP region must be an integer or array of regions")
                         }
                     }
                     "exp", "expires", "expires_at" -> {
@@ -188,19 +245,28 @@ object TokenParser {
             require(pubKeyBytes.size == PUBLIC_KEY_SIZE_BYTES) {
                 "Public key must be exactly $PUBLIC_KEY_SIZE_BYTES bytes (was ${pubKeyBytes.size})"
             }
-            require(regionId != null) { "Missing DERP region in token payload" }
+            if (discoKeyBytes != null) {
+                require(discoKeyBytes.size == PUBLIC_KEY_SIZE_BYTES) {
+                    "Disco public key must be exactly $PUBLIC_KEY_SIZE_BYTES bytes (was ${discoKeyBytes.size})"
+                }
+            }
+            require(regionId != null || hasEmbeddedRegion) { "Missing DERP region in token payload" }
             require(expSec == null || iatSec == null || expSec >= iatSec) {
                 "Expiration timestamp cannot be earlier than issued-at timestamp"
             }
 
             val hexString = pubKeyBytes.joinToString("") { "%02x".format(it) }
+            val discoHexString = discoKeyBytes?.joinToString("") { "%02x".format(it) }
 
             Result.success(
                 ParsedToken(
                     rawToken = trimmed,
                     serverPublicKeyHex = hexString,
                     serverPublicKeyBytes = pubKeyBytes,
+                    serverDiscoKeyHex = discoHexString,
+                    serverDiscoKeyBytes = discoKeyBytes,
                     derpRegionId = regionId,
+                    hasEmbeddedRegion = hasEmbeddedRegion,
                     expiresAtUnixSec = expSec,
                     issuedAtUnixSec = iatSec
                 )
@@ -237,3 +303,4 @@ object TokenParser {
     private const val MAX_UNIX_TIMESTAMP_SEC = 253_402_300_799L
     private val BASE64_URL_PATTERN = Regex("^[A-Za-z0-9_-]+={0,2}$")
 }
+

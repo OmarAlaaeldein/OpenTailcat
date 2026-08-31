@@ -2,32 +2,27 @@
 
 ## Release status
 
-Tailcat 1.0.0 in this repository is a pre-production Android client scaffold. It is not a supported VPN release because the WireGuard/Magicsock data plane is absent. No version should be represented as providing encrypted tunneling until the integration and release gates in [handoff.md](handoff.md) pass.
+Tailcat 1.0.0 is an Android client with an integrated Go Mobile WireGuard/Magicsock engine adapter (`libtailcat.aar`) built around pinned `tailscale/tailcat` v0.4.0. The native engine implements two-phase startup, raw TUN packet pumping, UDP forwarding with checksum verification, ICMP echo handling, and real telemetry reporting.
 
-## Current controls
+## Security controls
 
-- Connection tokens require a single CBOR map, an exact 32-byte public key, a positive DERP region, consistent timestamps, and valid Base64URL encoding.
-- Expired tokens cannot be saved or used to start a tunnel.
-- Profiles and tokens are stored in encrypted preferences backed by Android Keystore; legacy plaintext preferences are migrated and removed.
-- Android backups and device-to-device transfer are disabled for app data.
-- Cleartext HTTP is disabled.
-- The VPN service requires Android's `BIND_VPN_SERVICE` permission.
-- The app checks an explicit native capability contract before requesting VPN consent.
-- A TUN is marked connected only after native startup succeeds. Startup errors close it immediately; repeated telemetry errors stop it.
-- Speed tests report network failures rather than generated measurements.
-- Production release builds are not signed with the debug key.
+- **Strict Token Parsing**: Connection tokens require valid CBOR format, exact 32-byte public keys, valid DERP regions, consistent timestamps, and URL-safe Base64 encoding.
+- **Expiry Enforcement**: Expired tokens cannot be saved or used to start a tunnel.
+- **Encrypted Local Storage**: Profiles and tokens are stored in encrypted preferences backed by Android Keystore.
+- **Fail-Closed VPN Lifecycle**: Full-device routes (`0.0.0.0/0`, `::/0`) are only installed after the native engine completes an authenticated Meow `Ping` reachability handshake.
+- **Socket Protection & Loop Prevention**: The Android app UID is excluded from VPN routing so native transport sockets bypass the TUN directly without recursive loops.
+- **Immediate Teardown**: Startup errors close the TUN immediately; consecutive telemetry failures initiate graceful teardown.
+- **Truthful Telemetry**: Real measured bytes, latency, and rates are reported; synthetic measurements are forbidden.
+- **Secure Defaults**: Cleartext HTTP is disabled, Android data backup is excluded, and release APKs are not signed with debug keys.
 
-## Not yet provided
+## Remaining pre-distribution gates
 
-- WireGuard cryptography, packet pumping, Magicsock, STUN, or DERP.
-- A gateway identity handshake.
-- DNS or IPv6 leak protection verified against a working engine.
-- TCP MSS clamping.
-- App-controlled kill-switch behavior. Lockdown is configured through Android's Always-on VPN settings.
-- Native-engine security tests, fuzzing, or independent review.
+- End-to-end live testing against a running exit node across cellular and Wi-Fi networks.
+- TCP MSS clamping optimization in the packet pipeline.
+- Production APK signing with a private release key.
 
 ## Reporting a vulnerability
 
 Do not publish secrets, working exploits, gateway tokens, or personal traffic in a public issue. Use the repository owner's private security-reporting channel if one is configured. If no private channel is available, open a minimal non-sensitive issue asking the maintainer to establish private contact; do not include exploit details in that issue.
 
-A useful report includes the affected commit/version, Android version and device, reproduction conditions, expected and observed behavior, and the least-sensitive proof of concept possible. No response-time guarantee is currently offered for this pre-production project.
+A useful report includes the affected commit/version, Android version and device, reproduction conditions, expected and observed behavior, and the least-sensitive proof of concept possible.

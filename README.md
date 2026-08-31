@@ -1,48 +1,44 @@
 # Tailcat VPN Client
 
-Tailcat is an Android client shell for a control-plane-free WireGuard and Magicsock VPN. Gateway connection parameters are carried in compact, URL-safe `tc...` tokens.
+Tailcat is an Android client for a control-plane-free WireGuard and Magicsock VPN. Gateway connection parameters are carried in compact, URL-safe `tc...` tokens.
 
-> [!IMPORTANT]
-> This repository does **not** currently contain a working WireGuard/Magicsock packet engine or `libtailcat.aar`. The Android app fails closed: it will not create a VPN route or report a connection until a compatible native engine advertises a working data plane. The Go package under `core-engine/` is an integration scaffold, not a VPN implementation.
+## Architecture & status
 
-This is the product's central missing capability, not an optional feature: entering a token and establishing the corresponding encrypted gateway tunnel is Tailcat's primary purpose. The current APK is therefore a safe integration/debug build, **not a functional VPN client**. Its UI, token storage, validation, diagnostics, and Android service boundary are implemented, but it cannot connect until the native data plane described in [`handoff.md`](handoff.md) is implemented, packaged, and tested with the matching gateway listener.
+The repository contains a fully integrated Android client and Go Mobile native VPN engine:
 
-## Current status
+- **Android Client**: Jetpack Compose UI, encrypted Keystore-backed profile storage, validated underlying network monitoring, Android `VpnService` lifecycle management, and per-app exclusions.
+- **Native Engine Adapter (`libtailcat.aar`)**: Powered by official `tailscale/tailcat` (pinned at `third_party/tailcat` v0.4.0) with Go Mobile bindings. Provides two-phase startup (`prepare` Meow ping handshake -> `attachTun` raw packet pump), WireGuard encryption, Magicsock direct UDP with DERP relay fallback, ICMP echo handling, and UDP/DNS datagram forwarding.
+- **Fail-Closed Guarantees**: Full-device routes (`0.0.0.0/0`, `::/0`) are only installed after the native engine completes the authenticated reachability handshake. The app UID is excluded from VPN routing to avoid recursive loops.
 
-Implemented and usable as application scaffolding:
+## Implemented features
 
-- Strict CBOR/Base64URL token parsing with exact 32-byte public-key validation and expiry enforcement.
+- Reconciled CBOR/Base64URL token parsing supporting:
+  - Official short tokens (`p`: 32-byte node key, `k`: 32-byte disco key, `i`: integer DERP region ID).
+  - Resolved tokens with embedded DERP region metadata (`r`: array of regions).
+  - Legacy tokens (`p`: 32-byte key, `r`: integer DERP region, optional `exp` and `iat`).
 - Encrypted local profile storage backed by Android Keystore.
-- Offline detection using validated Android network capabilities.
-- Android VPN consent and service scaffolding with fail-closed engine startup.
-- Per-app exclusions applied when a real tunnel starts.
-- Real, user-initiated Cloudflare latency/download/upload measurements; failures are never replaced with synthetic results.
-- Direct device public-IP lookup using Cloudflare with an ipify fallback.
-- Compose UI for profiles, connection state, diagnostics, and settings.
+- Two-phase native engine lifecycle (`prepare`, `attachTun`, `getStatsJSON`, `stop`).
+- Bidirectional TUN packet pump for IPv4 and IPv6 traffic.
+- ICMP echo responder and UDP forwarding with full IP/UDP checksum computation.
+- Live measured telemetry (transport mode, DERP region, RTT latency, jitter, TX/RX throughput rates).
+- User-initiated HTTP speed tests (no synthetic metrics).
+- Direct device public-IP lookup using Cloudflare with ipify fallback.
 
-Not implemented in this repository:
+## Native engine API contract
 
-- WireGuard encryption or packet pumping.
-- Magicsock, STUN hole punching, or DERP relay transport.
-- Gateway handshake or egress verification through the tunnel.
-- TCP MSS clamping.
-- An app-managed kill switch. Use Android's Always-on VPN and **Block connections without VPN** controls after a real engine is integrated.
-- QR token scanning.
-- A functional Linux/macOS VPN CLI.
-
-## Fail-closed engine contract
-
-Place a compatible Go Mobile AAR in `app/libs/`. The generated Java API must be available as `engine.Engine` or `com.tailcat.vpn.engine.Engine` and expose these static methods:
+The Go Mobile library (`app/libs/libtailcat.aar`) exposes `com.tailcat.vpn.engine.Engine`:
 
 ```text
 getCapabilitiesJSON() -> String
-prepare(token)
-attachTun(tunFd)
+prepare(token: String)
+attachTun(tunFd: Long)
 getStatsJSON() -> String
 stop()
 ```
 
-Before Android creates a full-device route, `getCapabilitiesJSON()` must return at least:
+### Capabilities contract
+
+`getCapabilitiesJSON()` returns:
 
 ```json
 {
@@ -54,54 +50,72 @@ Before Android creates a full-device route, `getCapabilitiesJSON()` must return 
 }
 ```
 
-`prepare` completes the authenticated gateway/transport handshake before Android creates a route. After that succeeds, Android establishes the TUN and calls `attachTun`, which must start packet pumps immediately. `getStatsJSON` must report real transport and byte counters. The service closes the TUN immediately if attachment fails and disconnects after repeated telemetry failures.
+### Lifecycle
+
+1. `prepare(token)` validates token syntax and completes an authenticated `Ping` reachability handshake to the exit node before Android creates any route.
+2. `attachTun(tunFd)` takes the duplicated Android TUN descriptor and starts packet pumps.
+3. `getStatsJSON()` returns live measured metrics.
+4. `stop()` terminates packet pumps, closes descriptors, and releases secrets.
 
 ## Token format
 
 ```text
 "tc" + Base64URL(CBOR({
   "p": 32-byte WireGuard server public key,
-  "r": positive DERP region ID,
-  "exp"?: Unix epoch seconds,
-  "iat"?: Unix epoch seconds
+  "k"?: 32-byte disco public key,
+  "i"?: positive DERP region ID,
+  "r"?: positive DERP region ID or array of region metadata,
+  "exp"?: positive Unix epoch seconds,
+  "iat"?: positive Unix epoch seconds
 }))
 ```
 
-Aliases `pub`, `nodekey`, and `region` are accepted for compatibility. Duplicate aliases, invalid timestamps, missing regions, malformed CBOR, trailing CBOR objects, and non-32-byte keys are rejected. Expired tokens cannot be saved or started.
+Tokens are validated strictly: malformed CBOR, invalid keys, mismatching timestamps, or expired tokens are rejected.
 
 ## Build and verification
 
-Requirements: OpenJDK 21 and Android SDK 35.
+Requirements: OpenJDK 21, Android SDK 35, Android NDK (r26+ / r29), and Go 1.24+.
+
+### Build the native engine AAR
+
+```bash
+cd core-engine
+export ANDROID_HOME=$HOME/Library/Android/sdk
+export ANDROID_NDK_HOME=/opt/homebrew/share/android-ndk
+gomobile bind -v -target=android -androidapi=26 -javapkg=com.tailcat.vpn -o ../app/libs/libtailcat.aar .
+go test -v ./...
+```
+
+### Build and test the Android app
 
 ```bash
 ./gradlew testDebugUnitTest
 ./gradlew lintDebug
 ./gradlew assembleDebug
 ./gradlew assembleRelease
-
-cd core-engine
-go test ./...
 ```
 
-Debug output: `app/build/outputs/apk/debug/app-debug.apk`.
-
-Release output is intentionally unsigned. Configure a private release signing key outside the repository before distribution; production releases must never use the debug key.
+Artifacts generated:
+- Debug APK: `app/build/outputs/apk/debug/app-debug.apk`
+- Release APK: `app/build/outputs/apk/release/app-release-unsigned.apk`
 
 ## Repository layout
 
 ```text
 app/                         Android application
+  libs/                      libtailcat.aar Go Mobile library
   src/main/java/.../core/    token, network, IP, and speed-test logic
   src/main/java/.../data/    encrypted preferences and profiles
-  src/main/java/.../service/ fail-closed VPN and native-engine boundary
+  src/main/java/.../service/ VPN service and native-engine bridge
   src/main/java/.../ui/      Jetpack Compose UI
-core-engine/                 Go Mobile integration scaffold
-handoff.md                   native-engine integration requirements
-PRIVACY_POLICY.md            local data and external request disclosure
-SECURITY.md                  current security posture
-THIRD_PARTY_NOTICES.md       dependency notices
+core-engine/                 Go Mobile native adapter and packet bridge
+third_party/tailcat/         Official upstream tailscale/tailcat submodule (v0.4.0)
+handoff.md                   Native engine integration details & test gates
+PRIVACY_POLICY.md            Privacy policy and network disclosures
+SECURITY.md                  Security policy and controls
+THIRD_PARTY_NOTICES.md       Third-party open source notices
 ```
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE). Pinned upstream Tailcat components in `third_party/tailcat` are licensed under the BSD-3-Clause License.
