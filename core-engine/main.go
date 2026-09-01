@@ -82,9 +82,46 @@ type TailcatCore struct {
 
 var globalCore = &TailcatCore{}
 
-// GetCapabilitiesJSON returns the two-phase startup capability contract.
+// Capabilities represents the native data-plane capability contract (API v2).
+type Capabilities struct {
+	APIVersion          int  `json:"apiVersion"`
+	DataPlane           bool `json:"dataPlane"`
+	WireGuard           bool `json:"wireGuard"`
+	Magicsock           bool `json:"magicsock"`
+	TwoPhaseStart       bool `json:"twoPhaseStart"`
+	IPv4                bool `json:"ipv4"`
+	IPv6                bool `json:"ipv6"`
+	TCP                 bool `json:"tcp"`
+	UDP                 bool `json:"udp"`
+	DNS                 bool `json:"dns"`
+	LiveStats           bool `json:"liveStats"`
+	CancelSafeLifecycle bool `json:"cancelSafeLifecycle"`
+}
+
+// GetCapabilitiesJSON returns the capability contract.
+// Under Phase 0 fail-closed semantics, dataPlane and all unproven data-plane
+// capabilities are explicitly set to false so the engine cannot satisfy
+// Android's production route-creation requirements.
 func GetCapabilitiesJSON() string {
-	return `{"apiVersion":1,"dataPlane":true,"wireGuard":true,"magicsock":true,"twoPhaseStart":true}`
+	caps := Capabilities{
+		APIVersion:          2,
+		DataPlane:           false,
+		WireGuard:           false,
+		Magicsock:           false,
+		TwoPhaseStart:       true,
+		IPv4:                false,
+		IPv6:                false,
+		TCP:                 false,
+		UDP:                 false,
+		DNS:                 false,
+		LiveStats:           false,
+		CancelSafeLifecycle: false,
+	}
+	bytes, err := json.Marshal(caps)
+	if err != nil {
+		return `{"apiVersion":2,"dataPlane":false}`
+	}
+	return string(bytes)
 }
 
 // Prepare completes token validation, initializes the client, and verifies the

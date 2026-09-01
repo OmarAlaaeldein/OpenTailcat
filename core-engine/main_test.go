@@ -16,29 +16,38 @@ import (
 func TestGetCapabilitiesJSON(t *testing.T) {
 	raw := GetCapabilitiesJSON()
 
-	var caps struct {
-		APIVersion    int  `json:"apiVersion"`
-		DataPlane     bool `json:"dataPlane"`
-		WireGuard     bool `json:"wireGuard"`
-		Magicsock     bool `json:"magicsock"`
-		TwoPhaseStart bool `json:"twoPhaseStart"`
-	}
-
+	var caps Capabilities
 	if err := json.Unmarshal([]byte(raw), &caps); err != nil {
 		t.Fatalf("Failed to parse capabilities JSON: %v", err)
 	}
 
-	if caps.APIVersion < 1 {
-		t.Errorf("Expected apiVersion >= 1, got %d", caps.APIVersion)
+	if caps.APIVersion < 2 {
+		t.Errorf("Expected apiVersion >= 2, got %d", caps.APIVersion)
 	}
-	if !caps.DataPlane {
-		t.Error("Expected dataPlane to be true")
+	// Fail-closed invariant: incomplete engine MUST NOT report dataPlane as true.
+	if caps.DataPlane {
+		t.Error("Expected dataPlane to be false under Phase 0 fail-closed invariant")
 	}
-	if !caps.WireGuard {
-		t.Error("Expected wireGuard to be true")
+	if caps.IPv4 {
+		t.Error("Expected ipv4 to be false until Phase 5 tests pass")
 	}
-	if !caps.Magicsock {
-		t.Error("Expected magicsock to be true")
+	if caps.IPv6 {
+		t.Error("Expected ipv6 to be false until Phase 5 tests pass")
+	}
+	if caps.TCP {
+		t.Error("Expected tcp to be false until Phase 3/8 tests pass")
+	}
+	if caps.UDP {
+		t.Error("Expected udp to be false until Phase 3 tunneled UDP tests pass")
+	}
+	if caps.DNS {
+		t.Error("Expected dns to be false until Phase 4 resolver policy tests pass")
+	}
+	if caps.LiveStats {
+		t.Error("Expected liveStats to be false until Phase 7 tests pass")
+	}
+	if caps.CancelSafeLifecycle {
+		t.Error("Expected cancelSafeLifecycle to be false until Phase 6 refactor")
 	}
 	if !caps.TwoPhaseStart {
 		t.Error("Expected twoPhaseStart to be true")
