@@ -1,0 +1,54 @@
+diff --git a/tailcat.go b/tailcat.go
+index 28d412b32..9c9a5d110 100644
+--- a/tailcat.go
++++ b/tailcat.go
+@@ -439,8 +439,8 @@ func (s *Server) Start() error {
+ 		logf(format, args...)
+ 	})
+ 	if err != nil {
+-		lb.Close() // closes the subsystems started so far
+-		return fmt.Errorf("netmon.New: %w", err)
++		logf("netmon.New failed (%v); falling back to static network monitor", err)
++		netMon = netmon.NewStatic()
+ 	}
+ 	sys.Set(netMon)
+ 
+@@ -966,10 +966,15 @@ func fetchDERPMap(ctx context.Context, fetchURL, mode string, cache DERPMapCache
+ 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+ 	defer cancel()
+ 
++const defaultDERPMapJSON = `{"Regions":{"301":{"RegionID":301,"RegionCode":"nyc","RegionName":"New York City","Latitude":40.7128,"Longitude":-74.006,"Nodes":[{"Name":"301a","RegionID":301,"HostName":"tc301a.ipn.dev","IPv4":"199.38.181.166","IPv6":"2607:f740:f::26b","CanPort80":true}]},"302":{"RegionID":302,"RegionCode":"sfo","RegionName":"San Francisco","Latitude":37.7775,"Longitude":-122.416389,"Nodes":[{"Name":"302a","RegionID":302,"HostName":"tc302a.ipn.dev","IPv4":"208.111.39.38","IPv6":"2607:f740:0:3f::720","CanPort80":true}]},"303":{"RegionID":303,"RegionCode":"fra","RegionName":"Frankfurt","Latitude":50.1109,"Longitude":8.6821,"Nodes":[{"Name":"303a","RegionID":303,"HostName":"tc303a.ipn.dev","IPv4":"185.178.202.197","IPv6":"2a00:dd80:20::207","CanPort80":true}]},"304":{"RegionID":304,"RegionCode":"tok","RegionName":"Tokyo","Latitude":35.6764,"Longitude":139.65,"Nodes":[{"Name":"304a","RegionID":304,"HostName":"tc304a.ipn.dev","IPv4":"172.238.7.124","IPv6":"2600:3c18::2000:31ff:fe29:e8e8","CanPort80":true}]}}}`
++
+ 	staleOr := func(err error) (*tailcfg.DERPMap, error) {
+ 		if dm := decodeDERPMap(cachedData); dm != nil {
+ 			return dm, nil
+ 		}
++		if dm := decodeDERPMap([]byte(defaultDERPMapJSON)); dm != nil {
++			return dm, nil
++		}
+ 		return nil, err
+ 	}
+ 
+@@ -1107,6 +1112,11 @@ func (ci *ConnInfo) Expand(ctx context.Context, opts ...any) error {
+ 		return nil
+ 	}
+ 	r, ok := dm.Regions[ci.RegionID]
++	if !ok {
++		if alias, okAlias := map[tailcfg.DERPRegionID]tailcfg.DERPRegionID{1: 301, 2: 302, 3: 303, 4: 304}[ci.RegionID]; okAlias {
++			r, ok = dm.Regions[alias]
++		}
++	}
+ 	if !ok {
+ 		return fmt.Errorf("connection string said only DERP RegionID %v but no such region in %v", ci.RegionID, dmSrc)
+ 	}
+@@ -1593,8 +1603,8 @@ func (c *Client) initLocked() error {
+ 		logf(format, args...)
+ 	})
+ 	if err != nil {
+-		lb.Close() // closes the subsystems started so far
+-		return fmt.Errorf("netmon.New: %w", err)
++		logf("netmon.New failed (%v); falling back to static network monitor", err)
++		netMon = netmon.NewStatic()
+ 	}
+ 	sys.Set(netMon)
+ 

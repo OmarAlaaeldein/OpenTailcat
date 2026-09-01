@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/base64"
 	"encoding/json"
+	"net"
 	"net/netip"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/fxamacker/cbor/v2"
 	"github.com/tailscale/tailcat"
+	"tailscale.com/net/netmon"
 	"tailscale.com/types/key"
 )
 
@@ -206,4 +208,119 @@ func TestLegacyNumericRTokenHandling(t *testing.T) {
 	if _, err := tailcat.ParseConnBlob(tailcat.ConnBlob(canonicalBlob)); err != nil {
 		t.Fatalf("upstream rejected canonical legacy token: %v", err)
 	}
+}
+
+func TestUpdateNetworkStateJSON(t *testing.T) {
+	// Test invalid JSON rejection
+	if err := UpdateNetworkState("{invalid_json"); err == nil {
+		t.Fatal("Expected error on invalid JSON payload")
+	}
+
+	// Test valid JSON payload with IPv4 and IPv6 CIDR and plain addresses
+	payload := `{
+		"isOnline": true,
+		"networkType": "WIFI",
+		"interfaces": [
+			{
+				"name": "wlan0",
+				"addresses": ["192.168.1.50/24", "2607:f8b0:4005:805::200e/64"],
+				"flags": "UP|RUNNING|BROADCAST",
+				"mtu": 1500
+			},
+			{
+				"name": "rmnet0",
+				"addresses": ["10.15.20.30"],
+				"flags": "UP|RUNNING|POINTTOPOINT",
+				"mtu": 1420
+			}
+		],
+		"gateways": ["192.168.1.1", "2607:f8b0:4005:805::1"],
+		"dnsServers": ["1.1.1.1", "8.8.8.8"]
+	}`
+
+	if err := UpdateNetworkState(payload); err != nil {
+		t.Fatalf("UpdateNetworkState failed: %v", err)
+	}
+
+	netStateMu.RLock()
+	if len(customIfs) != 2 {
+		netStateMu.RUnlock()
+		t.Fatalf("Expected 2 interfaces, got %d", len(customIfs))
+	}
+
+	wlan := customIfs[0]
+	if wlan.Interface.Name != "wlan0" {
+		t.Errorf("Expected wlan0, got %s", wlan.Interface.Name)
+	}
+	if wlan.Interface.MTU != 1500 {
+		t.Errorf("Expected MTU 1500, got %d", wlan.Interface.MTU)
+	}
+	if len(wlan.AltAddrs) != 2 {
+		t.Errorf("Expected 2 addresses for wlan0, got %d", len(wlan.AltAddrs))
+	}
+	if wlan.AltAddrs[0].String() != "192.168.1.50/24" {
+		t.Errorf("Expected 192.168.1.50/24, got %s", wlan.AltAddrs[0].String())
+	}
+	if wlan.AltAddrs[1].String() != "2607:f8b0:4005:805::200e/64" {
+		t.Errorf("Expected 2607:f8b0:4005:805::200e/64, got %s", wlan.AltAddrs[1].String())
+	}
+
+	rmnet := customIfs[1]
+	if rmnet.Interface.Name != "rmnet0" {
+		t.Errorf("Expected rmnet0, got %s", rmnet.Interface.Name)
+	}
+	if rmnet.Interface.MTU != 1420 {
+		t.Errorf("Expected MTU 1420, got %d", rmnet.Interface.MTU)
+	}
+	if (rmnet.Interface.Flags & net.FlagPointToPoint) == 0 {
+		t.Error("Expected PointToPoint flag on rmnet0")
+	}
+	netStateMu.RUnlock()
+
+	// Test reset with empty string
+	if err := UpdateNetworkState(""); err != nil {
+		t.Fatalf("UpdateNetworkState reset failed: %v", err)
+	}
+	netStateMu.RLock()
+	if len(customIfs) != 0 {
+		t.Errorf("Expected empty customIfs after reset, got %d", len(customIfs))
+	}
+	netStateMu.RUnlock()
+}
+
+func TestLiveMonitorLifecycle(t *testing.T) {
+	// 1. Initially activeMonitor must be nil before prepare/start
+	netStateMu.RLock()
+	if activeMonitor != nil {
+		netStateMu.RUnlock()
+		t.Fatal("Expected activeMonitor to be nil initially")
+	}
+	netStateMu.RUnlock()
+
+	// 2. Setting a live monitor triggers event injection on UpdateNetworkState
+	liveMon := netmon.NewStatic()
+	netStateMu.Lock()
+	activeMonitor = liveMon
+	netStateMu.Unlock()
+
+	// UpdateNetworkState should invoke liveMon.InjectEvent() without panic
+	payload := `{"isOnline":true,"networkType":"WIFI","interfaces":[{"name":"wlan0","addresses":["192.168.1.100/24"]}]}`
+	if err := UpdateNetworkState(payload); err != nil {
+		t.Fatalf("UpdateNetworkState with live monitor failed: %v", err)
+	}
+
+	// 3. Stop lifecycle resets activeMonitor to nil
+	if err := Stop(); err != nil {
+		t.Fatalf("Stop failed: %v", err)
+	}
+
+	netStateMu.RLock()
+	if activeMonitor != nil {
+		netStateMu.RUnlock()
+		t.Fatal("Expected activeMonitor to be reset to nil after Stop")
+	}
+	netStateMu.RUnlock()
+
+	// Clean up custom interfaces
+	_ = UpdateNetworkState("")
 }

@@ -7,6 +7,7 @@ plugins {
 android {
     namespace = "com.tailcat.vpn"
     compileSdk = 35
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "com.tailcat.vpn"

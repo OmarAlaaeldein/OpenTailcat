@@ -970,9 +970,11 @@ const defaultDERPMapJSON = `{"Regions":{"301":{"RegionID":301,"RegionCode":"nyc"
 
 	staleOr := func(err error) (*tailcfg.DERPMap, error) {
 		if dm := decodeDERPMap(cachedData); dm != nil {
+			log.Printf("tailcat: network fetch of DERP map failed (%v); using cached DERP map", err)
 			return dm, nil
 		}
 		if dm := decodeDERPMap([]byte(defaultDERPMapJSON)); dm != nil {
+			log.Printf("tailcat: network fetch of DERP map failed (%v); using embedded static fallback DERP map (relays may be stale/expired)", err)
 			return dm, nil
 		}
 		return nil, err
@@ -1938,6 +1940,16 @@ func ProxyConns(a, b net.Conn) {
 // Status returns the current WireGuard and DERP connection status.
 func (s *Server) Status() *ipnstate.Status {
 	return s.lb.Status()
+}
+
+// NetMon returns the active network monitor for the client, if initialized.
+func (c *Client) NetMon() *netmon.Monitor {
+	c.startMu.Lock()
+	defer c.startMu.Unlock()
+	if c.lb == nil {
+		return nil
+	}
+	return c.lb.sys.NetMon.Get()
 }
 
 // discoPrivateForNode deterministically derives a path-discovery key from a

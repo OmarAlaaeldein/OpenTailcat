@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,30 +29,126 @@ func init() {
 		},
 	}
 
-	// On Android (SDK 30+), standard netlink/net.Interfaces fails with permission denied under SEAndroid.
-	// We register an InterfaceGetter fallback so Tailscale netmon and netcheck have a valid network state.
+// On Android (SDK 30+), standard netlink/net.Interfaces may fail under SEAndroid restrictions.
+	// We query real system interfaces and allow the Android client to bridge dynamic LinkProperties
+	// via UpdateNetworkState without fabricating fake static emulator interfaces.
 	netmon.RegisterInterfaceGetter(func() ([]netmon.Interface, error) {
-		ifs, err := net.Interfaces()
-		if err == nil && len(ifs) > 0 {
-			ret := make([]netmon.Interface, len(ifs))
-			for i := range ifs {
-				ret[i].Interface = &ifs[i]
-			}
-			return ret, nil
+		netStateMu.RLock()
+		if len(customIfs) > 0 {
+			res := make([]netmon.Interface, len(customIfs))
+			copy(res, customIfs)
+			netStateMu.RUnlock()
+			return res, nil
 		}
-		return []netmon.Interface{
-			{
-				Interface: &net.Interface{
-					Index: 1,
-					Name:  "android0",
-					Flags: net.FlagUp | net.FlagBroadcast | net.FlagRunning,
-				},
-				AltAddrs: []net.Addr{
-					&net.IPNet{IP: net.ParseIP("10.0.2.15"), Mask: net.CIDRMask(24, 32)},
-				},
-			},
-		}, nil
+		netStateMu.RUnlock()
+
+		ifs, err := net.Interfaces()
+		if err != nil {
+			return nil, err
+		}
+		ret := make([]netmon.Interface, len(ifs))
+		for i := range ifs {
+			ret[i].Interface = &ifs[i]
+		}
+		return ret, nil
 	})
+}
+
+var (
+	netStateMu    sync.RWMutex
+	customIfs     []netmon.Interface
+	activeMonitor *netmon.Monitor // nil until a live Tailcat client is prepared/started
+)
+
+// NetworkInterfaceInfo describes an active network interface reported by Android LinkProperties.
+type NetworkInterfaceInfo struct {
+	Name      string   `json:"name"`
+	Addresses []string `json:"addresses"`
+	Flags     string   `json:"flags,omitempty"`
+	MTU       int      `json:"mtu,omitempty"`
+}
+
+// NetworkStatePayload represents dynamic network connectivity state bridged from Android.
+type NetworkStatePayload struct {
+	IsOnline    bool                   `json:"isOnline"`
+	NetworkType string                 `json:"networkType"`
+	Interfaces  []NetworkInterfaceInfo `json:"interfaces"`
+	Gateways    []string               `json:"gateways,omitempty"`
+	DNSServers  []string               `json:"dnsServers,omitempty"`
+}
+
+// UpdateNetworkState receives dynamic network changes from Android (LinkProperties, active network type,
+// interface addresses, and routes) and injects them into Tailscale netmon to trigger path re-evaluation.
+// This method is exported to Java via Go Mobile as: Engine.updateNetworkState(String).
+func UpdateNetworkState(networkStateJSON string) error {
+	if strings.TrimSpace(networkStateJSON) == "" {
+		netStateMu.Lock()
+		customIfs = nil
+		netStateMu.Unlock()
+		return nil
+	}
+
+	var payload NetworkStatePayload
+	if err := json.Unmarshal([]byte(networkStateJSON), &payload); err != nil {
+		return fmt.Errorf("invalid network state JSON: %w", err)
+	}
+
+	var ifs []netmon.Interface
+	for i, ifInfo := range payload.Interfaces {
+		if ifInfo.Name == "" {
+			continue
+		}
+
+		var addrs []net.Addr
+		for _, addrStr := range ifInfo.Addresses {
+			addrStr = strings.TrimSpace(addrStr)
+			if addrStr == "" {
+				continue
+			}
+			// Handle CIDR notation if present (e.g. 192.168.1.50/24)
+			if ip, ipNet, err := net.ParseCIDR(addrStr); err == nil {
+				addrs = append(addrs, &net.IPNet{IP: ip, Mask: ipNet.Mask})
+				continue
+			}
+			if ip := net.ParseIP(addrStr); ip != nil {
+				mask := net.CIDRMask(32, 32)
+				if ip.To4() == nil {
+					mask = net.CIDRMask(128, 128)
+				}
+				addrs = append(addrs, &net.IPNet{IP: ip, Mask: mask})
+			}
+		}
+
+		flags := net.FlagUp | net.FlagBroadcast | net.FlagRunning
+		if strings.Contains(strings.ToUpper(ifInfo.Flags), "LOOPBACK") {
+			flags |= net.FlagLoopback
+		}
+		if strings.Contains(strings.ToUpper(ifInfo.Flags), "POINTTOPOINT") {
+			flags |= net.FlagPointToPoint
+		}
+
+		ifs = append(ifs, netmon.Interface{
+			Interface: &net.Interface{
+				Index: i + 1,
+				Name:  ifInfo.Name,
+				Flags: flags,
+				MTU:   ifInfo.MTU,
+			},
+			AltAddrs: addrs,
+		})
+	}
+
+	netStateMu.Lock()
+	customIfs = ifs
+	mon := activeMonitor
+	netStateMu.Unlock()
+
+	// Notify active netmon monitor to trigger Magicsock path and endpoint re-evaluation
+	if mon != nil {
+		mon.InjectEvent()
+	}
+
+	return nil
 }
 
 // EngineStats encapsulates real measured telemetry reported to Android.
@@ -183,6 +280,13 @@ func Prepare(tokenStr string) error {
 	globalCore.transport = transport
 	globalCore.rttMs = rttMs
 	globalCore.prepared = true
+
+	netStateMu.Lock()
+	if nm := client.NetMon(); nm != nil {
+		activeMonitor = nm
+	}
+	netStateMu.Unlock()
+
 	return nil
 }
 
@@ -220,6 +324,10 @@ func AttachTun(tunFD int) error {
 func Stop() error {
 	globalCore.mu.Lock()
 	defer globalCore.mu.Unlock()
+
+	netStateMu.Lock()
+	activeMonitor = nil
+	netStateMu.Unlock()
 
 	if globalCore.bridge != nil {
 		globalCore.bridge.Stop()

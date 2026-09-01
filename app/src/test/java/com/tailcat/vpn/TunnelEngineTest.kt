@@ -141,6 +141,14 @@ class TunnelEngineTest {
     }
 
     @Test
+    fun testUpdateNetworkStateSafeWhenUnavailable() {
+        val engine = TunnelEngine()
+        // updateNetworkState should be safe to call at any time without crashing
+        engine.updateNetworkState("""{"isOnline":true,"networkType":"WIFI","interfaces":[]}""")
+        engine.updateNetworkState("")
+    }
+
+    @Test
     fun testStopLifecycleIdempotent() {
         val engine = TunnelEngine()
         // Stop should be safe and idempotent regardless of engine availability

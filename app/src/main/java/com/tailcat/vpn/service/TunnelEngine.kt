@@ -95,6 +95,14 @@ class TunnelEngine {
         invoke(method, fdArgument)
     }
 
+    fun updateNetworkState(networkStateJson: String) {
+        val klass = engineClass ?: return
+        val method = klass.methods.firstOrNull {
+            it.name.equals("updateNetworkState", ignoreCase = true) && it.parameterCount == 1
+        } ?: return
+        runCatching { invoke(method, networkStateJson) }
+    }
+
     fun stop() {
         val klass = engineClass ?: return
         val method = klass.methods.firstOrNull {

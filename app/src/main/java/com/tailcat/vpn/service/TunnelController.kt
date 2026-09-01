@@ -56,7 +56,8 @@ class TunnelController(
     init {
         scope.launch { ipAuditor.fetchCurrentEgress() }
 
-        networkMonitor.setOnNetworkChangedListener { networkType ->
+        networkMonitor.setOnNetworkStateChangedListener { networkType, stateJson ->
+            tunnelEngine.updateNetworkState(stateJson)
             when {
                 networkType == NetworkType.NONE && _tunnelState.value == TunnelState.CONNECTED -> {
                     _tunnelState.value = TunnelState.RECONNECTING

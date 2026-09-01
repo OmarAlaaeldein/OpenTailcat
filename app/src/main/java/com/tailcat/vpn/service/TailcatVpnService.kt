@@ -64,6 +64,9 @@ class TailcatVpnService : VpnService() {
     private suspend fun establishAndStartEngine(profile: GatewayProfile) {
         val app = TailcatApplication.instance
         try {
+            // Provide current validated Android LinkProperties and interface state to native netmon
+            app.tunnelEngine.updateNetworkState(app.networkMonitor.getNetworkStateJSON())
+
             // Complete the cryptographic gateway and transport handshake before installing any
             // full-device route. A failed or cancelled prepare phase cannot affect device traffic.
             app.tunnelEngine.prepare(profile.token)
