@@ -82,7 +82,7 @@ Requirements: OpenJDK 21, Android SDK 35, Android NDK (r26+ / r29), and Go 1.24+
 cd core-engine
 export ANDROID_HOME=$HOME/Library/Android/sdk
 export ANDROID_NDK_HOME=/opt/homebrew/share/android-ndk
-gomobile bind -v -target=android -androidapi=26 -javapkg=com.tailcat.vpn -o ../app/libs/libtailcat.aar .
+gomobile bind -ldflags="-s -w" -v -target=android/arm64,android/amd64 -androidapi=26 -javapkg=com.tailcat.vpn -o ../app/libs/libtailcat.aar .
 go test -v ./...
 ```
 
@@ -91,13 +91,20 @@ go test -v ./...
 ```bash
 ./gradlew testDebugUnitTest
 ./gradlew lintDebug
-./gradlew assembleDebug
 ./gradlew assembleRelease
 ```
 
-Artifacts generated:
-- Debug APK: `app/build/outputs/apk/debug/app-debug.apk`
-- Release APK: `app/build/outputs/apk/release/app-release-unsigned.apk`
+### Sign Release APKs
+
+```bash
+export PATH="$HOME/Library/Android/sdk/build-tools/35.0.0:$PATH"
+apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android --out Tailcat-v1.0.0-arm64-v8a-signed.apk app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk
+apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android --out Tailcat-v1.0.0-universal-signed.apk app/build/outputs/apk/release/app-universal-release-unsigned.apk
+```
+
+Signed Artifacts:
+- Arm64 Release APK (20 MB): `Tailcat-v1.0.0-arm64-v8a-signed.apk`
+- Universal Release APK (39 MB): `Tailcat-v1.0.0-universal-signed.apk`
 
 ## Repository layout
 
