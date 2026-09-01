@@ -22,6 +22,7 @@ type ParsedToken struct {
 	ServerPublic      key.NodePublic
 	ServerDiscoPublic key.DiscoPublic
 	RegionID          tailcfg.DERPRegionID
+	Region            []*tailcfg.DERPRegion
 	HasEmbeddedRegion bool
 	ExpiresAtUnixSec  *int64
 	IssuedAtUnixSec   *int64
@@ -33,6 +34,20 @@ func (t *ParsedToken) IsExpired() bool {
 		return false
 	}
 	return time.Now().Unix() >= *t.ExpiresAtUnixSec
+}
+
+// CanonicalToken returns the standard official Tailcat ConnBlob ("tc" + Base64URL(CBOR))
+// for this token, ensuring flawless compatibility with upstream tailcat.NewClient.
+func (t *ParsedToken) CanonicalToken() string {
+	ci := tailcat.ConnInfo{
+		ServerPublic: tailcat.NodePublic{NodePublic: t.ServerPublic},
+		RegionID:     t.RegionID,
+		Region:       t.Region,
+	}
+	if !t.ServerDiscoPublic.IsZero() {
+		ci.ServerDiscoPublic = tailcat.DiscoPublic{DiscoPublic: t.ServerDiscoPublic}
+	}
+	return string(ci.ConnBlob())
 }
 
 // ParseToken parses and validates a Tailcat token (tc-prefixed Base64URL-encoded CBOR).
@@ -119,18 +134,35 @@ func ParseToken(raw string) (*ParsedToken, error) {
 	if err != nil {
 		// Fallback for legacy format with numeric "r"
 		if rVal, ok := rawMap["r"]; ok {
-			if rNum, ok := rVal.(uint64); ok && rNum > 0 {
+			var rNum uint64
+			switch v := rVal.(type) {
+			case uint64:
+				rNum = v
+			case int64:
+				if v > 0 {
+					rNum = uint64(v)
+				}
+			case int:
+				if v > 0 {
+					rNum = uint64(v)
+				}
+			case float64:
+				if v > 0 {
+					rNum = uint64(v)
+				}
+			}
+			if rNum > 0 {
 				if pVal, ok := rawMap["p"]; ok {
 					if pBytes, ok := pVal.([]byte); ok && len(pBytes) == 32 {
 						pub := key.NodePublicFromRaw32(mem.B(pBytes))
 						pt := &ParsedToken{
-							RawToken:          trimmed,
 							ServerPublic:      pub,
 							RegionID:          tailcfg.DERPRegionID(rNum),
 							HasEmbeddedRegion: false,
 							ExpiresAtUnixSec:  expSec,
 							IssuedAtUnixSec:   iatSec,
 						}
+						pt.RawToken = pt.CanonicalToken()
 						if pt.IsExpired() {
 							return nil, errors.New("connection token has expired")
 						}
@@ -153,6 +185,7 @@ func ParseToken(raw string) (*ParsedToken, error) {
 		ServerPublic:      ci.ServerPublic.NodePublic,
 		ServerDiscoPublic: ci.ServerDiscoPublic.DiscoPublic,
 		RegionID:          regionID,
+		Region:            ci.Region,
 		HasEmbeddedRegion: hasEmbedded,
 		ExpiresAtUnixSec:  expSec,
 		IssuedAtUnixSec:   iatSec,
