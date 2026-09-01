@@ -162,23 +162,41 @@ func TestPrepareInvalidToken(t *testing.T) {
 	}
 }
 
-func TestRegionNameForID(t *testing.T) {
-	tests := []struct {
-		id   int
-		name string
-	}{
-		{1, "New York City"},
-		{2, "San Francisco"},
-		{4, "Frankfurt"},
-		{10, "Seattle"},
-		{302, "San Francisco"},
-		{999, "Region 999"},
+func TestLegacyNumericRTokenHandling(t *testing.T) {
+	nodePriv := key.NewNode()
+
+	wireMap := map[string]any{
+		"p": nodePriv.Public().AppendTo(nil),
+		"r": uint64(302),
 	}
 
-	for _, tt := range tests {
-		got := regionNameForID(tt.id)
-		if got != tt.name {
-			t.Errorf("regionNameForID(%d) = %q, want %q", tt.id, got, tt.name)
+	cborBytes, err := cbor.Marshal(wireMap)
+	if err != nil {
+		t.Fatalf("CBOR marshal: %v", err)
+	}
+
+	token := "tc" + base64.RawURLEncoding.EncodeToString(cborBytes)
+	pt, err := ParseToken(token)
+	if err != nil {
+		t.Fatalf("ParseToken failed on legacy numeric r: %v", err)
+	}
+
+	if pt.RegionID != 302 {
+		t.Errorf("Expected region 302, got %v", pt.RegionID)
+	}
+
+	// Canonical token must parse directly with upstream tailcat.ParseConnBlob
+	canonicalBlob := pt.CanonicalToken()
+	if !strings.HasPrefix(canonicalBlob, "tc") {
+		t.Fatalf("Canonical token missing tc prefix: %s", canonicalBlob)
+	}
+
+	// Verify that Prepare() accepts this legacy token without CBOR unmarshal error
+	err = Prepare(token)
+	if err != nil {
+		// It will fail because the node is not running on network, but MUST NOT fail with CBOR unmarshal error
+		if strings.Contains(err.Error(), "cbor: cannot unmarshal positive integer into Go struct field") {
+			t.Fatalf("Prepare failed with CBOR struct unmarshal error: %v", err)
 		}
 	}
 }

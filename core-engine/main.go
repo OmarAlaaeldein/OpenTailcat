@@ -66,7 +66,7 @@ func Prepare(tokenStr string) error {
 		return fmt.Errorf("invalid token: %w", err)
 	}
 
-	client := tailcat.NewClient(tailcat.ConnBlob(pt.RawToken))
+	client := tailcat.NewClient(tailcat.ConnBlob(pt.CanonicalToken()))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
