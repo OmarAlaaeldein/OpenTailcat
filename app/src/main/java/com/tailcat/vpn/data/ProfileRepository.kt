@@ -37,7 +37,7 @@ class ProfileRepository(private val preferencesStore: PreferencesStore) {
                             token = obj.getString("token"),
                             serverPublicKey = obj.getString("serverPublicKey"),
                             derpRegionId = if (obj.has("derpRegionId") && !obj.isNull("derpRegionId")) obj.getInt("derpRegionId") else null,
-                            customDns = obj.optString("customDns", "100.100.21.8"),
+                            customDns = obj.optString("customDns", "1.1.1.1"),
                             mtu = obj.optInt("mtu", 1280),
                             tcpMss = obj.optInt("tcpMss", 1120),
                             isDefault = obj.optBoolean("isDefault", false),
@@ -78,7 +78,7 @@ class ProfileRepository(private val preferencesStore: PreferencesStore) {
         preferencesStore.savedProfilesJson = array.toString()
     }
 
-    fun addOrUpdateFromToken(name: String, rawToken: String, customDns: String = "100.100.21.8"): Result<GatewayProfile> {
+    fun addOrUpdateFromToken(name: String, rawToken: String, customDns: String = "1.1.1.1"): Result<GatewayProfile> {
         val validation = TokenParser.validate(rawToken)
         if (validation !is TokenValidationState.Valid) {
             val message = when (validation) {

@@ -8,7 +8,7 @@ data class GatewayProfile(
     val token: String,
     val serverPublicKey: String,
     val derpRegionId: Int? = null,
-    val customDns: String = "100.100.21.8",
+    val customDns: String = "1.1.1.1",
     val mtu: Int = 1280,
     val tcpMss: Int = 1120,
     val isDefault: Boolean = false,
