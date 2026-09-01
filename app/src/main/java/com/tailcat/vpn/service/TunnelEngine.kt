@@ -68,6 +68,7 @@ class TunnelEngine {
             transportType = transport,
             derpRegionId = json.optIntOrNull("derpRegionId"),
             derpRegionName = json.optNullableString("derpRegionName"),
+			tunnelEgressIp = json.optNullableString("tunnelEgressIp"),
             rttLatencyMs = json.optLong("rttMs", 0L).coerceAtLeast(0L),
             jitterMs = json.optLong("jitterMs", 0L).coerceAtLeast(0L),
             txBytes = json.optLong("txBytes", 0L).coerceAtLeast(0L),

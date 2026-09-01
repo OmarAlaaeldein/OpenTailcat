@@ -22,26 +22,26 @@ The client pairs directly with sovereign exit node gateways (such as `nullexit`)
   - Spawns concurrent packet pumps for IPv4 raw packets.
   - Attaches userland TCP state machine, ICMP echo responder, and DNS-over-TCP forwarder.
 
-### 2. Userland TCP & DNS Engine (`core-engine/bridge.go`)
+### 2. Userland TCP & DNS Engine (`core-engine/netstack_tcp.go` & `bridge.go`)
 Upstream `tailscale/tailcat` is userland netstack-oriented (`Client.DialTCP`). To bridge raw IP packets from the Android OS TUN to Tailcat's dialer:
-- **TCP State Machine**:
-  - Intercepts outbound TCP SYN packets from the TUN for any `(srcAP -> dstAP)`.
-  - Dials the destination over the encrypted WireGuard tunnel using `client.DialTCP(ctx, dstAP)`.
-  - Responds with TCP SYN-ACK (`0x12`), handles three-way handshakes, data framing, ACK packet generation, and graceful FIN/RST teardown.
+- **gVisor TCP Proxy Stack**:
+  - Terminates Android TCP flows using gVisor's production TCP/IP stack with TCP SACK, window scaling, and MTU segmentation.
+  - Uses `tcp.Forwarder` to intercept outbound TCP connections and bidirectionally proxy them to `client.DialTCP(ctx, destination)`.
 - **DNS-over-TCP Proxy**:
   - Intercepts all UDP port 53 DNS queries from Android apps.
   - Frames them as RFC 7766 DNS-over-TCP queries (`[len16, payload]`).
   - Proxies them through the exit node over `client.DialTCP` to Cloudflare (`1.1.1.1:53`) and Google (`8.8.8.8:53`).
   - Re-encapsulates the response into UDP packets with valid IPv4/UDP checksums and injects them back into the TUN.
 
-### 3. In-App Telemetry vs. Device Network Egress
+### 3. Exit IP Audit vs. Device Network Egress
 - **App UID Exclusion**:
   - The Android `VpnService` builder marks Tailcat's own package as disallowed (`builder.addDisallowedApplication(packageName)`).
   - This ensures that native WireGuard & Magicsock UDP sockets reach the physical Wi-Fi/LTE network directly without looping back into the VPN interface.
-  - As a result, in-app diagnostics (`IpAuditor`) report the **direct device IP** on purpose.
+- **Tunnel Exit IP Audit (`core-engine/egress.go`)**:
+  - Because the app UID bypasses the TUN, the native engine runs a background TLS audit loop through `client.DialTCP` to measure the real exit IP.
+  - The Android UI (`TelemetryCard.kt`) displays **Exit IP: <ip>** and **VPN address: 100.64.0.2** when connected, and **Device IP: <ip>** when disconnected.
 - **External App Egress**:
-  - All other device applications (Chrome, Firefox, WhatsApp, Instagram, YouTube, etc.) route through `0.0.0.0/0` on the TUN.
-  - Visiting external IP inspection services (e.g., `icanhazip.com`, `ipinfo.io`) in a web browser reports the **exit node's Cloudflare WARP IP** (`104.28.x.x`).
+  - All other device applications (Chrome, Firefox, WhatsApp, Instagram, YouTube, etc.) route through `0.0.0.0/0` on the TUN to the exit gateway.
 
 ### 4. IPv4 vs IPv6 Route Scoping
 - Docker / Colima host gateways typically have IPv4-only public default routes.

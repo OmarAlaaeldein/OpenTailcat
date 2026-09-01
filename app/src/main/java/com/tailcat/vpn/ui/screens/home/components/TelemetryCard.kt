@@ -54,6 +54,10 @@ fun TelemetryCard(
     onRefreshIp: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+	val tunnelActive = metrics.transportType != TransportType.UNKNOWN
+	val displayedIp = if (tunnelActive) metrics.tunnelEgressIp ?: "Checking…" else egressInfo.ip
+	val ipLabel = if (tunnelActive) "Exit IP" else "Device IP"
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -63,8 +67,8 @@ fun TelemetryCard(
             .padding(16.dp)
     ) {
         Column {
-            // App traffic is intentionally excluded from the TUN so native transport sockets
-            // cannot loop. This is the device's direct public IP, not a tunnel egress claim.
+            // The app UID bypasses the Android VPN. Connected-mode egress must therefore
+            // come from the native engine's through-WireGuard probe, never IpAuditor.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -85,14 +89,19 @@ fun TelemetryCard(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "Device IP: ${egressInfo.ip}",
+								text = "$ipLabel: $displayedIp",
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     color = TextPrimary,
                                     fontSize = 14.sp
                                 )
                             )
                         }
-                        if (egressInfo.city != null || egressInfo.country != null) {
+						if (tunnelActive) {
+							Text(
+								text = "VPN address: 100.64.0.2",
+								style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
+							)
+						} else if (egressInfo.city != null || egressInfo.country != null) {
                             val location = listOfNotNull(egressInfo.city, egressInfo.country).joinToString(", ")
                             Text(
                                 text = location,
@@ -102,13 +111,13 @@ fun TelemetryCard(
                     }
                 }
 
-                if (egressInfo.isChecking) {
+				if (!tunnelActive && egressInfo.isChecking) {
                     CircularProgressIndicator(
                         strokeWidth = 2.dp,
                         color = AccentCyan,
                         modifier = Modifier.size(16.dp)
                     )
-                } else {
+				} else if (!tunnelActive) {
                     IconButton(
                         onClick = onRefreshIp,
                         modifier = Modifier.size(28.dp)

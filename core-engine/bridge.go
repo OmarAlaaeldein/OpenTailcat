@@ -20,10 +20,12 @@ import (
 // TunBridge manages bidirectional packet pumping between the Android TUN descriptor
 // and the Tailcat data plane / exit node.
 type TunBridge struct {
-	tunFD   int
-	tunFile *os.File
-	client  *tailcat.Client
-	token   *ParsedToken
+	tunFD     int
+	tunFile   *os.File
+	client    *tailcat.Client
+	token     *ParsedToken
+	transport string
+	rttMs     int64
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -35,12 +37,15 @@ type TunBridge struct {
 	lastTime   time.Time
 	txRateKbps atomic.Int64
 	rxRateKbps atomic.Int64
+	egressIP   atomic.Value // string, populated only by a request through Tailcat
 
 	udpMu       sync.Mutex
 	udpSessions map[string]*udpSession
 
 	tcpMu       sync.Mutex
 	tcpSessions map[string]*tcpSession
+	tcpStack    *tcpProxyStack
+	tunWriteMu  sync.Mutex
 
 	closed atomic.Bool
 	wg     sync.WaitGroup
@@ -75,7 +80,13 @@ func (s *tcpSession) closeLocked() {
 }
 
 // NewTunBridge creates a new packet bridge using a duplicated TUN file descriptor.
-func NewTunBridge(tunFD int, client *tailcat.Client, token *ParsedToken) (*TunBridge, error) {
+func NewTunBridge(
+	tunFD int,
+	client *tailcat.Client,
+	token *ParsedToken,
+	transport string,
+	rttMs int64,
+) (*TunBridge, error) {
 	if tunFD < 0 {
 		return nil, errors.New("invalid tun file descriptor")
 	}
@@ -98,12 +109,22 @@ func NewTunBridge(tunFD int, client *tailcat.Client, token *ParsedToken) (*TunBr
 		tunFile:     tunFile,
 		client:      client,
 		token:       token,
+		transport:   transport,
+		rttMs:       rttMs,
 		ctx:         ctx,
 		cancel:      cancel,
 		udpSessions: make(map[string]*udpSession),
 		tcpSessions: make(map[string]*tcpSession),
 		lastTime:    time.Now(),
 	}
+
+	tcpStack, err := newTCPProxyStack(b)
+	if err != nil {
+		_ = tunFile.Close()
+		cancel()
+		return nil, fmt.Errorf("create TCP netstack: %w", err)
+	}
+	b.tcpStack = tcpStack
 
 	return b, nil
 }
@@ -128,13 +149,19 @@ func (b *TunBridge) Start() error {
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
-		b.cleanupTCPLoop()
+		b.tcpStack.writeLoop()
 	}()
 
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
 		b.rateCalcLoop()
+	}()
+
+	b.wg.Add(1)
+	go func() {
+		defer b.wg.Done()
+		b.egressProbeLoop()
 	}()
 
 	select {
@@ -152,6 +179,9 @@ func (b *TunBridge) Stop() error {
 	}
 
 	b.cancel()
+	if b.tcpStack != nil {
+		b.tcpStack.Close()
+	}
 	if b.tunFile != nil {
 		b.tunFile.Close()
 	}
@@ -201,7 +231,7 @@ func (b *TunBridge) readLoop() {
 		copy(pkt, buf[:n])
 		b.txBytes.Add(int64(n))
 
-		go b.handleOutboundPacket(pkt)
+		b.handleOutboundPacket(pkt)
 	}
 }
 
@@ -239,7 +269,7 @@ func (b *TunBridge) handleIPv4(pkt []byte) {
 	case 17: // UDP
 		b.handleUDPv4(pkt, ihl, srcIP, dstIP)
 	case 6: // TCP
-		b.handleTCPv4(pkt, ihl, srcIP, dstIP)
+		b.tcpStack.inject(pkt, false)
 	}
 }
 
@@ -258,8 +288,15 @@ func (b *TunBridge) handleIPv6(pkt []byte) {
 	case 17: // UDP
 		b.handleUDPv6(pkt, 40, srcIP, dstIP)
 	case 6: // TCP
-		b.handleTCPv6(pkt, 40, srcIP, dstIP)
+		b.tcpStack.inject(pkt, true)
 	}
+}
+
+func (b *TunBridge) writeTunPacket(pkt []byte) error {
+	b.tunWriteMu.Lock()
+	defer b.tunWriteMu.Unlock()
+	_, err := b.tunFile.Write(pkt)
+	return err
 }
 
 // handleICMPv4 generates an echo reply for IPv4 ping packets.
@@ -799,34 +836,17 @@ func (b *TunBridge) rateCalcLoop() {
 
 // GetStats returns current measured metrics from the live bridge and client.
 func (b *TunBridge) GetStats() EngineStats {
-	rttMs := int64(0)
-	jitterMs := int64(0)
-
-	// Query ping latency from client if available
-	if b.client != nil {
-		ctx, cancel := context.WithTimeout(b.ctx, 1500*time.Millisecond)
-		res, err := b.client.Ping(ctx)
-		cancel()
-		if err == nil && res.Latency > 0 {
-			rttMs = res.Latency.Milliseconds()
-			jitterMs = rttMs / 6
-		}
-	}
-
 	regionID := int(b.token.RegionID)
 	regionName := regionNameForID(regionID)
-
-	transport := "DERP_RELAY"
-	if b.token.HasEmbeddedRegion {
-		transport = "DIRECT_P2P"
-	}
+	egressIP, _ := b.egressIP.Load().(string)
 
 	return EngineStats{
-		Transport:      transport,
+		Transport:      b.transport,
 		DerpRegionID:   regionID,
 		DerpRegionName: regionName,
-		RTTMs:          rttMs,
-		JitterMs:       jitterMs,
+		TunnelEgressIP: egressIP,
+		RTTMs:          b.rttMs,
+		JitterMs:       0,
 		TxBytes:        b.txBytes.Load(),
 		RxBytes:        b.rxBytes.Load(),
 		TxRateKbps:     b.txRateKbps.Load(),
@@ -875,7 +895,7 @@ func buildIPv4UDPPacket(srcAP, dstAP netip.AddrPort, payload []byte) []byte {
 	pkt[1] = 0x00 // DSCP / ECN
 	binary.BigEndian.PutUint16(pkt[2:4], uint16(totalLen))
 	binary.BigEndian.PutUint16(pkt[4:6], 0x1234) // Identification
-	pkt[6] = 0x40                               // Don't fragment
+	pkt[6] = 0x40                                // Don't fragment
 	pkt[7] = 0x00
 	pkt[8] = 64 // TTL
 	pkt[9] = 17 // Protocol UDP
@@ -954,7 +974,7 @@ func buildIPv4TCPPacket(srcAP, dstAP netip.AddrPort, seq, ack uint32, flags uint
 	pkt[1] = 0x00
 	binary.BigEndian.PutUint16(pkt[2:4], uint16(totalLen))
 	binary.BigEndian.PutUint16(pkt[4:6], 0x4321) // Identification
-	pkt[6] = 0x40                               // Don't fragment
+	pkt[6] = 0x40                                // Don't fragment
 	pkt[7] = 0x00
 	pkt[8] = 64 // TTL
 	pkt[9] = 6  // Protocol TCP

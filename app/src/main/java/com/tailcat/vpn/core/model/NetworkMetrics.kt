@@ -10,6 +10,7 @@ data class NetworkMetrics(
     val transportType: TransportType = TransportType.UNKNOWN,
     val derpRegionId: Int? = null,
     val derpRegionName: String? = null,
+	val tunnelEgressIp: String? = null,
     val rttLatencyMs: Long = 0,
     val jitterMs: Long = 0,
     val txBytes: Long = 0,
