@@ -77,11 +77,6 @@ class TailcatVpnService : VpnService() {
                 .addDnsServer(profile.customDns)
                 .setBlocking(false)
 
-            runCatching {
-                builder.addAddress("fd7a:115c:a1e0::2", 128)
-                builder.addRoute("::", 0)
-            }
-
             for (packageName in app.preferencesStore.splitTunnelExcludedApps) {
                 runCatching { builder.addDisallowedApplication(packageName) }
             }
