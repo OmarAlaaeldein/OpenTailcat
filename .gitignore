@@ -26,6 +26,7 @@ bin/
 *.so
 *.dylib
 core-engine/*.aar
+app/libs/*-sources.jar
 
 # Local configuration files
 local.properties
