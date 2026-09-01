@@ -4,13 +4,51 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Deep obsidian dark background -->
     <path
-        android:fillColor="#0A0E14"
+        android:fillColor="#0A0E17"
         android:pathData="M0,0h108v108h-108z" />
+
+    <!-- Subtle inner shield backdrop -->
+    <path
+        android:fillColor="#121826"
+        android:pathData="M54,12 L86,24 L86,52 C86,72 70,88 54,96 C38,88 22,72 22,52 L22,24 Z" />
+
+    <!-- Outer Neon Cyan Shield Rim -->
+    <path
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M54,14 L84,25.5 L84,51 C84,69.5 69.5,84.5 54,92 C38.5,84.5 24,69.5 24,51 L24,25.5 Z" />
+
+    <!-- Stylized Geometric Cat Ears & Head Silhouette -->
+    <!-- Left Ear: (34, 38) to (40, 24) to (49, 34) -->
+    <!-- Right Ear: (74, 38) to (68, 24) to (59, 34) -->
     <path
         android:fillColor="#00E5FF"
-        android:pathData="M54,14L88,27v24c0,21.6 -13.9,36.4 -34,43 -20.1,-6.6 -34,-21.4 -34,-43V27L54,14z" />
+        android:pathData="M35,42 L41,26 L50,36 L54,34 L58,36 L67,26 L73,42 C74,52 68,62 54,65 C40,62 34,52 35,42 Z" />
+
+    <!-- Inner Head Carve-out / Contrast Mask -->
     <path
-        android:fillColor="#0A0E14"
-        android:pathData="M36,34h36v9H59v31H49V43H36z" />
+        android:fillColor="#0A0E17"
+        android:pathData="M40,44 L44,34 L50,40 L54,39 L58,40 L64,34 L68,44 C69,51 64,58 54,60 C44,58 39,51 40,44 Z" />
+
+    <!-- Glowing Violet Mesh Node / Cryptographic Keyhole in Center -->
+    <path
+        android:fillColor="#7C4DFF"
+        android:pathData="M54,46 C56.76,46 59,48.24 59,51 C59,52.8 58.04,54.38 56.6,55.25 L58,68 L50,68 L51.4,55.25 C49.96,54.38 49,52.8 49,51 C49,48.24 51.24,46 54,46 Z" />
+
+    <!-- Neon Cyan Core Connection Dot -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M54,49 A2,2 0 1,0 54,53 A2,2 0 1,0 54,49 Z" />
+
+    <!-- Bottom Shield Anchor Accent -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M54,74 L57,78 L54,82 L51,78 Z" />
+
 </vector>
