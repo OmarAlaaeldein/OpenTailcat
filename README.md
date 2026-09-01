@@ -118,8 +118,8 @@ apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --ks-key-al
 ```
 
 Signed Artifacts:
-- Arm64 Release APK (~20 MB): `OpenTailcat-v1.0.0-arm64-v8a-signed.apk`
-- Universal Release APK (~41 MB): `OpenTailcat-v1.0.0-universal-signed.apk`
+- **ARM64-v8a Release APK** (~20 MB): [`OpenTailcat-v1.0.0-arm64-v8a-signed.apk`](https://github.com/OmarAlaaeldein/OpenTailcat/releases/download/v1.0.0/OpenTailcat-v1.0.0-arm64-v8a-signed.apk)
+- **Universal Release APK** (~41 MB): [`OpenTailcat-v1.0.0-universal-signed.apk`](https://github.com/OmarAlaaeldein/OpenTailcat/releases/download/v1.0.0/OpenTailcat-v1.0.0-universal-signed.apk)
 
 ## Repository layout
 
