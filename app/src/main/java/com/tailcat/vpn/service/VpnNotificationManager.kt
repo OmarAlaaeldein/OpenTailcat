@@ -57,11 +57,11 @@ class VpnNotificationManager(private val context: Context) {
         )
 
         val title = when (state) {
-            TunnelState.CONNECTING -> "Tailcat: Connecting to $profileName..."
-            TunnelState.CONNECTED -> "Tailcat: Protected ($profileName)"
-            TunnelState.RECONNECTING -> "Tailcat: Reconnecting..."
-            TunnelState.DEGRADED -> "Tailcat: Tunnel Degraded"
-            TunnelState.DISCONNECTED -> "Tailcat: Disconnected"
+            TunnelState.CONNECTING -> "OpenTailcat: Connecting to $profileName..."
+            TunnelState.CONNECTED -> "OpenTailcat: Protected ($profileName)"
+            TunnelState.RECONNECTING -> "OpenTailcat: Reconnecting..."
+            TunnelState.DEGRADED -> "OpenTailcat: Tunnel Degraded"
+            TunnelState.DISCONNECTED -> "OpenTailcat: Disconnected"
         }
 
         val transportStr = when (metrics.transportType) {

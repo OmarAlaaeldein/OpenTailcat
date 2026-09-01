@@ -70,7 +70,7 @@ class TailcatVpnService : VpnService() {
             currentCoroutineContext().ensureActive()
 
             val builder = Builder()
-                .setSession("Tailcat - ${profile.name}")
+                .setSession("OpenTailcat - ${profile.name}")
                 .setMtu(profile.mtu)
                 .addAddress("100.64.0.2", 32)
                 .addRoute("0.0.0.0", 0)

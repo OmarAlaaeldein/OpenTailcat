@@ -24,5 +24,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Tailcat"
+rootProject.name = "OpenTailcat"
 include(":app")

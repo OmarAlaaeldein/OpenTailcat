@@ -1,6 +1,21 @@
-# Tailcat VPN Client
+# OpenTailcat
 
-Tailcat is an Android client for a control-plane-free WireGuard and Magicsock VPN. Gateway connection parameters are carried in compact, URL-safe `tc...` tokens.
+OpenTailcat is an independent, control-plane-free Android VPN client powered by the open-source WireGuard and Magicsock protocols from `tailscale/tailcat`. Gateway connection parameters are carried in compact, URL-safe `tc...` tokens without any centralized coordination server.
+
+> **Note**: OpenTailcat is an independent open-source community client and is not affiliated with, sponsored by, or endorsed by Tailscale Inc.
+
+## How to Connect (Quickstart)
+
+OpenTailcat requires no accounts, email addresses, or central servers. Everything is bootstrapped using a self-contained connection token:
+
+1. **Start an Exit Gateway** on your server, VM, or local computer:
+   - Using official upstream Tailcat:
+     ```bash
+     tailcat serve exit-node
+     ```
+   - Or using a containerized gateway (e.g. `nullexit`).
+2. **Copy the printed token** (e.g. `tco2FwWCBYO5fzDYwh...`).
+3. **Open OpenTailcat on Android**, tap the Power ring or "+", paste your token, and tap Connect.
 
 ## Architecture & status
 
@@ -8,7 +23,7 @@ The repository contains a fully integrated Android client and Go Mobile native V
 
 - **Android Client**: Jetpack Compose UI, encrypted Keystore-backed profile storage, validated underlying network monitoring, Android `VpnService` lifecycle management, and per-app exclusions.
 - **Native Engine Adapter (`libtailcat.aar`)**: Powered by official `tailscale/tailcat` (pinned at `third_party/tailcat` v0.4.0) with Go Mobile bindings. Provides two-phase startup (`prepare` Meow ping handshake -> `attachTun` raw packet pump), WireGuard encryption, Magicsock direct UDP with DERP relay fallback, ICMP echo handling, and UDP/DNS datagram forwarding.
-- **Fail-Closed Guarantees**: Full-device routes (`0.0.0.0/0`, `::/0`) are only installed after the native engine completes the authenticated reachability handshake. The app UID is excluded from VPN routing to avoid recursive loops.
+- **Fail-Closed Guarantees**: Full-device routes (`0.0.0.0/0`) are only installed after the native engine completes the authenticated reachability handshake. The app UID is excluded from VPN routing to avoid recursive loops.
 
 ## Implemented features
 
@@ -98,13 +113,13 @@ go test -v ./...
 
 ```bash
 export PATH="$HOME/Library/Android/sdk/build-tools/35.0.0:$PATH"
-apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android --out Tailcat-v1.0.0-arm64-v8a-signed.apk app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk
-apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android --out Tailcat-v1.0.0-universal-signed.apk app/build/outputs/apk/release/app-universal-release-unsigned.apk
+apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android --out OpenTailcat-v1.0.0-arm64-v8a-signed.apk app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk
+apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android --out OpenTailcat-v1.0.0-universal-signed.apk app/build/outputs/apk/release/app-universal-release-unsigned.apk
 ```
 
 Signed Artifacts:
-- Arm64 Release APK (20 MB): `Tailcat-v1.0.0-arm64-v8a-signed.apk`
-- Universal Release APK (39 MB): `Tailcat-v1.0.0-universal-signed.apk`
+- Arm64 Release APK (~20 MB): `OpenTailcat-v1.0.0-arm64-v8a-signed.apk`
+- Universal Release APK (~41 MB): `OpenTailcat-v1.0.0-universal-signed.apk`
 
 ## Repository layout
 
@@ -123,6 +138,14 @@ SECURITY.md                  Security policy and controls
 THIRD_PARTY_NOTICES.md       Third-party open source notices
 ```
 
+## Author & Maintainer
+
+Developed and maintained by **Omar Alaaeldein** ([@OmarAlaaeldein](https://github.com/OmarAlaaeldein)).
+
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE). Pinned upstream Tailcat components in `third_party/tailcat` are licensed under the BSD-3-Clause License.
+Copyright (c) 2026 Omar Alaaeldein.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. See [LICENSE](LICENSE).
+
+Pinned upstream Tailcat components in `third_party/tailcat` are licensed by Tailscale Inc. under the BSD-3-Clause License.
