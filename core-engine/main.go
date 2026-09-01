@@ -5,11 +5,54 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
 	"github.com/tailscale/tailcat"
+	"tailscale.com/net/netmon"
 )
+
+func init() {
+	// On Android, /etc/resolv.conf does not exist, causing Go's pure Go resolver to query [::1]:53 or 127.0.0.1:53.
+	// We configure a default DNS resolver fallback to 8.8.8.8 / 1.1.1.1 so outbound HTTP/DNS lookups succeed.
+	net.DefaultResolver = &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			var d net.Dialer
+			c, err := d.DialContext(ctx, "udp", "8.8.8.8:53")
+			if err == nil {
+				return c, nil
+			}
+			return d.DialContext(ctx, "udp", "1.1.1.1:53")
+		},
+	}
+
+	// On Android (SDK 30+), standard netlink/net.Interfaces fails with permission denied under SEAndroid.
+	// We register an InterfaceGetter fallback so Tailscale netmon and netcheck have a valid network state.
+	netmon.RegisterInterfaceGetter(func() ([]netmon.Interface, error) {
+		ifs, err := net.Interfaces()
+		if err == nil && len(ifs) > 0 {
+			ret := make([]netmon.Interface, len(ifs))
+			for i := range ifs {
+				ret[i].Interface = &ifs[i]
+			}
+			return ret, nil
+		}
+		return []netmon.Interface{
+			{
+				Interface: &net.Interface{
+					Index: 1,
+					Name:  "android0",
+					Flags: net.FlagUp | net.FlagBroadcast | net.FlagRunning,
+				},
+				AltAddrs: []net.Addr{
+					&net.IPNet{IP: net.ParseIP("10.0.2.15"), Mask: net.CIDRMask(24, 32)},
+				},
+			},
+		}, nil
+	})
+}
 
 // EngineStats encapsulates real measured telemetry reported to Android.
 type EngineStats struct {

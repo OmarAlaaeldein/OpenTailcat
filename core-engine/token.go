@@ -155,8 +155,18 @@ func ParseToken(raw string) (*ParsedToken, error) {
 				if pVal, ok := rawMap["p"]; ok {
 					if pBytes, ok := pVal.([]byte); ok && len(pBytes) == 32 {
 						pub := key.NodePublicFromRaw32(mem.B(pBytes))
+						var discoPub key.DiscoPublic
+						if kVal, ok := rawMap["k"]; ok {
+							if kBytes, ok := kVal.([]byte); ok && len(kBytes) == 32 {
+								discoPub = key.DiscoPublicFromRaw32(mem.B(kBytes))
+							}
+						}
+						if discoPub.IsZero() {
+							discoPub = key.DiscoPublicFromRaw32(mem.B(pBytes))
+						}
 						pt := &ParsedToken{
 							ServerPublic:      pub,
+							ServerDiscoPublic: discoPub,
 							RegionID:          tailcfg.DERPRegionID(rNum),
 							HasEmbeddedRegion: false,
 							ExpiresAtUnixSec:  expSec,
