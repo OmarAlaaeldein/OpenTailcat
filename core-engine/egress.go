@@ -40,7 +40,7 @@ func (b *TunBridge) probeTunnelEgressIP(ctx context.Context) (netip.Addr, error)
 		return netip.Addr{}, fmt.Errorf("authenticate egress probe: %w", err)
 	}
 	if _, err := io.WriteString(tlsConn,
-		"GET /cdn-cgi/trace HTTP/1.1\r\nHost: 1.1.1.1\r\nUser-Agent: Tailcat-Android/1.0\r\nConnection: close\r\n\r\n",
+		"GET /cdn-cgi/trace HTTP/1.1\r\nHost: 1.1.1.1\r\nUser-Agent: OpenTailcat-Android/1.0\r\nConnection: close\r\n\r\n",
 	); err != nil {
 		return netip.Addr{}, fmt.Errorf("write egress probe: %w", err)
 	}
@@ -71,7 +71,7 @@ func (b *TunBridge) probeIPify(ctx context.Context) (netip.Addr, error) {
 		_ = conn.SetDeadline(deadline)
 	}
 	if _, err := io.WriteString(conn,
-		"GET / HTTP/1.1\r\nHost: api.ipify.org\r\nUser-Agent: Tailcat-Android/1.0\r\nConnection: close\r\n\r\n",
+		"GET / HTTP/1.1\r\nHost: api.ipify.org\r\nUser-Agent: OpenTailcat-Android/1.0\r\nConnection: close\r\n\r\n",
 	); err != nil {
 		return netip.Addr{}, fmt.Errorf("write ipify probe: %w", err)
 	}

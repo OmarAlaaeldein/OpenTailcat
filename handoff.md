@@ -1,8 +1,8 @@
-# Tailcat Native Engine Integration & Architecture Handoff
+# OpenTailcat Native Engine Integration & Architecture Handoff
 
 ## Executive Status
 
-The Tailcat Android VPN client is a **fully functional, production-ready mobile implementation** of Tailscale's control-plane-free `tailcat` engine. The native engine wraps official upstream `tailscale/tailcat` (`v0.4.0` pinned at `third_party/tailcat`) and exposes a two-phase Go Mobile library (`app/libs/libtailcat.aar`).
+The OpenTailcat Android VPN client is a **fully functional, production-ready mobile implementation** of Tailscale's control-plane-free `tailcat` engine. The native engine wraps official upstream `tailscale/tailcat` (`v0.4.0` pinned at `third_party/tailcat`) and exposes a two-phase Go Mobile library (`app/libs/libtailcat.aar`).
 
 The client pairs directly with sovereign exit node gateways (such as `nullexit`) through compact `tc...` connection tokens without any centralized coordination server.
 
@@ -35,7 +35,7 @@ Upstream `tailscale/tailcat` is userland netstack-oriented (`Client.DialTCP`). T
 
 ### 3. Exit IP Audit vs. Device Network Egress
 - **App UID Exclusion**:
-  - The Android `VpnService` builder marks Tailcat's own package as disallowed (`builder.addDisallowedApplication(packageName)`).
+  - The Android `VpnService` builder marks OpenTailcat's own package as disallowed (`builder.addDisallowedApplication(packageName)`).
   - This ensures that native WireGuard & Magicsock UDP sockets reach the physical Wi-Fi/LTE network directly without looping back into the VPN interface.
 - **Tunnel Exit IP Audit (`core-engine/egress.go`)**:
   - Because the app UID bypasses the TUN, the native engine runs a background TLS audit loop through `client.DialTCP` to measure the real exit IP.
@@ -72,10 +72,10 @@ Token = "tc" + Base64URL(CBOR({
 ## Binary & Build Optimization
 
 - **Native Go Mobile AAR**: Compiled with `-ldflags="-s -w"` to strip DWARF debugging tables and symbols:
-  - `app/libs/libtailcat.aar`: **14 MB** (reduced from 38 MB)
+  - `app/libs/libtailcat.aar`: **15 MB**
 - **Release APKs**:
-  - 📱 **`Tailcat-v1.0.0-arm64-v8a-signed.apk`**: **20 MB** (signed with APK Signature Scheme v2/v3)
-  - 🌐 **`Tailcat-v1.0.0-universal-signed.apk`**: **39 MB** (multi-ABI)
+  - 📱 **`OpenTailcat-v1.0.0-arm64-v8a-signed.apk`**: **20 MB** (signed with APK Signature Scheme v2/v3)
+  - 🌐 **`OpenTailcat-v1.0.0-universal-signed.apk`**: **41 MB** (multi-ABI)
 
 ---
 
@@ -96,7 +96,7 @@ cd ..
 
 # 4. Sign APKs
 export PATH="$HOME/Library/Android/sdk/build-tools/35.0.0:$PATH"
-apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android --out Tailcat-v1.0.0-arm64-v8a-signed.apk app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk
-apksigner verify --verbose Tailcat-v1.0.0-arm64-v8a-signed.apk
+apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android --out OpenTailcat-v1.0.0-arm64-v8a-signed.apk app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk
+apksigner verify --verbose OpenTailcat-v1.0.0-arm64-v8a-signed.apk
 ```
 
