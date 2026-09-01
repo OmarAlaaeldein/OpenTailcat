@@ -1,6 +1,8 @@
 # Agent Guidelines & Internal Notes
 agents.md
 agent.md
+codex-*.md
+codex.md
 
 # Built Binaries & Application Packages
 *.apk

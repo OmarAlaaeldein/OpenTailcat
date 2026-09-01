@@ -17,13 +17,13 @@ Gateway tokens are secrets. Anyone who obtains a token may learn connection meta
 
 These providers receive ordinary connection metadata such as the source IP, time, TLS information, and request headers under their own policies. Tailcat does not attach an account ID or advertising identifier.
 
-The public-IP card is labeled **Device IP**. The app process is excluded from the Android TUN to prevent native transport loops, so this lookup is not proof of VPN egress.
+The public-IP card is labeled **Device IP** when disconnected. When connected, the home screen displays **Exit IP** (measured via TLS through the encrypted tunnel) and the private VPN address (`100.64.0.2`).
 
 ## VPN traffic
 
-This repository does not include a working WireGuard/Magicsock data plane and therefore does not currently transmit user traffic to a Tailcat gateway. The app refuses to establish a VPN route without a compatible engine capability handshake.
+Tailcat establishes an end-to-end encrypted WireGuard and Magicsock tunnel directly to the user-configured exit gateway. When active, device traffic routes through the encrypted tunnel to the exit gateway.
 
-A future engine-enabled build would make traffic visible to the user-selected gateway operator and, when used, the selected relay operator. The operator can observe connection metadata and decrypted exit traffic to the same extent as any VPN provider. Tailcat cannot make privacy promises on behalf of a gateway chosen by the user.
+Traffic routed through the VPN is visible to the user-selected gateway operator and, if relayed before NAT hole-punching, the relay operator observes encrypted WireGuard packets. The gateway operator can observe connection metadata and decrypted exit traffic to the same extent as any VPN provider. Tailcat cannot make privacy promises on behalf of a gateway chosen by the user.
 
 ## Android permissions
 

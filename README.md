@@ -19,10 +19,10 @@ The repository contains a fully integrated Android client and Go Mobile native V
 - Encrypted local profile storage backed by Android Keystore.
 - Two-phase native engine lifecycle (`prepare`, `attachTun`, `getStatsJSON`, `stop`).
 - Bidirectional TUN packet pump for IPv4 and IPv6 traffic.
-- ICMP echo responder and UDP forwarding with full IP/UDP checksum computation.
-- Live measured telemetry (transport mode, DERP region, RTT latency, jitter, TX/RX throughput rates).
+- Production gVisor netstack TCP proxy engine with SACK, window scaling, and MTU segmentation over Tailcat `DialTCP`.
+- ICMP echo responder, UDP forwarding with checksum computation, and DNS-over-TCP proxy.
+- Live measured telemetry (transport mode, DERP region, RTT latency, TX/RX throughput rates, and TLS-audited exit IP).
 - User-initiated HTTP speed tests (no synthetic metrics).
-- Direct device public-IP lookup using Cloudflare with ipify fallback.
 
 ## Native engine API contract
 

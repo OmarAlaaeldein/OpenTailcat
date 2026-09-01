@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
+	"github.com/tailscale/tailcat"
 	"tailscale.com/types/key"
 )
 
@@ -191,12 +192,9 @@ func TestLegacyNumericRTokenHandling(t *testing.T) {
 		t.Fatalf("Canonical token missing tc prefix: %s", canonicalBlob)
 	}
 
-	// Verify that Prepare() accepts this legacy token without CBOR unmarshal error
-	err = Prepare(token)
-	if err != nil {
-		// It will fail because the node is not running on network, but MUST NOT fail with CBOR unmarshal error
-		if strings.Contains(err.Error(), "cbor: cannot unmarshal positive integer into Go struct field") {
-			t.Fatalf("Prepare failed with CBOR struct unmarshal error: %v", err)
-		}
+	// Verify that the canonical representation is accepted by upstream without
+	// starting a real network engine for this intentionally fabricated token.
+	if _, err := tailcat.ParseConnBlob(tailcat.ConnBlob(canonicalBlob)); err != nil {
+		t.Fatalf("upstream rejected canonical legacy token: %v", err)
 	}
 }

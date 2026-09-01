@@ -59,6 +59,7 @@ type EngineStats struct {
 	Transport      string `json:"transport"`
 	DerpRegionID   int    `json:"derpRegionId"`
 	DerpRegionName string `json:"derpRegionName"`
+	TunnelEgressIP string `json:"tunnelEgressIp,omitempty"`
 	RTTMs          int64  `json:"rttMs"`
 	JitterMs       int64  `json:"jitterMs"`
 	TxBytes        int64  `json:"txBytes"`
@@ -69,12 +70,14 @@ type EngineStats struct {
 
 // TailcatCore orchestrates the two-phase lifecycle (Prepare -> AttachTun -> Stop).
 type TailcatCore struct {
-	mu       sync.Mutex
-	running  bool
-	prepared bool
-	token    *ParsedToken
-	client   *tailcat.Client
-	bridge   *TunBridge
+	mu        sync.Mutex
+	running   bool
+	prepared  bool
+	token     *ParsedToken
+	client    *tailcat.Client
+	bridge    *TunBridge
+	transport string
+	rttMs     int64
 }
 
 var globalCore = &TailcatCore{}
@@ -125,8 +128,23 @@ func Prepare(tokenStr string) error {
 		return fmt.Errorf("invalid reachability latency from gateway")
 	}
 
+	transport := "DERP_RELAY"
+	rttMs := res.Latency.Milliseconds()
+	discoCtx, discoCancel := context.WithTimeout(context.Background(), 4*time.Second)
+	if disco, discoErr := client.DiscoPing(discoCtx); discoErr == nil {
+		if disco.Endpoint != "" {
+			transport = "DIRECT_P2P"
+		}
+		if disco.LatencySeconds > 0 {
+			rttMs = int64(disco.LatencySeconds * 1_000)
+		}
+	}
+	discoCancel()
+
 	globalCore.token = pt
 	globalCore.client = client
+	globalCore.transport = transport
+	globalCore.rttMs = rttMs
 	globalCore.prepared = true
 	return nil
 }
@@ -140,7 +158,13 @@ func AttachTun(tunFD int) error {
 		return errors.New("cannot attach TUN: engine not prepared")
 	}
 
-	bridge, err := NewTunBridge(tunFD, globalCore.client, globalCore.token)
+	bridge, err := NewTunBridge(
+		tunFD,
+		globalCore.client,
+		globalCore.token,
+		globalCore.transport,
+		globalCore.rttMs,
+	)
 	if err != nil {
 		return fmt.Errorf("create tun bridge: %w", err)
 	}
@@ -172,6 +196,8 @@ func Stop() error {
 	globalCore.running = false
 	globalCore.prepared = false
 	globalCore.token = nil
+	globalCore.transport = ""
+	globalCore.rttMs = 0
 	return nil
 }
 
