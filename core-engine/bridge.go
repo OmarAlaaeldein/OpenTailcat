@@ -42,10 +42,8 @@ type TunBridge struct {
 	udpMu       sync.Mutex
 	udpSessions map[string]*udpSession
 
-	tcpMu       sync.Mutex
-	tcpSessions map[string]*tcpSession
-	tcpStack    *tcpProxyStack
-	tunWriteMu  sync.Mutex
+	tcpStack   *tcpProxyStack
+	tunWriteMu sync.Mutex
 
 	closed atomic.Bool
 	wg     sync.WaitGroup
@@ -56,27 +54,6 @@ type udpSession struct {
 	lastActive time.Time
 	srcAddr    netip.AddrPort
 	dstAddr    netip.AddrPort
-}
-
-type tcpSession struct {
-	mu         sync.Mutex
-	conn       net.Conn
-	srcAddr    netip.AddrPort
-	dstAddr    netip.AddrPort
-	clientSeq  uint32
-	mySeq      uint32
-	isIPv6     bool
-	closed     bool
-	lastActive time.Time
-}
-
-func (s *tcpSession) closeLocked() {
-	if !s.closed {
-		s.closed = true
-		if s.conn != nil {
-			_ = s.conn.Close()
-		}
-	}
 }
 
 // NewTunBridge creates a new packet bridge using a duplicated TUN file descriptor.
@@ -114,7 +91,6 @@ func NewTunBridge(
 		ctx:         ctx,
 		cancel:      cancel,
 		udpSessions: make(map[string]*udpSession),
-		tcpSessions: make(map[string]*tcpSession),
 		lastTime:    time.Now(),
 	}
 
@@ -192,15 +168,6 @@ func (b *TunBridge) Stop() error {
 		delete(b.udpSessions, k)
 	}
 	b.udpMu.Unlock()
-
-	b.tcpMu.Lock()
-	for k, sess := range b.tcpSessions {
-		sess.mu.Lock()
-		sess.closeLocked()
-		sess.mu.Unlock()
-		delete(b.tcpSessions, k)
-	}
-	b.tcpMu.Unlock()
 
 	b.wg.Wait()
 	return nil
@@ -534,233 +501,6 @@ func (b *TunBridge) udpReceiveLoop(sess *udpSession, isIPv6 bool) {
 	}
 }
 
-func (b *TunBridge) handleTCPv4(pkt []byte, ihl int, srcIP, dstIP netip.Addr) {
-	if len(pkt) < ihl+20 {
-		return
-	}
-
-	tcpHeader := pkt[ihl:]
-	srcPort := binary.BigEndian.Uint16(tcpHeader[0:2])
-	dstPort := binary.BigEndian.Uint16(tcpHeader[2:4])
-	seq := binary.BigEndian.Uint32(tcpHeader[4:8])
-	ack := binary.BigEndian.Uint32(tcpHeader[8:12])
-	dataOffset := int((tcpHeader[12] >> 4) * 4)
-	if len(tcpHeader) < dataOffset {
-		return
-	}
-
-	flags := tcpHeader[13]
-	payload := tcpHeader[dataOffset:]
-
-	srcAP := netip.AddrPortFrom(srcIP, srcPort)
-	dstAP := netip.AddrPortFrom(dstIP, dstPort)
-
-	b.handleTCPPacket(srcAP, dstAP, seq, ack, flags, payload, false)
-}
-
-func (b *TunBridge) handleTCPv6(pkt []byte, offset int, srcIP, dstIP netip.Addr) {
-	if len(pkt) < offset+20 {
-		return
-	}
-
-	tcpHeader := pkt[offset:]
-	srcPort := binary.BigEndian.Uint16(tcpHeader[0:2])
-	dstPort := binary.BigEndian.Uint16(tcpHeader[2:4])
-	seq := binary.BigEndian.Uint32(tcpHeader[4:8])
-	ack := binary.BigEndian.Uint32(tcpHeader[8:12])
-	dataOffset := int((tcpHeader[12] >> 4) * 4)
-	if len(tcpHeader) < dataOffset {
-		return
-	}
-
-	flags := tcpHeader[13]
-	payload := tcpHeader[dataOffset:]
-
-	srcAP := netip.AddrPortFrom(srcIP, srcPort)
-	dstAP := netip.AddrPortFrom(dstIP, dstPort)
-
-	b.handleTCPPacket(srcAP, dstAP, seq, ack, flags, payload, true)
-}
-
-func (b *TunBridge) handleTCPPacket(srcAP, dstAP netip.AddrPort, seq, ack uint32, flags uint8, payload []byte, isIPv6 bool) {
-	sessionKey := fmt.Sprintf("%s->%s", srcAP, dstAP)
-
-	// SYN packet: initiate new session
-	if flags&0x02 != 0 {
-		b.tcpMu.Lock()
-		if old, exists := b.tcpSessions[sessionKey]; exists {
-			old.closeLocked()
-			delete(b.tcpSessions, sessionKey)
-		}
-
-		sess := &tcpSession{
-			srcAddr:    srcAP,
-			dstAddr:    dstAP,
-			clientSeq:  seq + 1,
-			mySeq:      100000 + uint32(time.Now().UnixNano()%100000),
-			isIPv6:     isIPv6,
-			lastActive: time.Now(),
-		}
-		b.tcpSessions[sessionKey] = sess
-		b.tcpMu.Unlock()
-
-		go b.connectAndServeTCP(sess)
-		return
-	}
-
-	b.tcpMu.Lock()
-	sess, exists := b.tcpSessions[sessionKey]
-	b.tcpMu.Unlock()
-
-	if !exists || sess.closed {
-		if flags&0x04 == 0 { // Send RST if not already RST
-			var rst []byte
-			if !isIPv6 {
-				rst = buildIPv4TCPPacket(dstAP, srcAP, ack, seq+uint32(len(payload)), 0x14, 0, nil)
-			} else {
-				rst = buildIPv6TCPPacket(dstAP, srcAP, ack, seq+uint32(len(payload)), 0x14, 0, nil)
-			}
-			b.tunFile.Write(rst)
-		}
-		return
-	}
-
-	sess.mu.Lock()
-	defer sess.mu.Unlock()
-	sess.lastActive = time.Now()
-
-	// RST from client
-	if flags&0x04 != 0 {
-		sess.closeLocked()
-		b.tcpMu.Lock()
-		delete(b.tcpSessions, sessionKey)
-		b.tcpMu.Unlock()
-		return
-	}
-
-	// FIN from client
-	if flags&0x01 != 0 {
-		sess.clientSeq = seq + 1
-		var finAck []byte
-		if !isIPv6 {
-			finAck = buildIPv4TCPPacket(dstAP, srcAP, sess.mySeq, sess.clientSeq, 0x11, 65535, nil)
-		} else {
-			finAck = buildIPv6TCPPacket(dstAP, srcAP, sess.mySeq, sess.clientSeq, 0x11, 65535, nil)
-		}
-		b.tunFile.Write(finAck)
-		sess.closeLocked()
-		b.tcpMu.Lock()
-		delete(b.tcpSessions, sessionKey)
-		b.tcpMu.Unlock()
-		return
-	}
-
-	// Data payload from client
-	if len(payload) > 0 && sess.conn != nil {
-		sess.clientSeq = seq + uint32(len(payload))
-		_, _ = sess.conn.Write(payload)
-
-		var ackPkt []byte
-		if !isIPv6 {
-			ackPkt = buildIPv4TCPPacket(dstAP, srcAP, sess.mySeq, sess.clientSeq, 0x10, 65535, nil)
-		} else {
-			ackPkt = buildIPv6TCPPacket(dstAP, srcAP, sess.mySeq, sess.clientSeq, 0x10, 65535, nil)
-		}
-		b.rxBytes.Add(int64(len(ackPkt)))
-		b.tunFile.Write(ackPkt)
-	}
-}
-
-func (b *TunBridge) connectAndServeTCP(sess *tcpSession) {
-	ctx, cancel := context.WithTimeout(b.ctx, 15*time.Second)
-	defer cancel()
-
-	conn, err := b.client.DialTCP(ctx, sess.dstAddr)
-	if err != nil {
-		sess.mu.Lock()
-		sess.closed = true
-		sess.mu.Unlock()
-
-		var rst []byte
-		if !sess.isIPv6 {
-			rst = buildIPv4TCPPacket(sess.dstAddr, sess.srcAddr, 0, sess.clientSeq, 0x14, 0, nil)
-		} else {
-			rst = buildIPv6TCPPacket(sess.dstAddr, sess.srcAddr, 0, sess.clientSeq, 0x14, 0, nil)
-		}
-		b.tunFile.Write(rst)
-
-		sessionKey := fmt.Sprintf("%s->%s", sess.srcAddr, sess.dstAddr)
-		b.tcpMu.Lock()
-		delete(b.tcpSessions, sessionKey)
-		b.tcpMu.Unlock()
-		return
-	}
-
-	sess.mu.Lock()
-	sess.conn = conn
-	myInitialSeq := sess.mySeq
-	sess.mySeq++
-	sess.mu.Unlock()
-
-	var synAck []byte
-	if !sess.isIPv6 {
-		synAck = buildIPv4TCPPacket(sess.dstAddr, sess.srcAddr, myInitialSeq, sess.clientSeq, 0x12, 65535, nil)
-	} else {
-		synAck = buildIPv6TCPPacket(sess.dstAddr, sess.srcAddr, myInitialSeq, sess.clientSeq, 0x12, 65535, nil)
-	}
-	b.rxBytes.Add(int64(len(synAck)))
-	b.tunFile.Write(synAck)
-
-	buf := make([]byte, 32768)
-	for {
-		if b.closed.Load() {
-			return
-		}
-
-		n, err := conn.Read(buf)
-		if err != nil {
-			sess.mu.Lock()
-			if !sess.closed {
-				sess.closed = true
-				var fin []byte
-				if !sess.isIPv6 {
-					fin = buildIPv4TCPPacket(sess.dstAddr, sess.srcAddr, sess.mySeq, sess.clientSeq, 0x11, 65535, nil)
-				} else {
-					fin = buildIPv6TCPPacket(sess.dstAddr, sess.srcAddr, sess.mySeq, sess.clientSeq, 0x11, 65535, nil)
-				}
-				b.rxBytes.Add(int64(len(fin)))
-				b.tunFile.Write(fin)
-			}
-			sess.mu.Unlock()
-
-			sessionKey := fmt.Sprintf("%s->%s", sess.srcAddr, sess.dstAddr)
-			b.tcpMu.Lock()
-			delete(b.tcpSessions, sessionKey)
-			b.tcpMu.Unlock()
-			return
-		}
-
-		if n > 0 {
-			sess.mu.Lock()
-			chunk := buf[:n]
-			dataSeq := sess.mySeq
-			sess.mySeq += uint32(n)
-			sess.lastActive = time.Now()
-			clientAck := sess.clientSeq
-			sess.mu.Unlock()
-
-			var dataPkt []byte
-			if !sess.isIPv6 {
-				dataPkt = buildIPv4TCPPacket(sess.dstAddr, sess.srcAddr, dataSeq, clientAck, 0x18, 65535, chunk)
-			} else {
-				dataPkt = buildIPv6TCPPacket(sess.dstAddr, sess.srcAddr, dataSeq, clientAck, 0x18, 65535, chunk)
-			}
-			b.rxBytes.Add(int64(len(dataPkt)))
-			b.tunFile.Write(dataPkt)
-		}
-	}
-}
-
 func (b *TunBridge) cleanupUDPLoop() {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
@@ -779,30 +519,6 @@ func (b *TunBridge) cleanupUDPLoop() {
 				}
 			}
 			b.udpMu.Unlock()
-		}
-	}
-}
-
-func (b *TunBridge) cleanupTCPLoop() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-b.ctx.Done():
-			return
-		case <-ticker.C:
-			now := time.Now()
-			b.tcpMu.Lock()
-			for k, sess := range b.tcpSessions {
-				sess.mu.Lock()
-				if sess.closed || now.Sub(sess.lastActive) > 3*time.Minute {
-					sess.closeLocked()
-					delete(b.tcpSessions, k)
-				}
-				sess.mu.Unlock()
-			}
-			b.tcpMu.Unlock()
 		}
 	}
 }
@@ -961,95 +677,6 @@ func buildIPv6UDPPacket(srcAP, dstAP netip.AddrPort, payload []byte) []byte {
 
 	udpChk := checksum(pseudo, pkt[40:])
 	binary.BigEndian.PutUint16(pkt[46:48], udpChk)
-
-	return pkt
-}
-
-func buildIPv4TCPPacket(srcAP, dstAP netip.AddrPort, seq, ack uint32, flags uint8, window uint16, payload []byte) []byte {
-	totalLen := 20 + 20 + len(payload)
-	pkt := make([]byte, totalLen)
-
-	// IPv4 Header
-	pkt[0] = 0x45 // Version 4, IHL 5 (20 bytes)
-	pkt[1] = 0x00
-	binary.BigEndian.PutUint16(pkt[2:4], uint16(totalLen))
-	binary.BigEndian.PutUint16(pkt[4:6], 0x4321) // Identification
-	pkt[6] = 0x40                                // Don't fragment
-	pkt[7] = 0x00
-	pkt[8] = 64 // TTL
-	pkt[9] = 6  // Protocol TCP
-
-	srcBytes := srcAP.Addr().As4()
-	dstBytes := dstAP.Addr().As4()
-	copy(pkt[12:16], srcBytes[:])
-	copy(pkt[16:20], dstBytes[:])
-
-	ipChk := ipv4Checksum(pkt[:20])
-	binary.BigEndian.PutUint16(pkt[10:12], ipChk)
-
-	// TCP Header
-	binary.BigEndian.PutUint16(pkt[20:22], srcAP.Port())
-	binary.BigEndian.PutUint16(pkt[22:24], dstAP.Port())
-	binary.BigEndian.PutUint32(pkt[24:28], seq)
-	binary.BigEndian.PutUint32(pkt[28:32], ack)
-	pkt[32] = 0x50 // Data offset 5 (20 bytes)
-	pkt[33] = flags
-	binary.BigEndian.PutUint16(pkt[34:36], window)
-
-	if len(payload) > 0 {
-		copy(pkt[40:], payload)
-	}
-
-	// Pseudo-header for TCP checksum
-	pseudo := make([]byte, 12)
-	copy(pseudo[0:4], srcBytes[:])
-	copy(pseudo[4:8], dstBytes[:])
-	pseudo[9] = 6
-	binary.BigEndian.PutUint16(pseudo[10:12], uint16(20+len(payload)))
-
-	tcpChk := checksum(pseudo, pkt[20:])
-	binary.BigEndian.PutUint16(pkt[36:38], tcpChk)
-
-	return pkt
-}
-
-func buildIPv6TCPPacket(srcAP, dstAP netip.AddrPort, seq, ack uint32, flags uint8, window uint16, payload []byte) []byte {
-	totalLen := 40 + 20 + len(payload)
-	pkt := make([]byte, totalLen)
-
-	// IPv6 Header
-	pkt[0] = 0x60 // Version 6
-	binary.BigEndian.PutUint16(pkt[4:6], uint16(20+len(payload)))
-	pkt[6] = 6  // Next header TCP
-	pkt[7] = 64 // Hop limit
-
-	srcBytes := srcAP.Addr().As16()
-	dstBytes := dstAP.Addr().As16()
-	copy(pkt[8:24], srcBytes[:])
-	copy(pkt[24:40], dstBytes[:])
-
-	// TCP Header
-	binary.BigEndian.PutUint16(pkt[40:42], srcAP.Port())
-	binary.BigEndian.PutUint16(pkt[42:44], dstAP.Port())
-	binary.BigEndian.PutUint32(pkt[44:48], seq)
-	binary.BigEndian.PutUint32(pkt[48:52], ack)
-	pkt[52] = 0x50 // Data offset 5 (20 bytes)
-	pkt[53] = flags
-	binary.BigEndian.PutUint16(pkt[54:56], window)
-
-	if len(payload) > 0 {
-		copy(pkt[60:], payload)
-	}
-
-	// IPv6 Pseudo-header for TCP checksum
-	pseudo := make([]byte, 40)
-	copy(pseudo[0:16], srcBytes[:])
-	copy(pseudo[16:32], dstBytes[:])
-	binary.BigEndian.PutUint32(pseudo[32:36], uint32(20+len(payload)))
-	pseudo[39] = 6 // Next header = TCP
-
-	tcpChk := checksum(pseudo, pkt[40:])
-	binary.BigEndian.PutUint16(pkt[56:58], tcpChk)
 
 	return pkt
 }

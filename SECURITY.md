@@ -2,7 +2,7 @@
 
 ## Release status
 
-Tailcat 1.0.0 is an Android client with an integrated Go Mobile WireGuard/Magicsock engine adapter (`libtailcat.aar`) built around pinned `tailscale/tailcat` v0.4.0. The native engine implements two-phase startup, raw TUN packet pumping, UDP forwarding with checksum verification, ICMP echo handling, and real telemetry reporting.
+Tailcat 1.0.0 is an Android client with an integrated Go Mobile WireGuard/Magicsock engine adapter (`libtailcat.aar`) built around pinned `tailscale/tailcat` v0.4.0. The native engine implements two-phase startup, raw TUN packet pumping, gVisor userland TCP proxying, UDP forwarding with checksum verification, ICMP echo handling, and TLS tunnel egress telemetry.
 
 ## Security controls
 
