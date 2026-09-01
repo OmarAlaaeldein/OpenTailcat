@@ -54,9 +54,9 @@ fun TelemetryCard(
     onRefreshIp: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-	val tunnelActive = metrics.transportType != TransportType.UNKNOWN
-	val displayedIp = if (tunnelActive) metrics.tunnelEgressIp ?: "Checking…" else egressInfo.ip
-	val ipLabel = if (tunnelActive) "Exit IP" else "Device IP"
+    val tunnelActive = metrics.transportType != TransportType.UNKNOWN
+    val displayedIp = if (tunnelActive) metrics.tunnelEgressIp ?: "Checking…" else egressInfo.ip
+    val ipLabel = if (tunnelActive) "Exit IP" else "Device IP"
 
     Box(
         modifier = modifier
@@ -89,19 +89,19 @@ fun TelemetryCard(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-								text = "$ipLabel: $displayedIp",
+                                text = "$ipLabel: $displayedIp",
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     color = TextPrimary,
                                     fontSize = 14.sp
                                 )
                             )
                         }
-						if (tunnelActive) {
-							Text(
-								text = "VPN address: 100.64.0.2",
-								style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
-							)
-						} else if (egressInfo.city != null || egressInfo.country != null) {
+                        if (tunnelActive) {
+                            Text(
+                                text = "VPN address: 100.64.0.2",
+                                style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
+                            )
+                        } else if (egressInfo.city != null || egressInfo.country != null) {
                             val location = listOfNotNull(egressInfo.city, egressInfo.country).joinToString(", ")
                             Text(
                                 text = location,
@@ -111,13 +111,13 @@ fun TelemetryCard(
                     }
                 }
 
-				if (!tunnelActive && egressInfo.isChecking) {
+                if (!tunnelActive && egressInfo.isChecking) {
                     CircularProgressIndicator(
                         strokeWidth = 2.dp,
                         color = AccentCyan,
                         modifier = Modifier.size(16.dp)
                     )
-				} else if (!tunnelActive) {
+                } else if (!tunnelActive) {
                     IconButton(
                         onClick = onRefreshIp,
                         modifier = Modifier.size(28.dp)
