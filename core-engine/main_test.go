@@ -44,10 +44,10 @@ func TestGetCapabilitiesJSON(t *testing.T) {
 		t.Error("Expected tcp to be false until Phase 3/8 tests pass")
 	}
 	if caps.UDP {
-		t.Error("Expected udp to be false until Phase 3 tunneled UDP tests pass")
+		t.Error("Expected udp to be false until Phase 3 physical acceptance tests pass")
 	}
-	if caps.DNS {
-		t.Error("Expected dns to be false until Phase 4 resolver policy tests pass")
+	if !caps.DNS {
+		t.Error("Expected dns to be true under Phase 4 implementation")
 	}
 	if caps.LiveStats {
 		t.Error("Expected liveStats to be false until Phase 7 tests pass")

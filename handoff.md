@@ -7,19 +7,20 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: Phase 3 implementation checkpoint on `main` (version 1.1.1).
+- Android repository: Phase 4 implementation checkpoint on `main` (version 1.1.1).
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
 - Phase 1 reproducible-build checkpoint: `76563c9`.
 - Phase 2 unified token contract checkpoint: `dfce360`.
 - Phase 3 tunneled UDP data plane implementation complete; live physical acceptance pending.
+- Phase 4 truthful DNS policy and validation implementation complete; live physical acceptance pending.
 - Upstream Tailcat base: signed `v0.4.0`, commit
   `ce6fedcabc220bab3b94d470ab330219111eeae8`.
 - Embedded Tailcat source: base plus local commit
-  `49c65dace2d79b41d89f536289002816d13e5274` and Phase 3 UDP data plane extensions.
+  `49c65dace2d79b41d89f536289002816d13e5274` and Phase 3/4 UDP & DNS extensions.
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.0 and NDK 29.0.14206865. Current SHA-256:
-  `719d3f6abce10a91b0cac3af5c8ddd7863bc23789c461e04e98d809626ca9a20`.
+  `cb33a9e19fa464f49f32f28262f5672d3047533859e14d243a9effd0562e704a`.
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
@@ -29,24 +30,22 @@ establishes a full Android VPN or proves leak-free traffic.
 
 ## Release status
 
-The current tree is a development TCP prototype with a valid Tailcat handshake,
-not a production full-device VPN. Do not distribute the APK as a privacy or
-security product.
+The current tree is a development prototype with verified token parsing, netstack UDP proxying,
+and truthful DNS routing, but not a production full-device VPN. Do not distribute the APK as a
+privacy or security product.
 
-The most serious unimplemented data-plane work is in `core-engine/bridge.go`:
-all non-DNS UDP uses ordinary process sockets. Android excludes OpenTailcat's
-UID from the VPN, so those sockets would leave through Wi-Fi/cellular rather
-than through WireGuard. IPv6 also lacks a complete TUN path. Phase 0 prevents
-these incomplete paths from being activated: the required capabilities remain
-false and Android refuses to establish a default-route VPN.
+The remaining data-plane work is IPv6 dual-stack (`::/0`), cancellable lifecycle state machine,
+live WireGuard/Magicsock telemetry, and physical-device acceptance. Phase 0 prevents incomplete
+paths from being activated: the required capabilities remain false and Android refuses to
+establish a default-route VPN.
 
 ## Current data-flow truth table
 
 | Input from Android | Native handling | Actual egress |
 | --- | --- | --- |
 | IPv4 TCP | gVisor terminates TCP and proxies the stream with `Client.DialTCP` | Tailcat WireGuard/Magicsock to gateway |
-| IPv4 UDP destination port 53 | Converts DNS datagram to DNS-over-TCP | Tailcat to fixed `1.1.1.1`, then `8.8.8.8` |
-| Other IPv4 UDP | `net.ResolveUDPAddr` + `net.DialUDP` | Direct device network; bypasses gateway |
+| IPv4 UDP destination port 53 | gVisor proxies datagram via `Client.DialUDP` to profile/forced resolver; falls back to `Client.DialTCP` on TC=1 | Tailcat WireGuard/Magicsock to gateway |
+| Other IPv4 UDP | gVisor proxies datagrams via `Client.DialUDP` across Tailcat netstack | Tailcat WireGuard/Magicsock to gateway (pending live acceptance) |
 | IPv6 | Android does not add a VPN IPv6 address or `::/0` | Underlying IPv6, or blocked only by Android lockdown |
 | ICMP/ICMPv6 echo | Constructs a local echo reply | No gateway/Internet request is made |
 | Native exit audit | TLS/HTTP through `Client.DialTCP` | Tailcat gateway |
@@ -281,23 +280,34 @@ only Tailcat transport between client and gateway.
 
 ### Phase 4: make DNS policy truthful
 
-Choose and expose one explicit policy:
+**Checkpoint status: Implementation complete; live physical acceptance pending.**
+Truthful DNS resolver routing, strict IP validation, and policy enforcement have been fully implemented across the native Go engine and Android application layers.
 
-- **Gateway/profile resolver:** preserve the original destination from the TUN
-  and proxy it through `Client.DialUDP`, with normal TCP fallback when the app
-  retries after a truncated response.
-- **Forced resolver:** ignore the packet destination only when the profile/UI
-  clearly names and stores the forced resolver policy.
-- **Gateway filtering resolver:** send queries to a gateway-owned address only
-  when the gateway token/capability advertises it.
+#### Implementation details
 
-Do not show `customDns` while silently sending to Cloudflare/Google. Validate
-resolver IPs before saving profiles. Test transaction IDs, parallel queries,
-EDNS0, DNSSEC-sized responses, truncation, TCP retry, IPv4/IPv6 resolvers,
-timeouts, cancellation, and no direct port-53 traffic from the client.
+1. **Native DNS destination resolution (`core-engine`):**
+   - Implemented `DNSConfig` on `TunBridge` (`Policy`: `"PROFILE_RESOLVER"` or `"FORCED_RESOLVER"`, `ForcedDNS`: `netip.AddrPort`).
+   - Integrated `resolveDNSDestination` into `netstackProxy` for both `acceptUDP` and `acceptTCP`:
+     - Under `PROFILE_RESOLVER` (default), preserves the destination IP from the TUN datagram verbatim and forwards it through `Client.DialUDP` or `Client.DialTCP`.
+     - Under `FORCED_RESOLVER`, redirects port 53 queries exclusively to the configured `ForcedDNS` endpoint.
+   - Preserves full datagram boundaries up to 65,535 bytes to prevent truncation of large EDNS0 / DNSSEC responses.
+   - Handled `TC=1` (truncation bit) responses: resolvers falling back to TCP over port 53 are proxied via `Client.DialTCP` to the identical resolver target.
+   - Promoted `dns: true` in `GetCapabilitiesJSON` v2 capabilities while keeping unproven data-plane capabilities `false`.
+   - Rebuilt `app/libs/libtailcat.aar` with reproducible settings and verified 16 KB ELF load alignment.
 
-Acceptance condition: the configured policy and observed resolver destination
-match, and both UDP and TCP DNS leave through the gateway.
+2. **Android DNS validation and policy (`app`):**
+   - Created `DnsValidator` with strict IPv4 and IPv6 validation. Rejects loopback (`127.0.0.0/8`, `::1`), multicast (`224.0.0.0/4`, `ff00::/8`), broadcast (`255.255.255.255`), unspecified (`0.0.0.0`, `::`), leading-zero octets, hostnames, URLs, and ports.
+   - Added `DnsPolicy` enum (`PROFILE_RESOLVER`, `FORCED_RESOLVER`, `GATEWAY_RESOLVER`) and `DnsPreset` presets (Cloudflare, Quad9, Google).
+   - Added `PreferencesStorage` interface and `defaultDns` setting.
+   - Integrated DNS validation and policy persistence in `ProfileRepository` (`addOrUpdateFromToken`, `updateProfileDns`) with fallback for corrupt legacy data.
+   - Enforced DNS validation in `TailcatVpnService` before calling `Builder.addDnsServer`, propagating policy to native engine via `updateNetworkState`.
+   - Updated UI in `HomeScreen` (Add Profile dialog) and `SettingsScreen` (Defaults card) with real-time validation error feedback.
+
+3. **Automated test coverage:**
+   - Go (`core-engine/dns_test.go`): `TestDNSTransactionIDPreservation`, `TestDNSParallelQueries`, `TestDNSEDNS0AndLargeResponses`, `TestDNSTruncationAndTCPRetryFallback`, `TestDNSConfiguredPolicyAndDestinationMatching`, `TestDNSIPv4AndIPv6Resolvers`, `TestDNSTimeoutAndCancellation`, and `TestDNSLeakPrevention`.
+   - Android (`app/src/test`): `DnsValidatorTest` (IPv4, IPv6, invalid octets, leading zeroes, loopback, broadcast, multicast, hostnames), `ProfileRepositoryTest` (valid creation, forced policy, rejection of invalid IPs, updating profile DNS, JSON persistence roundtrip, fallback for corrupt entries).
+
+Acceptance condition: configured policy and observed resolver destination match, both UDP and TCP DNS leave through the gateway, and all unit tests pass with zero direct OS socket leaks.
 
 ### Phase 5: complete or deliberately block IPv6
 

@@ -467,10 +467,14 @@ fun HomeScreen(
     if (showAddDialog) {
         var tokenInput by remember { mutableStateOf("") }
         var nameInput by remember { mutableStateOf("") }
+        var dnsInput by remember { mutableStateOf("1.1.1.1") }
         var errorMessage by remember { mutableStateOf<String?>(null) }
 
         val validationState = remember(tokenInput) {
             TokenParser.validate(tokenInput)
+        }
+        val dnsValidation = remember(dnsInput) {
+            com.tailcat.vpn.core.dns.DnsValidator.validate(dnsInput)
         }
 
         AlertDialog(
@@ -540,6 +544,26 @@ fun HomeScreen(
                         value = nameInput,
                         onValueChange = { nameInput = it },
                         label = { Text("Gateway Name (Optional)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = dnsInput,
+                        onValueChange = {
+                            dnsInput = it
+                            errorMessage = null
+                        },
+                        label = { Text("DNS Resolver IP") },
+                        supportingText = {
+                            if (dnsValidation is com.tailcat.vpn.core.dns.DnsValidationResult.Invalid) {
+                                Text(dnsValidation.reason, color = RedDegraded, fontSize = 11.sp)
+                            } else {
+                                Text("Default: 1.1.1.1 (Cloudflare)", color = TextMuted, fontSize = 11.sp)
+                            }
+                        },
+                        isError = dnsValidation is com.tailcat.vpn.core.dns.DnsValidationResult.Invalid,
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -675,15 +699,15 @@ fun HomeScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        val result = viewModel.addProfileFromToken(nameInput, tokenInput)
+                        val result = viewModel.addProfileFromToken(nameInput, tokenInput, dnsInput)
                         if (result.isSuccess) {
                             showAddDialog = false
                         } else {
-                            errorMessage = result.exceptionOrNull()?.message ?: "Invalid token"
+                            errorMessage = result.exceptionOrNull()?.message ?: "Invalid profile"
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = AccentCyan),
-                    enabled = validationState is TokenValidationState.Valid
+                    enabled = validationState is TokenValidationState.Valid && dnsValidation is com.tailcat.vpn.core.dns.DnsValidationResult.Valid
                 ) {
                     Text("Save & Pair", color = BgDark)
                 }

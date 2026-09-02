@@ -29,8 +29,11 @@ acceptance and full release gates pass.
   implemented. Synchronized shutdown via `udpWg` prevents race conditions.
 - **Phase 3 Live Acceptance**: Pending physical hardware uplink packet capture and
   live gateway exit verification.
-- **Remaining Roadmap (Phases 4–8)**: Explicit DNS resolver routing, IPv6 TUN
-  support, pump failure propagation, live WireGuard/Magicsock telemetry, and production signing.
+- **Phase 4 (Truthful DNS Policy & Validation)**: Implemented. Strict IPv4/IPv6 address
+  validation, profile vs forced resolver routing in native netstack, EDNS0/DNSSEC 4096-byte
+  datagram support with IP reassembly, and TC=1 TCP fallback.
+- **Remaining Roadmap (Phases 5–8)**: IPv6 dual-stack / fail-closed, cancellable lifecycle
+  state machine, live WireGuard/Magicsock telemetry, and physical acceptance / production signing.
 
 ## Native engine API
 

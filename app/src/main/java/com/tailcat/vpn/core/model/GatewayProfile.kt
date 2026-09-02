@@ -9,6 +9,7 @@ data class GatewayProfile(
     val serverPublicKey: String,
     val derpRegionId: Int? = null,
     val customDns: String = "1.1.1.1",
+    val dnsPolicy: DnsPolicy = DnsPolicy.PROFILE_RESOLVER,
     val mtu: Int = 1280,
     val tcpMss: Int = 1120,
     val isDefault: Boolean = false,

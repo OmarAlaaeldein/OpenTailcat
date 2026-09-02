@@ -44,12 +44,29 @@ type TunBridge struct {
 	txRateKbps atomic.Int64
 	rxRateKbps atomic.Int64
 	egressIP   atomic.Value // string, populated only by a request through Tailcat
+	dnsConfig  atomic.Pointer[DNSConfig]
 
 	netstack   *netstackProxy
 	tunWriteMu sync.Mutex
 
 	closed atomic.Bool
 	wg     sync.WaitGroup
+}
+
+// DNSConfig defines the active DNS resolver policy and optional forced resolver destination.
+type DNSConfig struct {
+	Policy    string          // "PROFILE_RESOLVER" (default) or "FORCED_RESOLVER"
+	ForcedDNS netip.AddrPort // non-zero if Policy is FORCED_RESOLVER
+}
+
+// SetDNSConfig updates the active DNS policy and forced destination atomically.
+func (b *TunBridge) SetDNSConfig(cfg DNSConfig) {
+	b.dnsConfig.Store(&cfg)
+}
+
+// GetDNSConfig returns the current active DNS configuration, or nil if unset.
+func (b *TunBridge) GetDNSConfig() *DNSConfig {
+	return b.dnsConfig.Load()
 }
 
 // newTunBridge creates a new packet bridge using a duplicated TUN file descriptor.

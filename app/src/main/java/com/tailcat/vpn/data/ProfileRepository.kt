@@ -1,5 +1,8 @@
 package com.tailcat.vpn.data
 
+import com.tailcat.vpn.core.dns.DnsValidationResult
+import com.tailcat.vpn.core.dns.DnsValidator
+import com.tailcat.vpn.core.model.DnsPolicy
 import com.tailcat.vpn.core.model.GatewayProfile
 import com.tailcat.vpn.core.token.TokenParser
 import com.tailcat.vpn.core.token.TokenValidationState
@@ -9,7 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
-class ProfileRepository(private val preferencesStore: PreferencesStore) {
+class ProfileRepository(private val preferencesStore: PreferencesStorage) {
 
     private val _profiles = MutableStateFlow<List<GatewayProfile>>(emptyList())
     val profiles: StateFlow<List<GatewayProfile>> = _profiles.asStateFlow()
@@ -30,6 +33,10 @@ class ProfileRepository(private val preferencesStore: PreferencesStore) {
                 val array = JSONArray(json)
                 for (i in 0 until array.length()) {
                     val obj = array.getJSONObject(i)
+                    val rawDns = obj.optString("customDns", "1.1.1.1")
+                    val validatedDns = if (DnsValidator.isValid(rawDns)) rawDns else "1.1.1.1"
+                    val policy = DnsPolicy.fromString(obj.optString("dnsPolicy", DnsPolicy.PROFILE_RESOLVER.name))
+
                     list.add(
                         GatewayProfile(
                             id = obj.getString("id"),
@@ -37,7 +44,8 @@ class ProfileRepository(private val preferencesStore: PreferencesStore) {
                             token = obj.getString("token"),
                             serverPublicKey = obj.getString("serverPublicKey"),
                             derpRegionId = if (obj.has("derpRegionId") && !obj.isNull("derpRegionId")) obj.getInt("derpRegionId") else null,
-                            customDns = obj.optString("customDns", "1.1.1.1"),
+                            customDns = validatedDns,
+                            dnsPolicy = policy,
                             mtu = obj.optInt("mtu", 1280),
                             tcpMss = obj.optInt("tcpMss", 1120),
                             isDefault = obj.optBoolean("isDefault", false),
@@ -68,6 +76,7 @@ class ProfileRepository(private val preferencesStore: PreferencesStore) {
                 put("serverPublicKey", p.serverPublicKey)
                 put("derpRegionId", p.derpRegionId)
                 put("customDns", p.customDns)
+                put("dnsPolicy", p.dnsPolicy.name)
                 put("mtu", p.mtu)
                 put("tcpMss", p.tcpMss)
                 put("isDefault", p.isDefault)
@@ -78,7 +87,18 @@ class ProfileRepository(private val preferencesStore: PreferencesStore) {
         preferencesStore.savedProfilesJson = array.toString()
     }
 
-    fun addOrUpdateFromToken(name: String, rawToken: String, customDns: String = "1.1.1.1"): Result<GatewayProfile> {
+    fun addOrUpdateFromToken(
+        name: String,
+        rawToken: String,
+        customDns: String = "1.1.1.1",
+        dnsPolicy: DnsPolicy = DnsPolicy.PROFILE_RESOLVER
+    ): Result<GatewayProfile> {
+        val dnsValidation = DnsValidator.validate(customDns)
+        if (dnsValidation !is DnsValidationResult.Valid) {
+            val reason = (dnsValidation as DnsValidationResult.Invalid).reason
+            return Result.failure(IllegalArgumentException("Invalid DNS resolver: $reason"))
+        }
+
         val validation = TokenParser.validate(rawToken)
         if (validation !is TokenValidationState.Valid) {
             val message = when (validation) {
@@ -100,7 +120,8 @@ class ProfileRepository(private val preferencesStore: PreferencesStore) {
             token = tokenData.rawToken,
             serverPublicKey = tokenData.serverPublicKeyHex,
             derpRegionId = tokenData.derpRegionId,
-            customDns = customDns,
+            customDns = dnsValidation.ip,
+            dnsPolicy = dnsPolicy,
             mtu = preferencesStore.defaultMtu,
             tcpMss = preferencesStore.defaultTcpMss,
             isDefault = existing?.isDefault ?: _profiles.value.isEmpty(),
@@ -115,6 +136,35 @@ class ProfileRepository(private val preferencesStore: PreferencesStore) {
         setActiveProfile(profile)
 
         return Result.success(profile)
+    }
+
+    fun updateProfileDns(
+        profileId: String,
+        customDns: String,
+        dnsPolicy: DnsPolicy
+    ): Result<GatewayProfile> {
+        val existing = _profiles.value.find { it.id == profileId }
+            ?: return Result.failure(IllegalArgumentException("Profile not found"))
+
+        val dnsValidation = DnsValidator.validate(customDns)
+        if (dnsValidation !is DnsValidationResult.Valid) {
+            val reason = (dnsValidation as DnsValidationResult.Invalid).reason
+            return Result.failure(IllegalArgumentException("Invalid DNS resolver: $reason"))
+        }
+
+        val updated = existing.copy(
+            customDns = dnsValidation.ip,
+            dnsPolicy = dnsPolicy
+        )
+
+        _profiles.value = _profiles.value.map { if (it.id == profileId) updated else it }
+        saveProfiles()
+
+        if (_activeProfile.value?.id == profileId) {
+            _activeProfile.value = updated
+        }
+
+        return Result.success(updated)
     }
 
     fun setActiveProfile(profile: GatewayProfile) {

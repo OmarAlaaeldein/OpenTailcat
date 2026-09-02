@@ -84,6 +84,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var mtuText by remember { mutableStateOf(store.defaultMtu.toString()) }
+    var dnsText by remember { mutableStateOf(store.defaultDns) }
     var excludedApps by remember { mutableStateOf(store.splitTunnelExcludedApps) }
 
     val installedApps = remember {
@@ -205,6 +206,29 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                             isError = mtuText.toIntOrNull() !in 1280..1500,
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(Modifier.height(12.dp))
+                        val dnsValidation = remember(dnsText) { com.tailcat.vpn.core.dns.DnsValidator.validate(dnsText) }
+                        OutlinedTextField(
+                            value = dnsText,
+                            onValueChange = { input ->
+                                dnsText = input
+                                if (com.tailcat.vpn.core.dns.DnsValidator.isValid(input)) {
+                                    store.defaultDns = input.trim()
+                                }
+                            },
+                            label = { Text("Default DNS Resolver IP") },
+                            supportingText = {
+                                if (dnsValidation is com.tailcat.vpn.core.dns.DnsValidationResult.Invalid) {
+                                    Text(dnsValidation.reason, color = RedDegraded, fontSize = 11.sp)
+                                } else {
+                                    Text("Default DNS for new profiles (e.g. 1.1.1.1, 9.9.9.9)", color = TextSecondary, fontSize = 11.sp)
+                                }
+                            },
+                            isError = dnsValidation is com.tailcat.vpn.core.dns.DnsValidationResult.Invalid,
+                            singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }

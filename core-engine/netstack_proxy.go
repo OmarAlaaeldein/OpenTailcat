@@ -186,6 +186,17 @@ func (p *netstackProxy) writeLoop() {
 	}
 }
 
+func (p *netstackProxy) resolveDNSDestination(dstAP netip.AddrPort) netip.AddrPort {
+	if dstAP.Port() != 53 || p.bridge == nil {
+		return dstAP
+	}
+	cfg := p.bridge.GetDNSConfig()
+	if cfg != nil && cfg.Policy == "FORCED_RESOLVER" && cfg.ForcedDNS.IsValid() {
+		return cfg.ForcedDNS
+	}
+	return dstAP
+}
+
 func (p *netstackProxy) acceptTCP(request *tcp.ForwarderRequest) {
 	if p.bridge == nil || p.bridge.client == nil {
 		request.Complete(true)
@@ -198,9 +209,10 @@ func (p *netstackProxy) acceptTCP(request *tcp.ForwarderRequest) {
 		return
 	}
 	destination := netip.AddrPortFrom(destinationIP.Unmap(), id.LocalPort)
+	resolvedDst := p.resolveDNSDestination(destination)
 
 	ctx, cancel := context.WithTimeout(p.bridge.ctx, tcpDialTimeout)
-	remote, err := p.bridge.client.DialTCP(ctx, destination)
+	remote, err := p.bridge.client.DialTCP(ctx, resolvedDst)
 	cancel()
 	if err != nil {
 		request.Complete(true)
@@ -299,9 +311,11 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 
 	localConn := gonet.NewUDPConn(&wq, ep)
 
+	resolvedDst := p.resolveDNSDestination(dstAP)
+
 	ctx, cancel := context.WithCancel(p.bridge.ctx)
 	dialCtx, dialCancel := context.WithTimeout(ctx, udpDialTimeout)
-	remoteConn, err := p.bridge.client.DialUDP(dialCtx, dstAP)
+	remoteConn, err := p.bridge.client.DialUDP(dialCtx, resolvedDst)
 	dialCancel()
 	if err != nil {
 		localConn.Close()

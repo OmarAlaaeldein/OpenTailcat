@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,21 @@ func init() {
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 			var d net.Dialer
+			netStateMu.RLock()
+			dnsList := append([]string(nil), customDNSList...)
+			netStateMu.RUnlock()
+
+			for _, s := range dnsList {
+				target := s
+				if _, _, err := net.SplitHostPort(target); err != nil {
+					target = net.JoinHostPort(target, "53")
+				}
+				c, err := d.DialContext(ctx, "udp", target)
+				if err == nil {
+					return c, nil
+				}
+			}
+
 			c, err := d.DialContext(ctx, "udp", "8.8.8.8:53")
 			if err == nil {
 				return c, nil
@@ -58,6 +74,7 @@ func init() {
 var (
 	netStateMu    sync.RWMutex
 	customIfs     []netmon.Interface
+	customDNSList []string
 	activeMonitor *netmon.Monitor // nil until a live Tailcat client is prepared/started
 )
 
@@ -76,6 +93,8 @@ type NetworkStatePayload struct {
 	Interfaces  []NetworkInterfaceInfo `json:"interfaces"`
 	Gateways    []string               `json:"gateways,omitempty"`
 	DNSServers  []string               `json:"dnsServers,omitempty"`
+	DNSPolicy   string                 `json:"dnsPolicy,omitempty"`
+	ForcedDNS   string                 `json:"forcedDns,omitempty"`
 }
 
 // UpdateNetworkState receives dynamic network changes from Android (LinkProperties, active network type,
@@ -85,6 +104,7 @@ func UpdateNetworkState(networkStateJSON string) error {
 	if strings.TrimSpace(networkStateJSON) == "" {
 		netStateMu.Lock()
 		customIfs = nil
+		customDNSList = nil
 		netStateMu.Unlock()
 		return nil
 	}
@@ -141,8 +161,31 @@ func UpdateNetworkState(networkStateJSON string) error {
 
 	netStateMu.Lock()
 	customIfs = ifs
+	customDNSList = payload.DNSServers
 	mon := activeMonitor
 	netStateMu.Unlock()
+
+	// Update active bridge DNS configuration if running
+	globalCore.mu.Lock()
+	if globalCore.bridge != nil {
+		policy := "PROFILE_RESOLVER"
+		if strings.EqualFold(payload.DNSPolicy, "FORCED_RESOLVER") {
+			policy = "FORCED_RESOLVER"
+		}
+		var forcedAP netip.AddrPort
+		if payload.ForcedDNS != "" {
+			if ap, err := netip.ParseAddrPort(payload.ForcedDNS); err == nil {
+				forcedAP = ap
+			} else if ip, err := netip.ParseAddr(payload.ForcedDNS); err == nil {
+				forcedAP = netip.AddrPortFrom(ip, 53)
+			}
+		}
+		globalCore.bridge.SetDNSConfig(DNSConfig{
+			Policy:    policy,
+			ForcedDNS: forcedAP,
+		})
+	}
+	globalCore.mu.Unlock()
 
 	// Notify active netmon monitor to trigger Magicsock path and endpoint re-evaluation
 	if mon != nil {
@@ -223,7 +266,7 @@ func GetCapabilitiesJSON() string {
 		IPv6:                false,
 		TCP:                 false,
 		UDP:                 false,
-		DNS:                 false,
+		DNS:                 true,
 		LiveStats:           false,
 		CancelSafeLifecycle: false,
 	}
