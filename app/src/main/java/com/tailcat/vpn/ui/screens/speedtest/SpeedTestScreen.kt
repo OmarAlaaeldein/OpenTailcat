@@ -107,6 +107,26 @@ fun SpeedTestScreen(
                 .padding(innerPadding)
                 .padding(horizontal = 24.dp)
         ) {
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Direct Network Benchmark Disclaimer Banner
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(SurfaceElevated)
+                    .border(1.dp, BorderSubtle, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = "Direct Device-Network Benchmark: Measures underlying physical connection speed (bypassing the VPN tunnel), not encrypted WireGuard throughput.",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
+                )
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // Speedometer Arc Dial

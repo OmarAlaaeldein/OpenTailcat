@@ -11,23 +11,12 @@ the current source tree, including its known development limitations.
 The current build is not a leak-free full-device VPN and must not be relied on
 for privacy-sensitive traffic:
 
-- IPv4 TCP accepted by the native adapter is proxied through Tailcat and the
-  selected gateway.
-- UDP destination port 53 is converted to DNS-over-TCP and sent through Tailcat
-  to Cloudflare `1.1.1.1`, with Google `8.8.8.8` as fallback. The profile's
-  displayed custom DNS value does not currently control this native resolver
-  destination.
-- Other IPv4 UDP is opened directly from the OpenTailcat process and therefore
-  uses the device's underlying Wi-Fi/cellular path, not the selected gateway.
-- Android currently installs no IPv6 VPN address or default route. IPv6 may use
-  the underlying network unless Android's system lockdown blocks it.
-- The in-app speed test and disconnected public-IP lookup use ordinary app
-  connections. OpenTailcat's own UID bypasses the VPN, so these requests measure
-  the direct device network even while the VPN service is active.
-
-The UI/native capability response may still display a connected or protected
-state despite these limitations. That response is scheduled to fail closed as
-described in [handoff.md](handoff.md).
+- IPv4 TCP accepted by the native adapter is proxied through gVisor and Tailcat to the selected gateway.
+- IPv4 UDP is proxied through gVisor userspace netstack to Tailcat WireGuard/Magicsock, eliminating direct OS application sockets.
+- UDP destination port 53 is intercepted and routed according to the configured DNS policy (profile resolver destination or forced preset) through Tailcat WireGuard, supporting 4096-byte datagrams and TC=1 TCP fallback.
+- Android currently installs no IPv6 VPN address or default route. IPv6 may use the underlying network unless Android's system lockdown blocks it.
+- The in-app network benchmark uses ordinary app connections. OpenTailcat's own UID bypasses the VPN, so these requests measure the direct device network and are explicitly labeled as physical-network benchmarks in the UI.
+- Fail-closed capability negotiation ensures that default-route VPN establishment is refused while data-plane capabilities remain unproven.
 
 ## Data stored on the device
 

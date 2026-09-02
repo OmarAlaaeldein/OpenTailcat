@@ -16,6 +16,7 @@ import (
 	"go4.org/mem"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/net/netmon"
+	"tailscale.com/tailcfg"
 	"tailscale.com/types/key"
 )
 
@@ -49,8 +50,8 @@ func TestGetCapabilitiesJSON(t *testing.T) {
 	if !caps.DNS {
 		t.Error("Expected dns to be true under Phase 4 implementation")
 	}
-	if caps.LiveStats {
-		t.Error("Expected liveStats to be false until Phase 7 tests pass")
+	if !caps.LiveStats {
+		t.Error("Expected liveStats to be true under Phase 7 implementation")
 	}
 	if caps.CancelSafeLifecycle {
 		t.Error("Expected cancelSafeLifecycle to be false until Phase 6 refactor")
@@ -414,6 +415,9 @@ func (c *prepareTestClient) DialTCP(context.Context, netip.AddrPort) (net.Conn, 
 func (c *prepareTestClient) DialUDP(context.Context, netip.AddrPort) (net.Conn, error) {
 	return nil, errors.New("unexpected DialUDP")
 }
+func (c *prepareTestClient) Status() *ipnstate.Status       { return nil }
+func (c *prepareTestClient) ServerNodeKey() key.NodePublic { return key.NodePublic{} }
+func (c *prepareTestClient) DERPMap() *tailcfg.DERPMap     { return nil }
 
 func TestPrepareRejectsTCPOnlyGateway(t *testing.T) {
 	if err := Stop(); err != nil {

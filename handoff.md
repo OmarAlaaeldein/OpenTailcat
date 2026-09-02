@@ -7,20 +7,21 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: Phase 4 implementation checkpoint on `main` (version 1.1.1).
+- Android repository: Phase 7 implementation checkpoint on `main` (version 1.1.1).
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
 - Phase 1 reproducible-build checkpoint: `76563c9`.
 - Phase 2 unified token contract checkpoint: `dfce360`.
 - Phase 3 tunneled UDP data plane implementation complete; live physical acceptance pending.
 - Phase 4 truthful DNS policy and validation implementation complete; live physical acceptance pending.
+- Phase 7 authoritative WireGuard & Magicsock telemetry implementation complete; live physical acceptance pending.
 - Upstream Tailcat base: signed `v0.4.0`, commit
   `ce6fedcabc220bab3b94d470ab330219111eeae8`.
 - Embedded Tailcat source: base plus local commit
-  `49c65dace2d79b41d89f536289002816d13e5274` and Phase 3/4 UDP & DNS extensions.
+  `49c65dace2d79b41d89f536289002816d13e5274` and Phase 3/4/7 UDP, DNS & status extensions.
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.0 and NDK 29.0.14206865. Current SHA-256:
-  `cb33a9e19fa464f49f32f28262f5672d3047533859e14d243a9effd0562e704a`.
+  `7cf0d677d6c9309684bb41e82f09a93c3baee7a205daa369f58bf572c7bca972`.
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
@@ -31,13 +32,13 @@ establishes a full Android VPN or proves leak-free traffic.
 ## Release status
 
 The current tree is a development prototype with verified token parsing, netstack UDP proxying,
-and truthful DNS routing, but not a production full-device VPN. Do not distribute the APK as a
-privacy or security product.
+truthful DNS routing, and authoritative telemetry, but not a production full-device VPN. Do not
+distribute the APK as a privacy or security product.
 
 The remaining data-plane work is IPv6 dual-stack (`::/0`), cancellable lifecycle state machine,
-live WireGuard/Magicsock telemetry, and physical-device acceptance. Phase 0 prevents incomplete
-paths from being activated: the required capabilities remain false and Android refuses to
-establish a default-route VPN.
+and physical-device acceptance. Phase 0 prevents incomplete paths from being activated: the
+unproven capabilities (`dataPlane`, `wireGuard`, `magicsock`, `ipv4`, `ipv6`, `tcp`, `udp`)
+remain false and Android refuses to establish a default-route VPN.
 
 ## Current data-flow truth table
 
@@ -49,7 +50,7 @@ establish a default-route VPN.
 | IPv6 | Android does not add a VPN IPv6 address or `::/0` | Underlying IPv6, or blocked only by Android lockdown |
 | ICMP/ICMPv6 echo | Constructs a local echo reply | No gateway/Internet request is made |
 | Native exit audit | TLS/HTTP through `Client.DialTCP` | Tailcat gateway |
-| In-app speed test | `HttpURLConnection` from excluded app UID | Direct device network |
+| In-app speed test | `HttpURLConnection` from excluded app UID | Direct device network (explicitly labeled as physical-network benchmark in UI) |
 
 ## Non-negotiable invariants
 
@@ -120,7 +121,9 @@ Checkpoint status:
 - Phase 1 — complete: provenance and deterministic native builds verified.
 - Phase 2 — complete: Kotlin and Go share the strict upstream-compatible token contract.
 - Phase 3 — implementation complete: native userspace netstack UDP proxy, gateway CapExitUDP capability check, AllowProxy policy enforcement, and synchronized shutdown; physical-device live acceptance pending.
-- Phases 4–8 — planned; all unproven capabilities remain false.
+- Phase 4 — implementation complete: strict IPv4/IPv6 address validation, profile vs forced resolver routing in native netstack, EDNS0/DNSSEC 4096-byte datagrams with IP reassembly, and TC=1 TCP fallback; physical-device live acceptance pending.
+- Phase 7 — implementation complete: authoritative WireGuard peer Tx/Rx, dynamic direct endpoint vs DERP relay tracking, live DERPMap metadata resolution, RFC 3550 rolling jitter (null when < 3 samples), packet and drop counters, and version 2 telemetry schema; physical-device live acceptance pending.
+- Phases 5, 6, 8 — planned; all unproven capabilities remain false.
 
 ### Phase 0: restore fail-closed behavior
 

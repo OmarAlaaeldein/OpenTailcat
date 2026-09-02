@@ -14,6 +14,8 @@ import (
 	"github.com/tailscale/tailcat"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/net/netmon"
+	"tailscale.com/tailcfg"
+	"tailscale.com/types/key"
 )
 
 func init() {
@@ -195,23 +197,48 @@ func UpdateNetworkState(networkStateJSON string) error {
 	return nil
 }
 
-// EngineStats encapsulates real measured telemetry reported to Android.
+// DropCounters records packet drops and flow rejections by category.
+type DropCounters struct {
+	MalformedIP      int64 `json:"malformedIp"`
+	MTUExceeded      int64 `json:"mtuExceeded"`
+	QueueExhaustion  int64 `json:"queueExhaustion"`
+	PolicyRejections int64 `json:"policyRejections"`
+}
+
+// EngineStats encapsulates authoritative measured telemetry reported to Android.
 type EngineStats struct {
-	Transport      string `json:"transport"`
-	DerpRegionID   int    `json:"derpRegionId"`
-	DerpRegionName string `json:"derpRegionName"`
-	TunnelEgressIP string `json:"tunnelEgressIp,omitempty"`
-	RTTMs          int64  `json:"rttMs"`
-	JitterMs       int64  `json:"jitterMs"`
-	TxBytes        int64  `json:"txBytes"`
-	RxBytes        int64  `json:"rxBytes"`
-	TxRateKbps     int64  `json:"txRateKbps"`
-	RxRateKbps     int64  `json:"rxRateKbps"`
+	Version                 int          `json:"version"`
+	SessionID               int64        `json:"sessionId"`
+	State                   string       `json:"state"`
+	Transport               string       `json:"transport"`
+	DirectEndpoint          string       `json:"directEndpoint,omitempty"`
+	DerpRegionID            int          `json:"derpRegionId"`
+	DerpRegionCode          string       `json:"derpRegionCode,omitempty"`
+	DerpRegionName          string       `json:"derpRegionName"`
+	TunnelEgressIP          string       `json:"tunnelEgressIp,omitempty"`
+	RTTMs                   int64        `json:"rttMs"`
+	JitterMs                *int64       `json:"jitterMs"`
+	LastHandshakeSec        int64        `json:"lastHandshakeSec"`
+	WireguardTxBytes        int64        `json:"wireguardTxBytes"`
+	WireguardRxBytes        int64        `json:"wireguardRxBytes"`
+	TunTxBytes              int64        `json:"tunTxBytes"`
+	TunRxBytes              int64        `json:"tunRxBytes"`
+	TxBytes                 int64        `json:"txBytes"`
+	RxBytes                 int64        `json:"rxBytes"`
+	TxRateKbps              int64        `json:"txRateKbps"`
+	RxRateKbps              int64        `json:"rxRateKbps"`
+	TCPPackets              int64        `json:"tcpPackets"`
+	UDPPackets              int64        `json:"udpPackets"`
+	DNSQueries              int64        `json:"dnsQueries"`
+	DropCounters            DropCounters `json:"dropCounters"`
+	EgressAuditTimestampSec int64        `json:"egressAuditTimestampSec,omitempty"`
+	EgressAuditError        string       `json:"egressAuditError,omitempty"`
 }
 
 // TailcatCore orchestrates the two-phase lifecycle (Prepare -> AttachTun -> Stop).
 type TailcatCore struct {
 	mu        sync.Mutex
+	sessionID int64
 	running   bool
 	prepared  bool
 	token     *ParsedToken
@@ -229,6 +256,9 @@ type preparedClient interface {
 	DiscoPing(context.Context) (*ipnstate.PingResult, error)
 	HasServerCap(uint8) bool
 	NetMon() *netmon.Monitor
+	Status() *ipnstate.Status
+	ServerNodeKey() key.NodePublic
+	DERPMap() *tailcfg.DERPMap
 }
 
 var newTailcatClient = func(blob tailcat.ConnBlob) preparedClient {
@@ -252,9 +282,8 @@ type Capabilities struct {
 }
 
 // GetCapabilitiesJSON returns the capability contract.
-// Under Phase 0 fail-closed semantics, dataPlane and all unproven data-plane
-// capabilities are explicitly set to false so the engine cannot satisfy
-// Android's production route-creation requirements.
+// Under Phase 0 fail-closed semantics, dataPlane and unproven data-plane
+// capabilities (WireGuard, Magicsock, IPv4/IPv6, TCP, UDP) remain false.
 func GetCapabilitiesJSON() string {
 	caps := Capabilities{
 		APIVersion:          2,
@@ -267,7 +296,7 @@ func GetCapabilitiesJSON() string {
 		TCP:                 false,
 		UDP:                 false,
 		DNS:                 true,
-		LiveStats:           false,
+		LiveStats:           true,
 		CancelSafeLifecycle: false,
 	}
 	bytes, err := json.Marshal(caps)
@@ -344,6 +373,7 @@ func Prepare(tokenStr string) error {
 	globalCore.client = client
 	globalCore.transport = transport
 	globalCore.rttMs = rttMs
+	globalCore.sessionID++
 	globalCore.prepared = true
 
 	netStateMu.Lock()
@@ -370,6 +400,7 @@ func AttachTun(tunFD int) error {
 		globalCore.token,
 		globalCore.transport,
 		globalCore.rttMs,
+		globalCore.sessionID,
 	)
 	if err != nil {
 		return fmt.Errorf("create tun bridge: %w", err)
@@ -417,13 +448,25 @@ func GetStatsJSON() string {
 	defer globalCore.mu.Unlock()
 
 	if !globalCore.running || globalCore.bridge == nil {
-		return `{"transport":"DISCONNECTED","derpRegionId":null,"derpRegionName":null,"rttMs":0,"jitterMs":0,"txBytes":0,"rxBytes":0,"txRateKbps":0,"rxRateKbps":0}`
+		sessionID := globalCore.sessionID
+		state := "STOPPED"
+		if globalCore.prepared {
+			state = "PREPARED"
+		}
+		stats := EngineStats{
+			Version:   2,
+			SessionID: sessionID,
+			State:     state,
+			Transport: "DISCONNECTED",
+		}
+		b, _ := json.Marshal(stats)
+		return string(b)
 	}
 
 	stats := globalCore.bridge.GetStats()
 	bytes, err := json.Marshal(stats)
 	if err != nil {
-		return `{"transport":"UNKNOWN","rttMs":0,"txBytes":0,"rxBytes":0}`
+		return `{"version":2,"state":"ERROR","transport":"UNKNOWN","rttMs":0,"txBytes":0,"rxBytes":0}`
 	}
 	return string(bytes)
 }

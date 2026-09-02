@@ -2029,6 +2029,31 @@ func (c *Client) NetMon() *netmon.Monitor {
 	return c.lb.sys.NetMon.Get()
 }
 
+// Status returns the current WireGuard and DERP connection status.
+func (c *Client) Status() *ipnstate.Status {
+	c.startMu.Lock()
+	defer c.startMu.Unlock()
+	if c.lb == nil {
+		return nil
+	}
+	return c.lb.Status()
+}
+
+// ServerNodeKey returns the public key of the configured server.
+func (c *Client) ServerNodeKey() key.NodePublic {
+	return c.ci.ServerPublic.NodePublic
+}
+
+// DERPMap returns the active DERP map for the client.
+func (c *Client) DERPMap() *tailcfg.DERPMap {
+	c.startMu.Lock()
+	defer c.startMu.Unlock()
+	if c.lb == nil {
+		return nil
+	}
+	return c.lb.dm
+}
+
 // discoPrivateForNode deterministically derives a path-discovery key from a
 // node private key. Keeping the two public keys unlinkable is a security
 // boundary: disco frames expose the disco public key on the local network,

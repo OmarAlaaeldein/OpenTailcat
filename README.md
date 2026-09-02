@@ -32,8 +32,13 @@ acceptance and full release gates pass.
 - **Phase 4 (Truthful DNS Policy & Validation)**: Implemented. Strict IPv4/IPv6 address
   validation, profile vs forced resolver routing in native netstack, EDNS0/DNSSEC 4096-byte
   datagram support with IP reassembly, and TC=1 TCP fallback.
-- **Remaining Roadmap (Phases 5–8)**: IPv6 dual-stack / fail-closed, cancellable lifecycle
-  state machine, live WireGuard/Magicsock telemetry, and physical acceptance / production signing.
+- **Phase 7 (Authoritative Telemetry)**: Implemented. WireGuard peer Tx/Rx distinct
+  from TUN accepted/dropped counters, live Magicsock direct endpoint vs DERP relay
+  tracking, dynamic DERP region metadata resolution from DERPMap, RFC 3550 rolling jitter
+  (null when < 3 samples), drop counters (malformed, MTU, queue exhaustion, policy rejections),
+  version 2 telemetry schema in Go and Kotlin, and direct device-network benchmark labeling.
+- **Remaining Roadmap (Phases 5, 6, 8)**: IPv6 dual-stack / fail-closed, cancellable lifecycle
+  state machine, and physical acceptance / production signing.
 
 ## Native engine API
 

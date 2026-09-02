@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -215,6 +216,9 @@ func (p *netstackProxy) acceptTCP(request *tcp.ForwarderRequest) {
 	remote, err := p.bridge.client.DialTCP(ctx, resolvedDst)
 	cancel()
 	if err != nil {
+		if strings.Contains(err.Error(), "proxy destination not permitted") {
+			p.bridge.policyRejections.Add(1)
+		}
 		request.Complete(true)
 		return
 	}
@@ -287,10 +291,16 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 	}
 	if p.udpActiveTotal >= maxActiveUDPFlowsTotal {
 		p.udpMu.Unlock()
+		if p.bridge != nil {
+			p.bridge.queueExhaustion.Add(1)
+		}
 		return false // Global flow limit reached (backpressure drop)
 	}
 	if p.udpActivePerSource[srcAP.Addr()] >= maxActiveUDPFlowsPerSource {
 		p.udpMu.Unlock()
+		if p.bridge != nil {
+			p.bridge.queueExhaustion.Add(1)
+		}
 		return false // Per-source flow limit reached
 	}
 	p.udpActiveTotal++
@@ -318,6 +328,9 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 	remoteConn, err := p.bridge.client.DialUDP(dialCtx, resolvedDst)
 	dialCancel()
 	if err != nil {
+		if strings.Contains(err.Error(), "proxy destination not permitted") {
+			p.bridge.policyRejections.Add(1)
+		}
 		localConn.Close()
 		cancel()
 		p.rollbackReservation(srcAP.Addr())

@@ -13,6 +13,10 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/tailcfg"
+	"tailscale.com/types/key"
 )
 
 // TunnelClient abstracts the native WireGuard / Magicsock client for injection in testing.
@@ -21,21 +25,36 @@ type TunnelClient interface {
 	DialTCP(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
 	DialUDP(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
 	Close() error
+	Status() *ipnstate.Status
+	ServerNodeKey() key.NodePublic
+	DERPMap() *tailcfg.DERPMap
 }
 
 // TunBridge manages bidirectional packet pumping between the Android TUN descriptor
 // and the Tailcat data plane / exit node using a unified gVisor proxy stack.
 type TunBridge struct {
+	sessionID int64
 	tunFD     int
 	tunFile   *os.File
 	client    TunnelClient
 	token     *ParsedToken
 	transport string
 	rttMs     int64
+	mtu       int
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// Protocol and drop metrics
+	tcpPackets       atomic.Int64
+	udpPackets       atomic.Int64
+	dnsQueries       atomic.Int64
+	malformedIP      atomic.Int64
+	mtuExceeded      atomic.Int64
+	queueExhaustion  atomic.Int64
+	policyRejections atomic.Int64
+
+	// TUN interface counters
 	txBytes    atomic.Int64
 	rxBytes    atomic.Int64
 	lastTx     int64
@@ -43,8 +62,17 @@ type TunBridge struct {
 	lastTime   time.Time
 	txRateKbps atomic.Int64
 	rxRateKbps atomic.Int64
-	egressIP   atomic.Value // string, populated only by a request through Tailcat
-	dnsConfig  atomic.Pointer[DNSConfig]
+
+	// RTT & Jitter tracking (RFC 3550)
+	rttMu      sync.Mutex
+	rttSamples []int64
+
+	// Egress probe audit results
+	egressIP        atomic.Value // string
+	egressTimestamp atomic.Int64 // unix seconds
+	egressErr       atomic.Value // string
+
+	dnsConfig atomic.Pointer[DNSConfig]
 
 	netstack   *netstackProxy
 	tunWriteMu sync.Mutex
@@ -76,6 +104,7 @@ func newTunBridge(
 	token *ParsedToken,
 	transport string,
 	rttMs int64,
+	sessionID int64,
 ) (*TunBridge, error) {
 	if tunFD < 0 {
 		return nil, errors.New("invalid tun file descriptor")
@@ -95,15 +124,20 @@ func newTunBridge(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	b := &TunBridge{
+		sessionID: sessionID,
 		tunFD:     dupFD,
 		tunFile:   tunFile,
 		client:    client,
 		token:     token,
 		transport: transport,
 		rttMs:     rttMs,
+		mtu:       1280,
 		ctx:       ctx,
 		cancel:    cancel,
 		lastTime:  time.Now(),
+	}
+	if rttMs > 0 {
+		b.rttSamples = []int64{rttMs}
 	}
 
 	netstack, err := newNetstackProxy(b)
@@ -209,6 +243,12 @@ func (b *TunBridge) readLoop() {
 
 func (b *TunBridge) handleOutboundPacket(pkt []byte) {
 	if len(pkt) < 20 {
+		b.malformedIP.Add(1)
+		return
+	}
+
+	if b.mtu > 0 && len(pkt) > b.mtu {
+		b.mtuExceeded.Add(1)
 		return
 	}
 
@@ -218,16 +258,15 @@ func (b *TunBridge) handleOutboundPacket(pkt []byte) {
 		b.handleIPv4(pkt)
 	case 6:
 		b.handleIPv6(pkt)
+	default:
+		b.malformedIP.Add(1)
 	}
 }
 
 func (b *TunBridge) handleIPv4(pkt []byte) {
-	if len(pkt) < 20 {
-		return
-	}
-
 	ihl := int(pkt[0]&0x0f) * 4
-	if len(pkt) < ihl {
+	if len(pkt) < ihl || ihl < 20 {
+		b.malformedIP.Add(1)
 		return
 	}
 
@@ -238,13 +277,32 @@ func (b *TunBridge) handleIPv4(pkt []byte) {
 	switch protocol {
 	case 1: // ICMP
 		b.handleICMPv4(pkt, ihl, srcIP, dstIP)
-	default: // TCP, UDP, etc. -> Handled by gVisor stack
+	case 6: // TCP
+		b.tcpPackets.Add(1)
+		if len(pkt) >= ihl+4 {
+			dstPort := binary.BigEndian.Uint16(pkt[ihl+2 : ihl+4])
+			if dstPort == 53 {
+				b.dnsQueries.Add(1)
+			}
+		}
+		b.netstack.inject(pkt, false)
+	case 17: // UDP
+		b.udpPackets.Add(1)
+		if len(pkt) >= ihl+4 {
+			dstPort := binary.BigEndian.Uint16(pkt[ihl+2 : ihl+4])
+			if dstPort == 53 {
+				b.dnsQueries.Add(1)
+			}
+		}
+		b.netstack.inject(pkt, false)
+	default:
 		b.netstack.inject(pkt, false)
 	}
 }
 
 func (b *TunBridge) handleIPv6(pkt []byte) {
 	if len(pkt) < 40 {
+		b.malformedIP.Add(1)
 		return
 	}
 
@@ -255,7 +313,25 @@ func (b *TunBridge) handleIPv6(pkt []byte) {
 	switch nextHeader {
 	case 58: // ICMPv6
 		b.handleICMPv6(pkt, 40, srcIP, dstIP)
-	default: // TCP, UDP, etc. -> Handled by gVisor stack
+	case 6: // TCP
+		b.tcpPackets.Add(1)
+		if len(pkt) >= 44 {
+			dstPort := binary.BigEndian.Uint16(pkt[42:44])
+			if dstPort == 53 {
+				b.dnsQueries.Add(1)
+			}
+		}
+		b.netstack.inject(pkt, true)
+	case 17: // UDP
+		b.udpPackets.Add(1)
+		if len(pkt) >= 44 {
+			dstPort := binary.BigEndian.Uint16(pkt[42:44])
+			if dstPort == 53 {
+				b.dnsQueries.Add(1)
+			}
+		}
+		b.netstack.inject(pkt, true)
+	default:
 		b.netstack.inject(pkt, true)
 	}
 }
@@ -371,23 +447,133 @@ func (b *TunBridge) rateCalcLoop() {
 }
 
 // GetStats returns current measured metrics from the live bridge and client.
+// RecordRTT appends an RTT sample and maintains jitter statistics.
+func (b *TunBridge) RecordRTT(rtt int64) {
+	if rtt <= 0 {
+		return
+	}
+	b.rttMu.Lock()
+	defer b.rttMu.Unlock()
+	b.rttMs = rtt
+	b.rttSamples = append(b.rttSamples, rtt)
+	if len(b.rttSamples) > 50 {
+		b.rttSamples = b.rttSamples[len(b.rttSamples)-50:]
+	}
+}
+
+func (b *TunBridge) currentRTTMs() int64 {
+	b.rttMu.Lock()
+	defer b.rttMu.Unlock()
+	return b.rttMs
+}
+
+func (b *TunBridge) currentJitterMs() *int64 {
+	b.rttMu.Lock()
+	defer b.rttMu.Unlock()
+
+	// RFC 3550 / handoff.md: jitter only after enough real samples (>= 3), otherwise null
+	if len(b.rttSamples) < 3 {
+		return nil
+	}
+
+	var sumDiff int64
+	for i := 1; i < len(b.rttSamples); i++ {
+		diff := b.rttSamples[i] - b.rttSamples[i-1]
+		if diff < 0 {
+			diff = -diff
+		}
+		sumDiff += diff
+	}
+	jitter := sumDiff / int64(len(b.rttSamples)-1)
+	return &jitter
+}
+
+func (b *TunBridge) resolveRegionName(id int) string {
+	if b.client != nil {
+		if dm := b.client.DERPMap(); dm != nil && len(dm.Regions) > 0 {
+			if reg, ok := dm.Regions[tailcfg.DERPRegionID(id)]; ok && reg != nil && reg.RegionName != "" {
+				return reg.RegionName
+			}
+		}
+	}
+	return regionNameForID(id)
+}
+
+// GetStats returns authoritative telemetry from the live bridge, netstack, and WireGuard engine.
 func (b *TunBridge) GetStats() EngineStats {
 	regionID := int(b.token.RegionID)
-	regionName := regionNameForID(regionID)
 	egressIP, _ := b.egressIP.Load().(string)
+	egressErr, _ := b.egressErr.Load().(string)
 
-	return EngineStats{
-		Transport:      b.transport,
-		DerpRegionID:   regionID,
-		DerpRegionName: regionName,
-		TunnelEgressIP: egressIP,
-		RTTMs:          b.rttMs,
-		JitterMs:       0,
-		TxBytes:        b.txBytes.Load(),
-		RxBytes:        b.rxBytes.Load(),
-		TxRateKbps:     b.txRateKbps.Load(),
-		RxRateKbps:     b.rxRateKbps.Load(),
+	stats := EngineStats{
+		Version:          2,
+		SessionID:        b.sessionID,
+		State:            "RUNNING",
+		Transport:        b.transport,
+		DerpRegionID:     regionID,
+		DerpRegionName:   b.resolveRegionName(regionID),
+		TunnelEgressIP:   egressIP,
+		EgressAuditError: egressErr,
+		TunTxBytes:       b.txBytes.Load(),
+		TunRxBytes:       b.rxBytes.Load(),
+		TxRateKbps:       b.txRateKbps.Load(),
+		RxRateKbps:       b.rxRateKbps.Load(),
+		TCPPackets:       b.tcpPackets.Load(),
+		UDPPackets:       b.udpPackets.Load(),
+		DNSQueries:       b.dnsQueries.Load(),
+		DropCounters: DropCounters{
+			MalformedIP:      b.malformedIP.Load(),
+			MTUExceeded:      b.mtuExceeded.Load(),
+			QueueExhaustion:  b.queueExhaustion.Load(),
+			PolicyRejections: b.policyRejections.Load(),
+		},
 	}
+
+	if b.egressTimestamp.Load() > 0 {
+		stats.EgressAuditTimestampSec = b.egressTimestamp.Load()
+	}
+
+	// Authoritative WireGuard / Magicsock metrics from client status
+	if b.client != nil {
+		if st := b.client.Status(); st != nil {
+			nodeKey := b.client.ServerNodeKey()
+			if peer, ok := st.Peer[nodeKey]; ok && peer != nil {
+				stats.WireguardTxBytes = peer.TxBytes
+				stats.WireguardRxBytes = peer.RxBytes
+				if !peer.LastHandshake.IsZero() {
+					stats.LastHandshakeSec = peer.LastHandshake.Unix()
+				}
+				if peer.CurAddr != "" {
+					stats.Transport = "DIRECT_P2P"
+					stats.DirectEndpoint = peer.CurAddr
+				} else if peer.Relay != "" {
+					stats.Transport = "DERP_RELAY"
+					stats.DerpRegionCode = peer.Relay
+				}
+			}
+		}
+
+		if dm := b.client.DERPMap(); dm != nil && len(dm.Regions) > 0 {
+			if reg, ok := dm.Regions[tailcfg.DERPRegionID(regionID)]; ok && reg != nil {
+				stats.DerpRegionName = reg.RegionName
+				stats.DerpRegionCode = reg.RegionCode
+			}
+		}
+	}
+
+	// WireGuard counters take precedence as official tunnel Tx/Rx, falling back to TUN counts
+	if stats.WireguardTxBytes > 0 || stats.WireguardRxBytes > 0 {
+		stats.TxBytes = stats.WireguardTxBytes
+		stats.RxBytes = stats.WireguardRxBytes
+	} else {
+		stats.TxBytes = stats.TunTxBytes
+		stats.RxBytes = stats.TunRxBytes
+	}
+
+	stats.RTTMs = b.currentRTTMs()
+	stats.JitterMs = b.currentJitterMs()
+
+	return stats
 }
 
 func regionNameForID(id int) string {

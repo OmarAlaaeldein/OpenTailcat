@@ -115,26 +115,7 @@ class TunnelEngine {
         check(availability.isAvailable) { availability.message }
         val raw = invoke(requireMethod("getStatsJSON", parameterCount = 0)) as? String
             ?: error("Tunnel engine returned invalid telemetry")
-        val json = JSONObject(raw)
-
-        val transport = when (json.optString("transport").uppercase()) {
-            "DIRECT", "DIRECT_P2P" -> TransportType.DIRECT_P2P
-            "DERP", "DERP_RELAY" -> TransportType.DERP_RELAY
-            else -> TransportType.UNKNOWN
-        }
-
-        return NetworkMetrics(
-            transportType = transport,
-            derpRegionId = json.optIntOrNull("derpRegionId"),
-            derpRegionName = json.optNullableString("derpRegionName"),
-            tunnelEgressIp = json.optNullableString("tunnelEgressIp"),
-            rttLatencyMs = json.optLong("rttMs", 0L).coerceAtLeast(0L),
-            jitterMs = json.optLong("jitterMs", 0L).coerceAtLeast(0L),
-            txBytes = json.optLong("txBytes", 0L).coerceAtLeast(0L),
-            rxBytes = json.optLong("rxBytes", 0L).coerceAtLeast(0L),
-            txRateKbps = json.optLong("txRateKbps", 0L).coerceAtLeast(0L),
-            rxRateKbps = json.optLong("rxRateKbps", 0L).coerceAtLeast(0L)
-        )
+        return NetworkMetrics.fromJson(raw)
     }
 
     private fun inspectCapabilities(): EngineCapabilities? {

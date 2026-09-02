@@ -102,8 +102,11 @@ func (b *TunBridge) egressProbeLoop() {
 		cancel()
 		if err == nil {
 			b.egressIP.Store(ip.String())
+			b.egressTimestamp.Store(time.Now().Unix())
+			b.egressErr.Store("")
 			return
 		}
+		b.egressErr.Store(err.Error())
 		log.Printf("Tailcat egress audit attempt %d failed: %v", attempt, err)
 		select {
 		case <-b.ctx.Done():

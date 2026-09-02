@@ -32,11 +32,9 @@ production privacy VPN.
 ### Remaining release blockers & pending gates
 
 - **Live physical-device acceptance**: Uplink packet capture on multi-interface
-  devices to verify zero direct destination leaks during network handover.
-- **Explicit DNS resolver policy**: Intercepted DNS must route according to
-  configured tunnel DNS profiles rather than hard-coded fallback resolvers.
-- **IPv6 TUN route**: IPv6 is not yet assigned an Android VPN address or `::/0`.
-- **Live telemetry**: WireGuard/Magicsock live counters and jitter calculation.
-- **Production release signing**: Signing with production keystore.
+  devices to verify zero direct destination leaks during network handover across TCP, UDP, and DNS.
+- **IPv6 dual-stack route**: IPv6 is not yet assigned an Android VPN address or `::/0` (Phase 5).
+- **Cancellable lifecycle state machine**: Synchronized state machine with real readiness and pump-failure propagation (Phase 6).
+- **Production release signing**: Signing with production keystore (Phase 8).
 
 See [handoff.md](handoff.md) for the ordered continuation plan and test gates.

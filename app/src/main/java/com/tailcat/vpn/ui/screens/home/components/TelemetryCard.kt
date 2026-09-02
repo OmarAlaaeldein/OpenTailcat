@@ -142,12 +142,19 @@ fun TelemetryCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val (badgeColor, icon, label) = when (metrics.transportType) {
-                        TransportType.DIRECT_P2P -> Triple(EmeraldConnected, Icons.Default.FlashOn, "DIRECT P2P")
-                        TransportType.DERP_RELAY -> Triple(
-                            VioletDerp,
-                            Icons.Default.Shield,
-                            "DERP RELAY #${metrics.derpRegionId ?: 1}"
-                        )
+                        TransportType.DIRECT_P2P -> {
+                            val ep = metrics.directEndpoint
+                            val text = if (!ep.isNullOrBlank()) "DIRECT P2P ($ep)" else "DIRECT P2P"
+                            Triple(EmeraldConnected, Icons.Default.FlashOn, text)
+                        }
+                        TransportType.DERP_RELAY -> {
+                            val name = metrics.derpRegionName ?: "Region #${metrics.derpRegionId ?: 1}"
+                            Triple(
+                                VioletDerp,
+                                Icons.Default.Shield,
+                                "DERP RELAY ($name)"
+                            )
+                        }
                         TransportType.UNKNOWN -> Triple(TextMuted, Icons.Default.Shield, "DISCONNECTED")
                     }
 
@@ -170,8 +177,10 @@ fun TelemetryCard(
                 Text(
                     text = if (metrics.transportType == TransportType.UNKNOWN) {
                         "—"
-                    } else {
+                    } else if (metrics.jitterMs != null) {
                         "${metrics.rttLatencyMs} ms (±${metrics.jitterMs})"
+                    } else {
+                        "${metrics.rttLatencyMs} ms"
                     },
                     style = MaterialTheme.typography.labelMedium.copy(
                         color = TextSecondary,
