@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">OpenTailcat</string>
-    <string name="vpn_service_desc">OpenTailcat encrypted gateway tunnel</string>
+    <string name="vpn_service_desc">OpenTailcat gateway tunnel</string>
     <string name="vpn_channel_name">OpenTailcat VPN Status</string>
     <string name="vpn_channel_desc">Active connection telemetry and tunnel status</string>
 </resources>

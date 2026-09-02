@@ -49,9 +49,12 @@ jobs:
       - name: Setup Android SDK & NDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Pinned NDK
+      - name: Install Pinned NDK & Tooling
         run: |
           sdkmanager --install "ndk;29.0.14206865"
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260821190718-4776eadac327
+          go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260821190718-4776eadac327
 
       - name: Rebuild AAR
         env:

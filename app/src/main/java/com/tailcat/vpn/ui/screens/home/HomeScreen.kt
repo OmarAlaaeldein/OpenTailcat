@@ -423,8 +423,8 @@ fun HomeScreen(
             val statusLabel = when {
                 isDeviceOffline && tunnelState == TunnelState.DISCONNECTED -> "OFFLINE • NO INTERNET"
                 !viewModel.engineAvailability.isAvailable && tunnelState == TunnelState.DISCONNECTED -> "ENGINE REQUIRED • VPN DISABLED"
-                tunnelState == TunnelState.CONNECTED -> "SECURE & ENCRYPTED"
-                tunnelState == TunnelState.CONNECTING -> "ESTABLISHING WIREGUARD TUNNEL..."
+                tunnelState == TunnelState.CONNECTED -> "CONNECTED"
+                tunnelState == TunnelState.CONNECTING -> "ESTABLISHING TUNNEL..."
                 tunnelState == TunnelState.RECONNECTING -> "ROAMING / RECONNECTING..."
                 tunnelState == TunnelState.DEGRADED -> "DEGRADED • RELAYING"
                 else -> "TAP TO CONNECT"
@@ -486,7 +486,7 @@ fun HomeScreen(
             text = {
                 Column {
                     Text(
-                        text = "Paste a Tailcat connection token (tc...) to establish a direct P2P WireGuard tunnel.",
+                        text = "Paste a Tailcat connection token (tc...) to establish a Tailcat gateway session.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary
                     )

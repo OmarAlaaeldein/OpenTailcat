@@ -45,8 +45,8 @@ device-to-device transfer for application data.
 - After TUN attachment, the native engine attempts an exit-IP audit through
   Tailcat. It first requests `api.ipify.org` over HTTP through the gateway and
   falls back to an authenticated TLS request to Cloudflare `1.1.1.1`.
-- Intercepted DNS is currently sent through the gateway to Cloudflare or Google
-  as described in the development warning.
+- Intercepted DNS is routed through the gateway according to the configured DNS
+  policy (profile destination or forced preset).
 
 These providers and the selected gateway receive ordinary connection metadata
 such as source IP, time, TLS information, and request headers under their own

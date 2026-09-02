@@ -73,6 +73,13 @@ cp -R "${ROOT_DIR}/third_party" "${CANONICAL_BUILD_DIR}/third_party"
 
 cd "${CANONICAL_BUILD_DIR}/core-engine"
 
+# Ensure gobind is available in PATH for gomobile
+export PATH="$(go env GOPATH)/bin:${PATH}"
+if ! command -v gobind &>/dev/null; then
+    echo "==> Installing gobind tool..."
+    go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260821190718-4776eadac327
+fi
+
 # Build with reproducible flags:
 # -ldflags="-s -w": strip DWARF debugging tables and symbol references
 # -trimpath: remove local workstation path prefixes from build artifacts

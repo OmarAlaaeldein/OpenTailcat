@@ -119,7 +119,7 @@ fun SpeedTestScreen(
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Text(
-                    text = "Direct Device-Network Benchmark: Measures underlying physical connection speed (bypassing the VPN tunnel), not encrypted WireGuard throughput.",
+                    text = "Direct Device-Network Benchmark: Measures underlying physical connection speed (bypassing the VPN tunnel), not tunnel throughput.",
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = TextSecondary,
                         fontSize = 11.sp
