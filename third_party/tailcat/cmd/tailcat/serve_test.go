@@ -6,6 +6,8 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
@@ -14,8 +16,15 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/fxamacker/cbor/v2"
+	"github.com/tailscale/tailcat"
+	go4mem "go4.org/mem"
+	"tailscale.com/types/key"
+	"tailscale.com/types/nettype"
 )
 
 // startEchoListener starts a TCP echo server on a 127.0.0.1 ephemeral
@@ -217,4 +226,158 @@ func socks5Connect(t *testing.T, proxyAddr string, dst netip.AddrPort) net.Conn 
 	}
 	c.SetDeadline(time.Time{})
 	return c
+}
+
+func TestServeExitNodeUDP(t *testing.T) {
+	e := newTestEnv(t)
+
+	// Start local UDP echo server
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pc.Close()
+	port := pc.LocalAddr().(*net.UDPAddr).Port
+	dst := netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(port))
+
+	go func() {
+		buf := make([]byte, 1500)
+		for {
+			n, from, err := pc.ReadFrom(buf)
+			if err != nil {
+				return
+			}
+			_, _ = pc.WriteTo(buf[:n], from)
+		}
+	}()
+
+	_, blob, _ := e.startServer("--serve=exit-node")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client := tailcat.NewClient(tailcat.ConnBlob(blob))
+	client.DERPMapURL = e.derpMapURL
+	defer client.Close()
+
+	conn, err := client.DialUDP(ctx, dst)
+	if err != nil {
+		t.Fatalf("DialUDP: %v", err)
+	}
+	defer conn.Close()
+
+	const msg = "udp echo through tailcat exit node"
+	if _, err := conn.Write([]byte(msg)); err != nil {
+		t.Fatalf("Write UDP: %v", err)
+	}
+
+	replyBuf := make([]byte, len(msg))
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	n, err := conn.Read(replyBuf)
+	if err != nil {
+		t.Fatalf("Read UDP reply: %v", err)
+	}
+	if string(replyBuf[:n]) != msg {
+		t.Fatalf("UDP echo got %q, want %q", string(replyBuf[:n]), msg)
+	}
+
+	// Verify server advertised CapExitUDP capability
+	if !client.HasServerCap(tailcat.CapExitUDP) {
+		t.Errorf("Server did not advertise CapExitUDP capability: caps = %02x", client.ServerCaps())
+	}
+
+	// Verify zero-length datagram round-trip
+	if _, err := conn.Write([]byte{}); err != nil {
+		t.Fatalf("Write zero-length UDP: %v", err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	zeroReply := make([]byte, 100)
+	nZero, err := conn.Read(zeroReply)
+	if err != nil {
+		t.Fatalf("Read zero-length UDP reply: %v", err)
+	}
+	if nZero != 0 {
+		t.Fatalf("Expected zero-length reply, got %d bytes", nZero)
+	}
+}
+
+func TestAllowProxyRejection(t *testing.T) {
+	e := newTestEnv(t)
+
+	var tcpForwardInvoked atomic.Bool
+	var udpForwardInvoked atomic.Bool
+
+	echoPort := startEchoListener(t)
+	allowedDst := netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), echoPort)
+	prohibitedDst := netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), 80)
+
+	var nodeRaw [32]byte
+	for i := 0; i < 32; i++ {
+		nodeRaw[i] = byte(i + 1)
+	}
+	serverKey := key.NodePrivateFromRaw32(go4mem.B(nodeRaw[:]))
+	discoPub := tailcat.DiscoPublicForNode(serverKey)
+
+	srv := &tailcat.Server{
+		Key:        serverKey,
+		DERPMapURL: e.derpMapURL,
+		AllowProxy: func(dst netip.AddrPort) bool {
+			return dst == allowedDst
+		},
+		OnTCPForward: func(dst netip.AddrPort) func(net.Conn) {
+			tcpForwardInvoked.Store(true)
+			return func(c net.Conn) { c.Close() }
+		},
+		OnUDPForward: func(dst netip.AddrPort) func(nettype.ConnPacketConn) {
+			udpForwardInvoked.Store(true)
+			return func(c nettype.ConnPacketConn) { c.Close() }
+		},
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start: %v", err)
+	}
+	defer srv.Close()
+
+	wireMap := map[string]any{
+		"p": serverKey.Public().AppendTo(nil),
+		"k": discoPub.AppendTo(nil),
+		"i": uint64(1),
+	}
+	cborBytes, err := cbor.Marshal(wireMap)
+	if err != nil {
+		t.Fatalf("MarshalCBOR: %v", err)
+	}
+	blob := "tc" + base64.RawURLEncoding.EncodeToString(cborBytes)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	client := tailcat.NewClient(tailcat.ConnBlob(blob))
+	client.DERPMapURL = e.derpMapURL
+	defer client.Close()
+
+	// 1. Prohibited TCP destination (must fail / reset and never invoke OnTCPForward)
+	tcpConn, err := client.DialTCP(ctx, prohibitedDst)
+	if err == nil {
+		buf := make([]byte, 10)
+		_ = tcpConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+		_, _ = tcpConn.Read(buf)
+		tcpConn.Close()
+	}
+	if tcpForwardInvoked.Load() {
+		t.Errorf("OnTCPForward was invoked for prohibited destination %v", prohibitedDst)
+	}
+
+	// 2. Prohibited UDP destination (must fail/timeout and never invoke OnUDPForward)
+	udpConn, err := client.DialUDP(ctx, prohibitedDst)
+	if err == nil {
+		_, _ = udpConn.Write([]byte("prohibited-udp-packet"))
+		_ = udpConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+		buf := make([]byte, 100)
+		_, _ = udpConn.Read(buf)
+		udpConn.Close()
+	}
+	if udpForwardInvoked.Load() {
+		t.Errorf("OnUDPForward was invoked for prohibited destination %v", prohibitedDst)
+	}
 }

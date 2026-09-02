@@ -1,8 +1,10 @@
 package engine
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/netip"
 	"strings"
@@ -10,7 +12,9 @@ import (
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
+	"github.com/tailscale/tailcat"
 	"go4.org/mem"
+	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/net/netmon"
 	"tailscale.com/types/key"
 )
@@ -355,4 +359,104 @@ func TestLiveMonitorLifecycle(t *testing.T) {
 
 	// Clean up custom interfaces
 	_ = UpdateNetworkState("")
+}
+
+func TestCapabilityEncodingAndParsing(t *testing.T) {
+	// 1. Legacy 5-byte meowed (without capability byte)
+	legacyMeowed := []byte{'m', 'e', 'o', 'w', 0x02}
+	if caps := tailcat.ParseMeowedCaps(legacyMeowed); caps != 0 {
+		t.Errorf("Expected legacy meowed caps = 0, got %02x", caps)
+	}
+
+	// 2. Modern meowed with CapExitUDP
+	modernMeowed := tailcat.EncodeMeowedWithCaps(tailcat.CapExitUDP | tailcat.CapExitTCP)
+	if caps := tailcat.ParseMeowedCaps(modernMeowed); caps != (tailcat.CapExitUDP | tailcat.CapExitTCP) {
+		t.Errorf("Expected caps = %02x, got %02x", tailcat.CapExitUDP|tailcat.CapExitTCP, caps)
+	}
+
+	// 3. Meowed with unknown future capability bits (0xff)
+	futureMeowed := tailcat.EncodeMeowedWithCaps(0xff)
+	if caps := tailcat.ParseMeowedCaps(futureMeowed); caps != 0xff {
+		t.Errorf("Expected caps = 0xff, got %02x", caps)
+	}
+
+	// 4. Invalid packet
+	if caps := tailcat.ParseMeowedCaps([]byte("invalid")); caps != 0 {
+		t.Errorf("Expected invalid packet caps = 0, got %02x", caps)
+	}
+}
+
+type prepareTestClient struct {
+	caps   uint8
+	closed bool
+}
+
+func (c *prepareTestClient) Ping(context.Context) (tailcat.PingResult, error) {
+	return tailcat.PingResult{Latency: time.Millisecond}, nil
+}
+
+func (c *prepareTestClient) DiscoPing(context.Context) (*ipnstate.PingResult, error) {
+	return nil, errors.New("direct path unavailable in test")
+}
+
+func (c *prepareTestClient) HasServerCap(cap uint8) bool { return c.caps&cap != 0 }
+func (c *prepareTestClient) NetMon() *netmon.Monitor     { return nil }
+func (c *prepareTestClient) Close() error {
+	c.closed = true
+	return nil
+}
+func (c *prepareTestClient) Dial(context.Context, string, string) (net.Conn, error) {
+	return nil, errors.New("unexpected Dial")
+}
+func (c *prepareTestClient) DialTCP(context.Context, netip.AddrPort) (net.Conn, error) {
+	return nil, errors.New("unexpected DialTCP")
+}
+func (c *prepareTestClient) DialUDP(context.Context, netip.AddrPort) (net.Conn, error) {
+	return nil, errors.New("unexpected DialUDP")
+}
+
+func TestPrepareRejectsTCPOnlyGateway(t *testing.T) {
+	if err := Stop(); err != nil {
+		t.Fatalf("reset engine: %v", err)
+	}
+
+	// Generate an official token and inject a reachable handshake client that
+	// advertises TCP exit support but deliberately omits CapExitUDP.
+	var nodeRaw, discoRaw [32]byte
+	for i := 0; i < 32; i++ {
+		nodeRaw[i] = byte(i + 1)
+		discoRaw[i] = byte(i + 33)
+	}
+	nodePub := key.NodePrivateFromRaw32(mem.B(nodeRaw[:])).Public()
+	discoPub := key.DiscoPrivateFromRaw32(mem.B(discoRaw[:])).Public()
+
+	wireMap := map[string]any{
+		"p": nodePub.AppendTo(nil),
+		"k": discoPub.AppendTo(nil),
+		"i": uint64(1),
+	}
+	cborBytes, _ := cbor.Marshal(wireMap)
+	tokenStr := "tc" + base64.RawURLEncoding.EncodeToString(cborBytes)
+
+	fake := &prepareTestClient{caps: tailcat.CapExitTCP}
+	originalFactory := newTailcatClient
+	newTailcatClient = func(tailcat.ConnBlob) preparedClient { return fake }
+	defer func() {
+		newTailcatClient = originalFactory
+		_ = Stop()
+	}()
+
+	err := Prepare(tokenStr)
+	if err == nil {
+		t.Fatal("expected Prepare to reject TCP-only gateway")
+	}
+	if !strings.Contains(err.Error(), "does not support tunneled UDP") {
+		t.Fatalf("Prepare failed before the UDP capability gate: %v", err)
+	}
+	if globalCore.prepared {
+		t.Error("expected globalCore.prepared to remain false")
+	}
+	if !fake.closed {
+		t.Error("expected rejected TCP-only client to be closed")
+	}
 }

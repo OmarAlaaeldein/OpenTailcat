@@ -7,20 +7,21 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: Phase 2 checkpoint on `main`.
+- Android repository: Phase 3 implementation checkpoint on `main` (version 1.1.1).
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
 - Phase 1 reproducible-build checkpoint: `76563c9`.
+- Phase 2 unified token contract checkpoint: `dfce360`.
+- Phase 3 tunneled UDP data plane implementation complete; live physical acceptance pending.
 - Upstream Tailcat base: signed `v0.4.0`, commit
   `ce6fedcabc220bab3b94d470ab330219111eeae8`.
 - Embedded Tailcat source: base plus local commit
-  `49c65dace2d79b41d89f536289002816d13e5274`.
+  `49c65dace2d79b41d89f536289002816d13e5274` and Phase 3 UDP data plane extensions.
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
-  reproducibly with Go 1.27.0 and NDK 29.0.14206865. Phase 2 SHA-256:
-  `13b9763bd268843e47b80b694c924865ee40334c403ad29c6419de8117a5207c`.
-- ARM64 and x86-64 ELF load segments are 16 KB aligned. Two independent
-  checkouts produced the same Phase 2 AAR checksum.
-- Audit verification passed: `go test ./...`, `go vet ./...`, Android unit
+  reproducibly with Go 1.27.0 and NDK 29.0.14206865. Current SHA-256:
+  `719d3f6abce10a91b0cac3af5c8ddd7863bc23789c461e04e98d809626ca9a20`.
+- ARM64 and x86-64 ELF load segments are 16 KB aligned.
+- Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
 
 Passing these build checks is not a data-plane release gate. No current test
@@ -118,10 +119,9 @@ Checkpoint status:
 
 - Phase 0 — complete: incomplete native behavior fails closed.
 - Phase 1 — complete: provenance and deterministic native builds verified.
-- Phase 2 — complete: Kotlin and Go share the strict upstream-compatible token
-  contract described below.
-- Phase 3 and later — not implemented; all corresponding capabilities remain
-  false and the app must not be represented as a working privacy VPN.
+- Phase 2 — complete: Kotlin and Go share the strict upstream-compatible token contract.
+- Phase 3 — implementation complete: native userspace netstack UDP proxy, gateway CapExitUDP capability check, AllowProxy policy enforcement, and synchronized shutdown; physical-device live acceptance pending.
+- Phases 4–8 — planned; all unproven capabilities remain false.
 
 ### Phase 0: restore fail-closed behavior
 
@@ -210,6 +210,12 @@ fixture, and every token accepted for connection starts an upstream client
 without synthetic key material.
 
 ### Phase 3: implement tunneled UDP end to end
+
+**Checkpoint status: Implementation complete; live physical acceptance pending.**
+All native proxy components, `Client.DialUDP`, gateway `OnUDPForward`, `CapExitUDP` negotiation,
+`AllowProxy` policy filtering, zero-length preservation, and `udpWg` shutdown synchronization have
+been implemented and unit/integration tested. Physical device uplink packet-capture and live gateway
+audit remain the required live acceptance gate.
 
 #### Preferred upstream client extension
 

@@ -13,16 +13,22 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-
-	"github.com/tailscale/tailcat"
 )
 
+// TunnelClient abstracts the native WireGuard / Magicsock client for injection in testing.
+type TunnelClient interface {
+	Dial(ctx context.Context, network, address string) (net.Conn, error)
+	DialTCP(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
+	DialUDP(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
+	Close() error
+}
+
 // TunBridge manages bidirectional packet pumping between the Android TUN descriptor
-// and the Tailcat data plane / exit node.
+// and the Tailcat data plane / exit node using a unified gVisor proxy stack.
 type TunBridge struct {
 	tunFD     int
 	tunFile   *os.File
-	client    *tailcat.Client
+	client    TunnelClient
 	token     *ParsedToken
 	transport string
 	rttMs     int64
@@ -39,27 +45,17 @@ type TunBridge struct {
 	rxRateKbps atomic.Int64
 	egressIP   atomic.Value // string, populated only by a request through Tailcat
 
-	udpMu       sync.Mutex
-	udpSessions map[string]*udpSession
-
-	tcpStack   *tcpProxyStack
+	netstack   *netstackProxy
 	tunWriteMu sync.Mutex
 
 	closed atomic.Bool
 	wg     sync.WaitGroup
 }
 
-type udpSession struct {
-	conn       *net.UDPConn
-	lastActive time.Time
-	srcAddr    netip.AddrPort
-	dstAddr    netip.AddrPort
-}
-
-// NewTunBridge creates a new packet bridge using a duplicated TUN file descriptor.
-func NewTunBridge(
+// newTunBridge creates a new packet bridge using a duplicated TUN file descriptor.
+func newTunBridge(
 	tunFD int,
-	client *tailcat.Client,
+	client TunnelClient,
 	token *ParsedToken,
 	transport string,
 	rttMs int64,
@@ -82,25 +78,24 @@ func NewTunBridge(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	b := &TunBridge{
-		tunFD:       dupFD,
-		tunFile:     tunFile,
-		client:      client,
-		token:       token,
-		transport:   transport,
-		rttMs:       rttMs,
-		ctx:         ctx,
-		cancel:      cancel,
-		udpSessions: make(map[string]*udpSession),
-		lastTime:    time.Now(),
+		tunFD:     dupFD,
+		tunFile:   tunFile,
+		client:    client,
+		token:     token,
+		transport: transport,
+		rttMs:     rttMs,
+		ctx:       ctx,
+		cancel:    cancel,
+		lastTime:  time.Now(),
 	}
 
-	tcpStack, err := newTCPProxyStack(b)
+	netstack, err := newNetstackProxy(b)
 	if err != nil {
 		_ = tunFile.Close()
 		cancel()
-		return nil, fmt.Errorf("create TCP netstack: %w", err)
+		return nil, fmt.Errorf("create gVisor netstack proxy: %w", err)
 	}
-	b.tcpStack = tcpStack
+	b.netstack = netstack
 
 	return b, nil
 }
@@ -119,13 +114,13 @@ func (b *TunBridge) Start() error {
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
-		b.cleanupUDPLoop()
+		b.netstack.writeLoop()
 	}()
 
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
-		b.tcpStack.writeLoop()
+		b.netstack.cleanupIdleUDPFlows()
 	}()
 
 	b.wg.Add(1)
@@ -155,19 +150,12 @@ func (b *TunBridge) Stop() error {
 	}
 
 	b.cancel()
-	if b.tcpStack != nil {
-		b.tcpStack.Close()
+	if b.netstack != nil {
+		b.netstack.Close()
 	}
 	if b.tunFile != nil {
 		b.tunFile.Close()
 	}
-
-	b.udpMu.Lock()
-	for k, sess := range b.udpSessions {
-		sess.conn.Close()
-		delete(b.udpSessions, k)
-	}
-	b.udpMu.Unlock()
 
 	b.wg.Wait()
 	return nil
@@ -233,10 +221,8 @@ func (b *TunBridge) handleIPv4(pkt []byte) {
 	switch protocol {
 	case 1: // ICMP
 		b.handleICMPv4(pkt, ihl, srcIP, dstIP)
-	case 17: // UDP
-		b.handleUDPv4(pkt, ihl, srcIP, dstIP)
-	case 6: // TCP
-		b.tcpStack.inject(pkt, false)
+	default: // TCP, UDP, etc. -> Handled by gVisor stack
+		b.netstack.inject(pkt, false)
 	}
 }
 
@@ -252,10 +238,8 @@ func (b *TunBridge) handleIPv6(pkt []byte) {
 	switch nextHeader {
 	case 58: // ICMPv6
 		b.handleICMPv6(pkt, 40, srcIP, dstIP)
-	case 17: // UDP
-		b.handleUDPv6(pkt, 40, srcIP, dstIP)
-	case 6: // TCP
-		b.tcpStack.inject(pkt, true)
+	default: // TCP, UDP, etc. -> Handled by gVisor stack
+		b.netstack.inject(pkt, true)
 	}
 }
 
@@ -300,7 +284,7 @@ func (b *TunBridge) handleICMPv4(pkt []byte, ihl int, srcIP, dstIP netip.Addr) {
 	binary.BigEndian.PutUint16(reply[ihl+2:ihl+4], icmpChk)
 
 	b.rxBytes.Add(int64(len(reply)))
-	b.tunFile.Write(reply)
+	b.writeTunPacket(reply)
 }
 
 // handleICMPv6 generates an echo reply for IPv6 ping packets.
@@ -339,188 +323,7 @@ func (b *TunBridge) handleICMPv6(pkt []byte, offset int, srcIP, dstIP netip.Addr
 	binary.BigEndian.PutUint16(reply[offset+2:offset+4], icmpChk)
 
 	b.rxBytes.Add(int64(len(reply)))
-	b.tunFile.Write(reply)
-}
-
-func (b *TunBridge) handleUDPv4(pkt []byte, ihl int, srcIP, dstIP netip.Addr) {
-	udpHeader := pkt[ihl:]
-	if len(udpHeader) < 8 {
-		return
-	}
-
-	srcPort := binary.BigEndian.Uint16(udpHeader[0:2])
-	dstPort := binary.BigEndian.Uint16(udpHeader[2:4])
-	udpLen := int(binary.BigEndian.Uint16(udpHeader[4:6]))
-	if len(udpHeader) < udpLen || udpLen < 8 {
-		return
-	}
-
-	payload := udpHeader[8:udpLen]
-	srcAP := netip.AddrPortFrom(srcIP, srcPort)
-	dstAP := netip.AddrPortFrom(dstIP, dstPort)
-
-	b.forwardUDP(srcAP, dstAP, payload, false)
-}
-
-func (b *TunBridge) handleUDPv6(pkt []byte, offset int, srcIP, dstIP netip.Addr) {
-	udpHeader := pkt[offset:]
-	if len(udpHeader) < 8 {
-		return
-	}
-
-	srcPort := binary.BigEndian.Uint16(udpHeader[0:2])
-	dstPort := binary.BigEndian.Uint16(udpHeader[2:4])
-	udpLen := int(binary.BigEndian.Uint16(udpHeader[4:6]))
-	if len(udpHeader) < udpLen || udpLen < 8 {
-		return
-	}
-
-	payload := udpHeader[8:udpLen]
-	srcAP := netip.AddrPortFrom(srcIP, srcPort)
-	dstAP := netip.AddrPortFrom(dstIP, dstPort)
-
-	b.forwardUDP(srcAP, dstAP, payload, true)
-}
-
-func (b *TunBridge) forwardUDP(srcAP, dstAP netip.AddrPort, payload []byte, isIPv6 bool) {
-	if dstAP.Port() == 53 {
-		go b.resolveDNSOverTCP(srcAP, dstAP, payload, isIPv6)
-		return
-	}
-
-	sessionKey := fmt.Sprintf("%s->%s", srcAP, dstAP)
-
-	b.udpMu.Lock()
-	sess, exists := b.udpSessions[sessionKey]
-	if !exists {
-		rAddr, err := net.ResolveUDPAddr("udp", dstAP.String())
-		if err != nil {
-			b.udpMu.Unlock()
-			return
-		}
-		conn, err := net.DialUDP("udp", nil, rAddr)
-		if err != nil {
-			b.udpMu.Unlock()
-			return
-		}
-
-		sess = &udpSession{
-			conn:       conn,
-			lastActive: time.Now(),
-			srcAddr:    srcAP,
-			dstAddr:    dstAP,
-		}
-		b.udpSessions[sessionKey] = sess
-		b.udpMu.Unlock()
-
-		go b.udpReceiveLoop(sess, isIPv6)
-	} else {
-		sess.lastActive = time.Now()
-		b.udpMu.Unlock()
-	}
-
-	sess.conn.Write(payload)
-}
-
-func (b *TunBridge) resolveDNSOverTCP(srcAP, dstAP netip.AddrPort, payload []byte, isIPv6 bool) {
-	ctx, cancel := context.WithTimeout(b.ctx, 5*time.Second)
-	defer cancel()
-
-	dnsServer := netip.AddrPortFrom(netip.MustParseAddr("1.1.1.1"), 53)
-	conn, err := b.client.DialTCP(ctx, dnsServer)
-	if err != nil {
-		dnsServer = netip.AddrPortFrom(netip.MustParseAddr("8.8.8.8"), 53)
-		conn, err = b.client.DialTCP(ctx, dnsServer)
-		if err != nil {
-			return
-		}
-	}
-	defer conn.Close()
-
-	query := make([]byte, 2+len(payload))
-	binary.BigEndian.PutUint16(query[0:2], uint16(len(payload)))
-	copy(query[2:], payload)
-
-	if _, err := conn.Write(query); err != nil {
-		return
-	}
-
-	lenBuf := make([]byte, 2)
-	if _, err := io.ReadFull(conn, lenBuf); err != nil {
-		return
-	}
-
-	respLen := binary.BigEndian.Uint16(lenBuf)
-	if respLen == 0 || respLen > 4096 {
-		return
-	}
-
-	respBuf := make([]byte, respLen)
-	if _, err := io.ReadFull(conn, respBuf); err != nil {
-		return
-	}
-
-	var reply []byte
-	if !isIPv6 {
-		reply = buildIPv4UDPPacket(dstAP, srcAP, respBuf)
-	} else {
-		reply = buildIPv6UDPPacket(dstAP, srcAP, respBuf)
-	}
-
-	b.rxBytes.Add(int64(len(reply)))
-	b.tunFile.Write(reply)
-}
-
-func (b *TunBridge) udpReceiveLoop(sess *udpSession, isIPv6 bool) {
-	buf := make([]byte, 65535)
-	for {
-		select {
-		case <-b.ctx.Done():
-			return
-		default:
-		}
-
-		sess.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-		n, err := sess.conn.Read(buf)
-		if err != nil {
-			return
-		}
-
-		sess.lastActive = time.Now()
-		payload := buf[:n]
-
-		var reply []byte
-		if !isIPv6 {
-			reply = buildIPv4UDPPacket(sess.dstAddr, sess.srcAddr, payload)
-		} else {
-			reply = buildIPv6UDPPacket(sess.dstAddr, sess.srcAddr, payload)
-		}
-
-		b.rxBytes.Add(int64(len(reply)))
-		b.tunFile.Write(reply)
-	}
-}
-
-func (b *TunBridge) cleanupUDPLoop() {
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-b.ctx.Done():
-			return
-		case <-ticker.C:
-			now := time.Now()
-			b.udpMu.Lock()
-			for k, sess := range b.udpSessions {
-				if now.Sub(sess.lastActive) > 60*time.Second {
-					sess.conn.Close()
-					delete(b.udpSessions, k)
-				}
-			}
-			b.udpMu.Unlock()
-		}
-	}
+	b.writeTunPacket(reply)
 }
 
 func (b *TunBridge) rateCalcLoop() {

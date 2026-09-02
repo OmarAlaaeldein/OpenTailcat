@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tailscale/tailcat"
+	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/net/netmon"
 )
 
@@ -171,13 +172,25 @@ type TailcatCore struct {
 	running   bool
 	prepared  bool
 	token     *ParsedToken
-	client    *tailcat.Client
+	client    preparedClient
 	bridge    *TunBridge
 	transport string
 	rttMs     int64
 }
 
 var globalCore = &TailcatCore{}
+
+type preparedClient interface {
+	TunnelClient
+	Ping(context.Context) (tailcat.PingResult, error)
+	DiscoPing(context.Context) (*ipnstate.PingResult, error)
+	HasServerCap(uint8) bool
+	NetMon() *netmon.Monitor
+}
+
+var newTailcatClient = func(blob tailcat.ConnBlob) preparedClient {
+	return tailcat.NewClient(blob)
+}
 
 // Capabilities represents the native data-plane capability contract (API v2).
 type Capabilities struct {
@@ -250,7 +263,7 @@ func Prepare(tokenStr string) error {
 	}
 
 	// Pass the exact original validated official token bytes directly to upstream Tailcat
-	client := tailcat.NewClient(tailcat.ConnBlob(pt.RawToken))
+	client := newTailcatClient(tailcat.ConnBlob(pt.RawToken))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -264,6 +277,11 @@ func Prepare(tokenStr string) error {
 	if res.Latency <= 0 {
 		client.Close()
 		return fmt.Errorf("invalid reachability latency from gateway")
+	}
+
+	if !client.HasServerCap(tailcat.CapExitUDP) {
+		client.Close()
+		return errors.New("gateway does not support tunneled UDP data plane (TCP-only exit node)")
 	}
 
 	transport := "DERP_RELAY"
@@ -303,7 +321,7 @@ func AttachTun(tunFD int) error {
 		return errors.New("cannot attach TUN: engine not prepared")
 	}
 
-	bridge, err := NewTunBridge(
+	bridge, err := newTunBridge(
 		tunFD,
 		globalCore.client,
 		globalCore.token,
