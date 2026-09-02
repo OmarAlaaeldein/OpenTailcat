@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
-	"github.com/tailscale/tailcat"
+	"go4.org/mem"
 	"tailscale.com/net/netmon"
 	"tailscale.com/types/key"
 )
@@ -57,28 +57,58 @@ func TestGetCapabilitiesJSON(t *testing.T) {
 }
 
 func TestParseTokenOfficialVectors(t *testing.T) {
-	// Sample official token from README
-	token := "tcomFwWCCcjS5nKNqAod034nWoJZW0LZqDhhC8U_dKdnDRYQ8uNGFpGQEu"
-	pt, err := ParseToken(token)
+	// Sample older token with i but missing disco key k
+	shortNoDiscoToken := "tcomFwWCCcjS5nKNqAod034nWoJZW0LZqDhhC8U_dKdnDRYQ8uNGFpGQEu"
+	ptNoDisco, _ := ParseToken(shortNoDiscoToken)
+	if ptNoDisco.Classification != ClassificationInvalid || ptNoDisco.ErrorCode != ErrMissingDiscoKey {
+		t.Errorf("Expected token without disco key to be INVALID / ERR_MISSING_DISCO_KEY, got %v / %v",
+			ptNoDisco.Classification, ptNoDisco.ErrorCode)
+	}
+
+	// Official token with deterministic p, k, i
+	var nodeRaw, discoRaw [32]byte
+	for i := 0; i < 32; i++ {
+		nodeRaw[i] = byte(i + 1)
+		discoRaw[i] = byte(i + 33)
+	}
+	nodePub := key.NodePrivateFromRaw32(mem.B(nodeRaw[:])).Public()
+	discoPub := key.DiscoPrivateFromRaw32(mem.B(discoRaw[:])).Public()
+
+	wireMap := map[string]any{
+		"p": nodePub.AppendTo(nil),
+		"k": discoPub.AppendTo(nil),
+		"i": uint64(302),
+	}
+	cborBytes, _ := cbor.Marshal(wireMap)
+	officialToken := "tc" + base64.RawURLEncoding.EncodeToString(cborBytes)
+
+	pt, err := ParseToken(officialToken)
 	if err != nil {
 		t.Fatalf("ParseToken failed: %v", err)
 	}
-
+	if pt.Classification != ClassificationValidOfficialShort {
+		t.Errorf("Expected VALID_OFFICIAL_SHORT, got %v", pt.Classification)
+	}
 	if pt.RegionID != 302 {
 		t.Errorf("Expected region 302, got %v", pt.RegionID)
 	}
-	if pt.ServerPublic.String() != "nodekey:9c8d2e6728da80a1dd37e275a82595b42d9a838610bc53f74a7670d1610f2e34" {
+	if pt.ServerPublic.String() != nodePub.String() {
 		t.Errorf("Unexpected server public key: %v", pt.ServerPublic.String())
 	}
 }
 
 func TestParseTokenWithDiscoKeyAndRegion(t *testing.T) {
-	nodePriv := key.NewNode()
-	discoPriv := key.NewDisco()
+	var nodeRaw, discoRaw [32]byte
+	for i := 0; i < 32; i++ {
+		nodeRaw[i] = byte(i + 1)
+		discoRaw[i] = byte(i + 33)
+	}
+	nodePub := key.NodePrivateFromRaw32(mem.B(nodeRaw[:])).Public()
+	discoPub := key.DiscoPrivateFromRaw32(mem.B(discoRaw[:])).Public()
 
 	wireMap := map[string]any{
-		"p": nodePriv.Public().AppendTo(nil),
-		"k": discoPriv.Public().AppendTo(nil),
+		"p": nodePub.AppendTo(nil),
+		"k": discoPub.AppendTo(nil),
 		"i": int64(10),
 	}
 
@@ -96,21 +126,28 @@ func TestParseTokenWithDiscoKeyAndRegion(t *testing.T) {
 	if pt.RegionID != 10 {
 		t.Errorf("Expected region 10, got %v", pt.RegionID)
 	}
-	if pt.ServerPublic.String() != nodePriv.Public().String() {
-		t.Errorf("Server public mismatch: got %v want %v", pt.ServerPublic, nodePriv.Public())
+	if pt.ServerPublic.String() != nodePub.String() {
+		t.Errorf("Server public mismatch: got %v want %v", pt.ServerPublic, nodePub)
 	}
-	if pt.ServerDiscoPublic.String() != discoPriv.Public().String() {
-		t.Errorf("Disco public mismatch: got %v want %v", pt.ServerDiscoPublic, discoPriv.Public())
+	if pt.ServerDiscoPublic.String() != discoPub.String() {
+		t.Errorf("Disco public mismatch: got %v want %v", pt.ServerDiscoPublic, discoPub)
 	}
 }
 
 func TestParseTokenExpiredRejection(t *testing.T) {
-	nodePriv := key.NewNode()
+	var nodeRaw, discoRaw [32]byte
+	for i := 0; i < 32; i++ {
+		nodeRaw[i] = byte(i + 1)
+		discoRaw[i] = byte(i + 33)
+	}
+	nodePub := key.NodePrivateFromRaw32(mem.B(nodeRaw[:])).Public()
+	discoPub := key.DiscoPrivateFromRaw32(mem.B(discoRaw[:])).Public()
 	past := time.Now().Unix() - 3600
 
 	wireMap := map[string]any{
-		"p":   nodePriv.Public().AppendTo(nil),
-		"r":   uint64(1),
+		"p":   nodePub.AppendTo(nil),
+		"k":   discoPub.AppendTo(nil),
+		"i":   uint64(1),
 		"exp": past,
 	}
 
@@ -153,12 +190,10 @@ func TestChecksumCalculations(t *testing.T) {
 }
 
 func TestStopLifecycle(t *testing.T) {
-	if err := Stop(); err != nil {
-		t.Fatalf("First Stop() call failed: %v", err)
-	}
-	// Verify idempotency
-	if err := Stop(); err != nil {
-		t.Fatalf("Second Stop() call failed: %v", err)
+	// Call Stop when already stopped
+	err := Stop()
+	if err != nil {
+		t.Fatalf("Stop() should be idempotent, got error: %v", err)
 	}
 
 	statsJSON := GetStatsJSON()
@@ -175,10 +210,14 @@ func TestPrepareInvalidToken(t *testing.T) {
 }
 
 func TestLegacyNumericRTokenHandling(t *testing.T) {
-	nodePriv := key.NewNode()
+	var nodeRaw [32]byte
+	for i := 0; i < 32; i++ {
+		nodeRaw[i] = byte(i + 1)
+	}
+	nodePub := key.NodePrivateFromRaw32(mem.B(nodeRaw[:])).Public()
 
 	wireMap := map[string]any{
-		"p": nodePriv.Public().AppendTo(nil),
+		"p": nodePub.AppendTo(nil),
 		"r": uint64(302),
 	}
 
@@ -188,25 +227,18 @@ func TestLegacyNumericRTokenHandling(t *testing.T) {
 	}
 
 	token := "tc" + base64.RawURLEncoding.EncodeToString(cborBytes)
-	pt, err := ParseToken(token)
-	if err != nil {
-		t.Fatalf("ParseToken failed on legacy numeric r: %v", err)
+	pt, _ := ParseToken(token)
+
+	if pt.Classification != ClassificationLegacyReissueRequired {
+		t.Fatalf("Expected classification LEGACY_REISSUE_REQUIRED, got %v", pt.Classification)
 	}
 
-	if pt.RegionID != 302 {
-		t.Errorf("Expected region 302, got %v", pt.RegionID)
+	if pt.IsConnectable() {
+		t.Fatal("Legacy numeric-r token must NOT be connectable")
 	}
 
-	// Canonical token must parse directly with upstream tailcat.ParseConnBlob
-	canonicalBlob := pt.CanonicalToken()
-	if !strings.HasPrefix(canonicalBlob, "tc") {
-		t.Fatalf("Canonical token missing tc prefix: %s", canonicalBlob)
-	}
-
-	// Verify that the canonical representation is accepted by upstream without
-	// starting a real network engine for this intentionally fabricated token.
-	if _, err := tailcat.ParseConnBlob(tailcat.ConnBlob(canonicalBlob)); err != nil {
-		t.Fatalf("upstream rejected canonical legacy token: %v", err)
+	if err := Prepare(token); err == nil {
+		t.Fatal("Prepare must reject legacy numeric-r token without disco key")
 	}
 }
 

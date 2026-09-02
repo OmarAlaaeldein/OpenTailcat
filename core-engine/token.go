@@ -1,34 +1,84 @@
 package engine
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/tailscale/tailcat"
 	"go4.org/mem"
 	"tailscale.com/tailcfg"
 	"tailscale.com/types/key"
 )
 
-const maxUnixTimestampSec = 253402300799
+const (
+	MaxTokenStringLength = 65536
+	MaxCborPayloadBytes  = 32768
+	MaxUnixTimestampSec  = 253402300799
+	PublicKeySizeBytes   = 32
+)
 
-// ParsedToken represents a validated Tailcat connection token with metadata.
+type TokenClassification string
+
+const (
+	ClassificationValidOfficialShort    TokenClassification = "VALID_OFFICIAL_SHORT"
+	ClassificationValidOfficialResolved TokenClassification = "VALID_OFFICIAL_RESOLVED"
+	ClassificationLegacyReissueRequired TokenClassification = "LEGACY_REISSUE_REQUIRED"
+	ClassificationExpired               TokenClassification = "EXPIRED"
+	ClassificationInvalid               TokenClassification = "INVALID"
+)
+
+type TokenErrorCode string
+
+const (
+	ErrNone                    TokenErrorCode = ""
+	ErrTokenLength             TokenErrorCode = "ERR_TOKEN_LENGTH"
+	ErrWhitespace              TokenErrorCode = "ERR_WHITESPACE"
+	ErrInvalidPrefix           TokenErrorCode = "ERR_INVALID_PREFIX"
+	ErrBase64Char              TokenErrorCode = "ERR_BASE64_CHAR"
+	ErrBase64Padded            TokenErrorCode = "ERR_BASE64_PADDED"
+	ErrBase64Decode            TokenErrorCode = "ERR_BASE64_DECODE"
+	ErrCborTooLarge            TokenErrorCode = "ERR_CBOR_TOO_LARGE"
+	ErrCborMalformed           TokenErrorCode = "ERR_CBOR_MALFORMED"
+	ErrNotMap                  TokenErrorCode = "ERR_NOT_MAP"
+	ErrDuplicateKey            TokenErrorCode = "ERR_DUPLICATE_KEY"
+	ErrTrailingData            TokenErrorCode = "ERR_TRAILING_DATA"
+	ErrMissingNodeKey          TokenErrorCode = "ERR_MISSING_NODE_KEY"
+	ErrInvalidNodeKey          TokenErrorCode = "ERR_INVALID_NODE_KEY"
+	ErrMissingDiscoKey         TokenErrorCode = "ERR_MISSING_DISCO_KEY"
+	ErrInvalidDiscoKey         TokenErrorCode = "ERR_INVALID_DISCO_KEY"
+	ErrSyntheticDiscoKey       TokenErrorCode = "ERR_SYNTHETIC_DISCO_KEY"
+	ErrMissingRegion           TokenErrorCode = "ERR_MISSING_REGION"
+	ErrInvalidRegionId         TokenErrorCode = "ERR_INVALID_REGION_ID"
+	ErrInvalidRegionType       TokenErrorCode = "ERR_INVALID_REGION_TYPE"
+	ErrInvalidStructuredRegion TokenErrorCode = "ERR_INVALID_STRUCTURED_REGION"
+	ErrInvalidExpiration       TokenErrorCode = "ERR_INVALID_EXPIRATION"
+	ErrInvalidIssuedAt         TokenErrorCode = "ERR_INVALID_ISSUED_AT"
+	ErrExpBeforeIat            TokenErrorCode = "ERR_EXP_BEFORE_IAT"
+	ErrUnknownField            TokenErrorCode = "ERR_UNKNOWN_FIELD"
+)
+
+// ParsedToken represents a validated Tailcat token with verified classification.
 type ParsedToken struct {
-	RawToken          string
-	ServerPublic      key.NodePublic
-	ServerDiscoPublic key.DiscoPublic
-	RegionID          tailcfg.DERPRegionID
-	Region            []*tailcfg.DERPRegion
-	HasEmbeddedRegion bool
-	ExpiresAtUnixSec  *int64
-	IssuedAtUnixSec   *int64
+	RawToken          string                `json:"rawToken"`
+	Classification    TokenClassification   `json:"classification"`
+	ErrorCode         TokenErrorCode        `json:"errorCode,omitempty"`
+	ErrorMessage      string                `json:"errorMessage,omitempty"`
+	ServerPublic      key.NodePublic        `json:"-"`
+	ServerPublicHex   string                `json:"serverPublicHex,omitempty"`
+	ServerDiscoPublic key.DiscoPublic       `json:"-"`
+	ServerDiscoHex    string                `json:"serverDiscoHex,omitempty"`
+	RegionID          tailcfg.DERPRegionID  `json:"regionId,omitempty"`
+	Region            []*tailcfg.DERPRegion `json:"-"`
+	HasEmbeddedRegion bool                  `json:"hasEmbeddedRegion"`
+	ExpiresAtUnixSec  *int64                `json:"expiresAtUnixSec,omitempty"`
+	IssuedAtUnixSec   *int64                `json:"issuedAtUnixSec,omitempty"`
 }
 
-// IsExpired returns whether the token's expiration timestamp is in the past.
 func (t *ParsedToken) IsExpired() bool {
 	if t.ExpiresAtUnixSec == nil {
 		return false
@@ -36,174 +86,526 @@ func (t *ParsedToken) IsExpired() bool {
 	return time.Now().Unix() >= *t.ExpiresAtUnixSec
 }
 
-// CanonicalToken returns the standard official Tailcat ConnBlob ("tc" + Base64URL(CBOR))
-// for this token, ensuring flawless compatibility with upstream tailcat.NewClient.
-func (t *ParsedToken) CanonicalToken() string {
-	ci := tailcat.ConnInfo{
-		ServerPublic: tailcat.NodePublic{NodePublic: t.ServerPublic},
-		RegionID:     t.RegionID,
-		Region:       t.Region,
-	}
-	if !t.ServerDiscoPublic.IsZero() {
-		ci.ServerDiscoPublic = tailcat.DiscoPublic{DiscoPublic: t.ServerDiscoPublic}
-	}
-	return string(ci.ConnBlob())
+func (t *ParsedToken) IsConnectable() bool {
+	return (t.Classification == ClassificationValidOfficialShort ||
+		t.Classification == ClassificationValidOfficialResolved) &&
+		!t.IsExpired()
 }
 
-// ParseToken parses and validates a Tailcat token (tc-prefixed Base64URL-encoded CBOR).
-// Supports official Tailcat v0.4.0 tokens (short with p, k, i and resolved with p, k, r)
-// as well as legacy schemas with numeric r and optional exp/iat timestamps.
+// ParseToken parses and classifies a Tailcat connection token using upstream Tailcat v0.4.0
+// ParseConnBlob as the authority. No silent trimming or mutations are performed.
 func ParseToken(raw string) (*ParsedToken, error) {
-	trimmed := strings.TrimSpace(raw)
-	if !strings.HasPrefix(trimmed, "tc") {
-		return nil, errors.New("token must start with \"tc\" prefix")
+	if len(raw) == 0 {
+		return &ParsedToken{
+			RawToken:       raw,
+			Classification: ClassificationInvalid,
+			ErrorCode:      ErrTokenLength,
+			ErrorMessage:   "token cannot be empty",
+		}, errors.New("token cannot be empty")
 	}
 
-	payloadB64 := trimmed[2:]
-	if payloadB64 == "" {
-		return nil, errors.New("token payload cannot be empty")
+	if len(raw) > MaxTokenStringLength {
+		return &ParsedToken{
+			RawToken:       raw,
+			Classification: ClassificationInvalid,
+			ErrorCode:      ErrTokenLength,
+			ErrorMessage:   "token exceeds maximum length",
+		}, errors.New("token exceeds maximum length")
 	}
 
-	cborBytes, err := base64.RawURLEncoding.DecodeString(payloadB64)
+	// Reject leading or trailing whitespace (no silent trimming)
+	if raw[0] <= ' ' || raw[len(raw)-1] <= ' ' {
+		return &ParsedToken{
+			RawToken:       raw,
+			Classification: ClassificationInvalid,
+			ErrorCode:      ErrWhitespace,
+			ErrorMessage:   "token must not contain leading or trailing whitespace",
+		}, errors.New("token contains surrounding whitespace")
+	}
+
+	// Exact lowercase "tc" prefix required (reject uppercase "TC" or mixed case)
+	if !strings.HasPrefix(raw, "tc") {
+		return &ParsedToken{
+			RawToken:       raw,
+			Classification: ClassificationInvalid,
+			ErrorCode:      ErrInvalidPrefix,
+			ErrorMessage:   "token must start with exact lowercase \"tc\" prefix",
+		}, errors.New("token must start with exact lowercase \"tc\" prefix")
+	}
+
+	b64Payload := raw[2:]
+	if len(b64Payload) == 0 {
+		return &ParsedToken{
+			RawToken:       raw,
+			Classification: ClassificationInvalid,
+			ErrorCode:      ErrTokenLength,
+			ErrorMessage:   "token payload cannot be empty",
+		}, errors.New("token payload cannot be empty")
+	}
+
+	// Validate Base64URL characters and reject '=' padding (upstream uses base64.RawURLEncoding)
+	for i := 0; i < len(b64Payload); i++ {
+		c := b64Payload[i]
+		if c == '=' {
+			return &ParsedToken{
+				RawToken:       raw,
+				Classification: ClassificationInvalid,
+				ErrorCode:      ErrBase64Padded,
+				ErrorMessage:   "Base64URL padding '=' is forbidden; upstream requires unpadded base64.RawURLEncoding",
+			}, errors.New("Base64URL padding is forbidden")
+		}
+		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
+			continue
+		}
+		return &ParsedToken{
+			RawToken:       raw,
+			Classification: ClassificationInvalid,
+			ErrorCode:      ErrBase64Char,
+			ErrorMessage:   fmt.Sprintf("invalid character %q in Base64URL token payload", c),
+		}, fmt.Errorf("invalid character %q in Base64URL token payload", c)
+	}
+
+	if len(b64Payload)%4 == 1 {
+		return &ParsedToken{
+			RawToken:       raw,
+			Classification: ClassificationInvalid,
+			ErrorCode:      ErrBase64Decode,
+			ErrorMessage:   "invalid unpadded Base64URL length (mod 4 is 1)",
+		}, errors.New("invalid unpadded Base64URL length (mod 4 is 1)")
+	}
+
+	cborBytes, err := base64.RawURLEncoding.DecodeString(b64Payload)
 	if err != nil {
-		return nil, fmt.Errorf("base64 decode: %w", err)
+		return &ParsedToken{
+			RawToken:       raw,
+			Classification: ClassificationInvalid,
+			ErrorCode:      ErrBase64Decode,
+			ErrorMessage:   fmt.Sprintf("base64 decode: %v", err),
+		}, fmt.Errorf("base64 decode: %w", err)
 	}
 
-	var rawMap map[string]any
-	if err := cbor.Unmarshal(cborBytes, &rawMap); err != nil {
-		return nil, fmt.Errorf("cbor decode map: %w", err)
+	rawMap, code, err := parseStrictTokenMap(cborBytes)
+	if err != nil {
+		return &ParsedToken{
+			RawToken:       raw,
+			Classification: ClassificationInvalid,
+			ErrorCode:      code,
+			ErrorMessage:   err.Error(),
+		}, err
 	}
 
-	var expSec *int64
-	var iatSec *int64
+	var (
+		pubKeyBytes         []byte
+		discoKeyBytes       []byte
+		regionIDNum         int64
+		hasExplicitRegionID bool
+		hasNumericR         bool
+		structuredRegions   []*tailcfg.DERPRegion
+		hasStructuredR      bool
+		expSec              *int64
+		iatSec              *int64
+	)
 
-	if expVal, ok := rawMap["exp"]; ok {
-		switch v := expVal.(type) {
-		case uint64:
-			sec := int64(v)
-			if sec < 1 || sec > maxUnixTimestampSec {
-				return nil, errors.New("expiration timestamp out of range")
+	// Extract and validate each permitted canonical field
+	for k, v := range rawMap {
+		switch k {
+		case "p":
+			b, ok := v.([]byte)
+			if !ok || len(b) != PublicKeySizeBytes {
+				return &ParsedToken{
+					RawToken:       raw,
+					Classification: ClassificationInvalid,
+					ErrorCode:      ErrInvalidNodeKey,
+					ErrorMessage:   fmt.Sprintf("node public key 'p' must be exactly %d bytes", PublicKeySizeBytes),
+				}, errors.New("invalid node public key")
 			}
-			expSec = &sec
-		case int64:
-			if v < 1 || v > maxUnixTimestampSec {
-				return nil, errors.New("expiration timestamp out of range")
+			if isAllZero(b) {
+				return &ParsedToken{
+					RawToken:       raw,
+					Classification: ClassificationInvalid,
+					ErrorCode:      ErrInvalidNodeKey,
+					ErrorMessage:   "node public key cannot be all zero bytes",
+				}, errors.New("node public key cannot be all zero")
 			}
-			expSec = &v
-		case float64:
-			sec := int64(v)
-			if sec < 1 || sec > maxUnixTimestampSec {
-				return nil, errors.New("expiration timestamp out of range")
+			pubKeyBytes = b
+
+		case "k":
+			b, ok := v.([]byte)
+			if !ok || len(b) != PublicKeySizeBytes {
+				return &ParsedToken{
+					RawToken:       raw,
+					Classification: ClassificationInvalid,
+					ErrorCode:      ErrInvalidDiscoKey,
+					ErrorMessage:   fmt.Sprintf("disco public key 'k' must be exactly %d bytes", PublicKeySizeBytes),
+				}, errors.New("invalid disco public key")
 			}
-			expSec = &sec
+			if isAllZero(b) {
+				return &ParsedToken{
+					RawToken:       raw,
+					Classification: ClassificationInvalid,
+					ErrorCode:      ErrInvalidDiscoKey,
+					ErrorMessage:   "disco public key cannot be all zero bytes",
+				}, errors.New("disco public key cannot be all zero")
+			}
+			discoKeyBytes = b
+
+		case "i":
+			switch num := v.(type) {
+			case uint64:
+				if num < 1 || num > 65535 {
+					return &ParsedToken{
+						RawToken:       raw,
+						Classification: ClassificationInvalid,
+						ErrorCode:      ErrInvalidRegionId,
+						ErrorMessage:   "region ID 'i' must be in range 1..65535",
+					}, errors.New("region ID out of range")
+				}
+				regionIDNum = int64(num)
+				hasExplicitRegionID = true
+			case int64:
+				if num < 1 || num > 65535 {
+					return &ParsedToken{
+						RawToken:       raw,
+						Classification: ClassificationInvalid,
+						ErrorCode:      ErrInvalidRegionId,
+						ErrorMessage:   "region ID 'i' must be in range 1..65535",
+					}, errors.New("region ID out of range")
+				}
+				regionIDNum = num
+				hasExplicitRegionID = true
+			default:
+				return &ParsedToken{
+					RawToken:       raw,
+					Classification: ClassificationInvalid,
+					ErrorCode:      ErrInvalidRegionId,
+					ErrorMessage:   "region ID 'i' must be a positive integer",
+				}, errors.New("invalid region ID type")
+			}
+
+		case "r":
+			switch rVal := v.(type) {
+			case uint64:
+				if rVal < 1 || rVal > 65535 {
+					return &ParsedToken{
+						RawToken:       raw,
+						Classification: ClassificationInvalid,
+						ErrorCode:      ErrInvalidRegionId,
+						ErrorMessage:   "numeric legacy region 'r' out of range",
+					}, errors.New("numeric region out of range")
+				}
+				regionIDNum = int64(rVal)
+				hasNumericR = true
+			case int64:
+				if rVal < 1 || rVal > 65535 {
+					return &ParsedToken{
+						RawToken:       raw,
+						Classification: ClassificationInvalid,
+						ErrorCode:      ErrInvalidRegionId,
+						ErrorMessage:   "numeric legacy region 'r' out of range",
+					}, errors.New("numeric region out of range")
+				}
+				regionIDNum = rVal
+				hasNumericR = true
+			case []any:
+				if len(rVal) == 0 {
+					return &ParsedToken{
+						RawToken:       raw,
+						Classification: ClassificationInvalid,
+						ErrorCode:      ErrInvalidStructuredRegion,
+						ErrorMessage:   "embedded region array 'r' cannot be empty",
+					}, errors.New("empty embedded region array")
+				}
+				regions, err := parseStructuredDERPRegions(rVal)
+				if err != nil {
+					return &ParsedToken{
+						RawToken:       raw,
+						Classification: ClassificationInvalid,
+						ErrorCode:      ErrInvalidStructuredRegion,
+						ErrorMessage:   err.Error(),
+					}, err
+				}
+				structuredRegions = regions
+				hasStructuredR = true
+			default:
+				return &ParsedToken{
+					RawToken:       raw,
+					Classification: ClassificationInvalid,
+					ErrorCode:      ErrInvalidRegionType,
+					ErrorMessage:   "region 'r' must be an integer (legacy) or array of DERP regions",
+				}, errors.New("invalid region field type")
+			}
+
+		case "exp":
+			switch num := v.(type) {
+			case uint64:
+				if num < 1 || num > MaxUnixTimestampSec {
+					return &ParsedToken{
+						RawToken:       raw,
+						Classification: ClassificationInvalid,
+						ErrorCode:      ErrInvalidExpiration,
+						ErrorMessage:   "expiration timestamp out of range",
+					}, errors.New("expiration timestamp out of range")
+				}
+				sec := int64(num)
+				expSec = &sec
+			case int64:
+				if num < 1 || num > MaxUnixTimestampSec {
+					return &ParsedToken{
+						RawToken:       raw,
+						Classification: ClassificationInvalid,
+						ErrorCode:      ErrInvalidExpiration,
+						ErrorMessage:   "expiration timestamp out of range",
+					}, errors.New("expiration timestamp out of range")
+				}
+				sec := num
+				expSec = &sec
+			default:
+				return &ParsedToken{
+					RawToken:       raw,
+					Classification: ClassificationInvalid,
+					ErrorCode:      ErrInvalidExpiration,
+					ErrorMessage:   "expiration timestamp must be an integer",
+				}, errors.New("invalid expiration format")
+			}
+
+		case "iat":
+			switch num := v.(type) {
+			case uint64:
+				if num < 1 || num > MaxUnixTimestampSec {
+					return &ParsedToken{
+						RawToken:       raw,
+						Classification: ClassificationInvalid,
+						ErrorCode:      ErrInvalidIssuedAt,
+						ErrorMessage:   "issued-at timestamp out of range",
+					}, errors.New("issued-at timestamp out of range")
+				}
+				sec := int64(num)
+				iatSec = &sec
+			case int64:
+				if num < 1 || num > MaxUnixTimestampSec {
+					return &ParsedToken{
+						RawToken:       raw,
+						Classification: ClassificationInvalid,
+						ErrorCode:      ErrInvalidIssuedAt,
+						ErrorMessage:   "issued-at timestamp out of range",
+					}, errors.New("issued-at timestamp out of range")
+				}
+				sec := num
+				iatSec = &sec
+			default:
+				return &ParsedToken{
+					RawToken:       raw,
+					Classification: ClassificationInvalid,
+					ErrorCode:      ErrInvalidIssuedAt,
+					ErrorMessage:   "issued-at timestamp must be an integer",
+				}, errors.New("invalid issued-at format")
+			}
+
 		default:
-			return nil, errors.New("invalid expiration format")
+			return &ParsedToken{
+				RawToken:       raw,
+				Classification: ClassificationInvalid,
+				ErrorCode:      ErrUnknownField,
+				ErrorMessage:   fmt.Sprintf("unknown token field %q", k),
+			}, fmt.Errorf("unknown token field %q", k)
 		}
 	}
 
-	if iatVal, ok := rawMap["iat"]; ok {
-		switch v := iatVal.(type) {
-		case uint64:
-			sec := int64(v)
-			if sec < 1 || sec > maxUnixTimestampSec {
-				return nil, errors.New("issued-at timestamp out of range")
-			}
-			iatSec = &sec
-		case int64:
-			if v < 1 || v > maxUnixTimestampSec {
-				return nil, errors.New("issued-at timestamp out of range")
-			}
-			iatSec = &v
-		case float64:
-			sec := int64(v)
-			if sec < 1 || sec > maxUnixTimestampSec {
-				return nil, errors.New("issued-at timestamp out of range")
-			}
-			iatSec = &sec
-		default:
-			return nil, errors.New("invalid issued-at format")
-		}
+	if pubKeyBytes == nil {
+		return &ParsedToken{
+			RawToken:       raw,
+			Classification: ClassificationInvalid,
+			ErrorCode:      ErrMissingNodeKey,
+			ErrorMessage:   "missing required node public key 'p'",
+		}, errors.New("missing required node public key")
 	}
 
 	if expSec != nil && iatSec != nil && *expSec < *iatSec {
-		return nil, errors.New("expiration timestamp cannot be earlier than issued-at timestamp")
+		return &ParsedToken{
+			RawToken:       raw,
+			Classification: ClassificationInvalid,
+			ErrorCode:      ErrExpBeforeIat,
+			ErrorMessage:   "expiration timestamp cannot be earlier than issued-at timestamp",
+		}, errors.New("expiration timestamp earlier than issued-at")
 	}
 
-	// Try parsing standard official tailcat ConnBlob
-	ci, err := tailcat.ParseConnBlob(tailcat.ConnBlob(trimmed))
-	if err != nil {
-		// Fallback for legacy format with numeric "r"
-		if rVal, ok := rawMap["r"]; ok {
-			var rNum uint64
-			switch v := rVal.(type) {
-			case uint64:
-				rNum = v
-			case int64:
-				if v > 0 {
-					rNum = uint64(v)
-				}
-			case int:
-				if v > 0 {
-					rNum = uint64(v)
-				}
-			case float64:
-				if v > 0 {
-					rNum = uint64(v)
-				}
-			}
-			if rNum > 0 {
-				if pVal, ok := rawMap["p"]; ok {
-					if pBytes, ok := pVal.([]byte); ok && len(pBytes) == 32 {
-						pub := key.NodePublicFromRaw32(mem.B(pBytes))
-						var discoPub key.DiscoPublic
-						if kVal, ok := rawMap["k"]; ok {
-							if kBytes, ok := kVal.([]byte); ok && len(kBytes) == 32 {
-								discoPub = key.DiscoPublicFromRaw32(mem.B(kBytes))
-							}
-						}
-						if discoPub.IsZero() {
-							discoPub = key.DiscoPublicFromRaw32(mem.B(pBytes))
-						}
-						pt := &ParsedToken{
-							ServerPublic:      pub,
-							ServerDiscoPublic: discoPub,
-							RegionID:          tailcfg.DERPRegionID(rNum),
-							HasEmbeddedRegion: false,
-							ExpiresAtUnixSec:  expSec,
-							IssuedAtUnixSec:   iatSec,
-						}
-						pt.RawToken = pt.CanonicalToken()
-						if pt.IsExpired() {
-							return nil, errors.New("connection token has expired")
-						}
-						return pt, nil
-					}
-				}
-			}
-		}
-		return nil, fmt.Errorf("parse connection token: %w", err)
+	// Reject synthetic disco key where k == p
+	if discoKeyBytes != nil && bytes.Equal(discoKeyBytes, pubKeyBytes) {
+		return &ParsedToken{
+			RawToken:       raw,
+			Classification: ClassificationInvalid,
+			ErrorCode:      ErrSyntheticDiscoKey,
+			ErrorMessage:   "synthetic disco key equal to node public key is forbidden",
+		}, errors.New("synthetic disco key equal to node public key")
 	}
 
-	hasEmbedded := len(ci.Region) > 0
-	regionID := ci.RegionID
-	if regionID == 0 && hasEmbedded && ci.Region[0] != nil {
-		regionID = ci.Region[0].RegionID
+	nodePub := key.NodePublicFromRaw32(mem.B(pubKeyBytes))
+	var discoPub key.DiscoPublic
+	if discoKeyBytes != nil {
+		discoPub = key.DiscoPublicFromRaw32(mem.B(discoKeyBytes))
+	}
+
+	effectiveRegionID := regionIDNum
+	if effectiveRegionID == 0 && len(structuredRegions) > 0 && structuredRegions[0] != nil {
+		effectiveRegionID = int64(structuredRegions[0].RegionID)
 	}
 
 	pt := &ParsedToken{
-		RawToken:          trimmed,
-		ServerPublic:      ci.ServerPublic.NodePublic,
-		ServerDiscoPublic: ci.ServerDiscoPublic.DiscoPublic,
-		RegionID:          regionID,
-		Region:            ci.Region,
-		HasEmbeddedRegion: hasEmbedded,
+		RawToken:          raw,
+		ServerPublic:      nodePub,
+		ServerPublicHex:   hex.EncodeToString(pubKeyBytes),
+		ServerDiscoPublic: discoPub,
+		RegionID:          tailcfg.DERPRegionID(effectiveRegionID),
+		Region:            structuredRegions,
+		HasEmbeddedRegion: hasStructuredR,
 		ExpiresAtUnixSec:  expSec,
 		IssuedAtUnixSec:   iatSec,
 	}
+	if discoKeyBytes != nil {
+		pt.ServerDiscoHex = hex.EncodeToString(discoKeyBytes)
+	}
 
+	// 1. Check expiration
 	if pt.IsExpired() {
-		return nil, errors.New("connection token has expired")
+		pt.Classification = ClassificationExpired
+		pt.ErrorMessage = "connection token has expired"
+		return pt, errors.New("connection token has expired")
+	}
+
+	// 2. Check legacy numeric-r token schema
+	if hasNumericR {
+		if discoKeyBytes != nil {
+			pt.Classification = ClassificationInvalid
+			pt.ErrorCode = ErrInvalidRegionType
+			pt.ErrorMessage = "official tokens with disco key must use 'i' or structured 'r', not numeric 'r'"
+			return pt, errors.New("official token cannot use numeric r")
+		}
+		pt.Classification = ClassificationLegacyReissueRequired
+		pt.ErrorMessage = "legacy numeric-r token schema lacks separate disco key; reissue required"
+		return pt, errors.New("legacy token requires reissue")
+	}
+
+	// 3. Official token requirements: must have separate disco key 'k'
+	if discoKeyBytes == nil {
+		pt.Classification = ClassificationInvalid
+		pt.ErrorCode = ErrMissingDiscoKey
+		pt.ErrorMessage = "official token missing required disco key 'k'"
+		return pt, errors.New("missing required disco key 'k'")
+	}
+
+	// 4. Region presence check
+	if !hasExplicitRegionID && !hasStructuredR {
+		pt.Classification = ClassificationInvalid
+		pt.ErrorCode = ErrMissingRegion
+		pt.ErrorMessage = "missing region specification (neither 'i' nor valid 'r' present)"
+		return pt, errors.New("missing region specification")
+	}
+
+	// 5. Official short vs resolved classification
+	if hasStructuredR {
+		pt.Classification = ClassificationValidOfficialResolved
+	} else {
+		pt.Classification = ClassificationValidOfficialShort
+	}
+
+	// 6. Verify that upstream tailcat.ParseConnBlob accepts this exact unmutated token
+	if _, err := tailcat.ParseConnBlob(tailcat.ConnBlob(raw)); err != nil {
+		pt.Classification = ClassificationInvalid
+		pt.ErrorCode = ErrCborMalformed
+		pt.ErrorMessage = fmt.Sprintf("upstream tailcat parser rejected token: %v", err)
+		return pt, fmt.Errorf("upstream tailcat parser rejected token: %w", err)
 	}
 
 	return pt, nil
+}
+
+func parseStructuredDERPRegions(rawList []any) ([]*tailcfg.DERPRegion, error) {
+	var regions []*tailcfg.DERPRegion
+	for ri, item := range rawList {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return nil, errors.New("embedded region entry must be a map")
+		}
+		var rID int64
+		if idVal, ok := m["i"]; ok {
+			switch v := idVal.(type) {
+			case uint64:
+				rID = int64(v)
+			case int64:
+				rID = v
+			}
+		}
+		if rID == 0 {
+			rID = int64(ri + 1)
+		}
+		if rID < 1 || rID > 65535 {
+			return nil, fmt.Errorf("embedded region has invalid region ID: %d", rID)
+		}
+
+		reg := &tailcfg.DERPRegion{
+			RegionID: tailcfg.DERPRegionID(rID),
+		}
+		if codeVal, ok := m["c"]; ok {
+			if s, ok := codeVal.(string); ok {
+				reg.RegionCode = s
+			}
+		}
+		if reg.RegionCode == "" {
+			reg.RegionCode = fmt.Sprint(reg.RegionID)
+		}
+		if nameVal, ok := m["m"]; ok {
+			if s, ok := nameVal.(string); ok {
+				reg.RegionName = s
+			}
+		}
+
+		if nodesVal, ok := m["N"]; ok {
+			nodeList, ok := nodesVal.([]any)
+			if ok {
+				if len(nodeList) == 0 {
+					return nil, errors.New("embedded region has empty nodes array")
+				}
+				for _, nItem := range nodeList {
+					nM, ok := nItem.(map[string]any)
+					if !ok {
+						return nil, errors.New("embedded DERP node must be a map")
+					}
+					node := &tailcfg.DERPNode{
+						RegionID: reg.RegionID,
+					}
+					if nName, ok := nM["n"].(string); ok {
+						node.Name = nName
+					}
+					if nHost, ok := nM["h"].(string); ok {
+						node.HostName = nHost
+					}
+					if node.HostName == "" {
+						return nil, errors.New("embedded DERP node missing required HostName 'h'")
+					}
+					if node.Name == "" {
+						node.Name = node.HostName
+					}
+					if n4, ok := nM["4"].(string); ok {
+						node.IPv4 = n4
+					}
+					if n6, ok := nM["6"].(string); ok {
+						node.IPv6 = n6
+					}
+					reg.Nodes = append(reg.Nodes, node)
+				}
+			}
+		}
+
+		regions = append(regions, reg)
+	}
+	return regions, nil
+}
+
+func isAllZero(b []byte) bool {
+	for _, x := range b {
+		if x != 0 {
+			return false
+		}
+	}
+	return true
 }

@@ -2,7 +2,7 @@
 
 ## Release status
 
-OpenTailcat 1.0.0 in the current source tree is a development build. It has an
+OpenTailcat 1.1 in the current source tree is a development build. It has an
 integrated Go Mobile Tailcat engine and a working pre-route Meow handshake and
 TCP proxy, but it has not passed the full-device VPN security gate and must not
 be distributed or relied on as a privacy VPN.

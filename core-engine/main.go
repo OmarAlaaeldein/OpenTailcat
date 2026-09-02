@@ -29,7 +29,7 @@ func init() {
 		},
 	}
 
-// On Android (SDK 30+), standard netlink/net.Interfaces may fail under SEAndroid restrictions.
+	// On Android (SDK 30+), standard netlink/net.Interfaces may fail under SEAndroid restrictions.
 	// We query real system interfaces and allow the Android client to bridge dynamic LinkProperties
 	// via UpdateNetworkState without fabricating fake static emulator interfaces.
 	netmon.RegisterInterfaceGetter(func() ([]netmon.Interface, error) {
@@ -243,10 +243,14 @@ func Prepare(tokenStr string) error {
 
 	pt, err := ParseToken(tokenStr)
 	if err != nil {
-		return fmt.Errorf("invalid token: %w", err)
+		return fmt.Errorf("token rejected: %w", err)
+	}
+	if !pt.IsConnectable() {
+		return fmt.Errorf("token classification %s cannot be used for connection: %s", pt.Classification, pt.ErrorMessage)
 	}
 
-	client := tailcat.NewClient(tailcat.ConnBlob(pt.CanonicalToken()))
+	// Pass the exact original validated official token bytes directly to upstream Tailcat
+	client := tailcat.NewClient(tailcat.ConnBlob(pt.RawToken))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

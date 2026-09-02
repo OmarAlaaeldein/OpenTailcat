@@ -7,19 +7,19 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: `a98a281` (`main`) at the time of audit.
+- Android repository: Phase 2 checkpoint on `main`.
 - Safe Android-shell checkpoint: `e475abc`.
+- Phase 0 fail-closed checkpoint: `877942a`.
+- Phase 1 reproducible-build checkpoint: `76563c9`.
 - Upstream Tailcat base: signed `v0.4.0`, commit
   `ce6fedcabc220bab3b94d470ab330219111eeae8`.
 - Embedded Tailcat source: base plus local commit
   `49c65dace2d79b41d89f536289002816d13e5274`.
-- Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built with Go
-  1.27.0. The exported Java class is `com.tailcat.vpn.engine.Engine`.
-- The checked-in AAR last changed in `08806c5`, while `core-engine/egress.go`
-  changed later in `e5d20a9`. The binary still contains
-  `User-Agent: Tailcat-Android/1.0` and local `/Users/omar/...` build paths, so
-  it is not a byte-for-byte build of the current source and is not reproducible.
-- ARM64 ELF load segments in the audited AAR are 16 KB aligned.
+- Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
+  reproducibly with Go 1.27.0 and NDK 29.0.14206865. Phase 2 SHA-256:
+  `13b9763bd268843e47b80b694c924865ee40334c403ad29c6419de8117a5207c`.
+- ARM64 and x86-64 ELF load segments are 16 KB aligned. Two independent
+  checkouts produced the same Phase 2 AAR checksum.
 - Audit verification passed: `go test ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
 
@@ -32,12 +32,12 @@ The current tree is a development TCP prototype with a valid Tailcat handshake,
 not a production full-device VPN. Do not distribute the APK as a privacy or
 security product.
 
-The most serious defect is in `core-engine/bridge.go`: all non-DNS UDP uses
-ordinary process sockets. Android excludes OpenTailcat's UID from the VPN so
-those sockets leave through Wi-Fi/cellular rather than through WireGuard. IPv6
-also lacks a TUN address and default route. Nevertheless, the native engine
-advertises every capability as true and Android displays a connected/protected
-state.
+The most serious unimplemented data-plane work is in `core-engine/bridge.go`:
+all non-DNS UDP uses ordinary process sockets. Android excludes OpenTailcat's
+UID from the VPN, so those sockets would leave through Wi-Fi/cellular rather
+than through WireGuard. IPv6 also lacks a complete TUN path. Phase 0 prevents
+these incomplete paths from being activated: the required capabilities remain
+false and Android refuses to establish a default-route VPN.
 
 ## Current data-flow truth table
 
@@ -114,6 +114,15 @@ versioning work while still requiring a gateway update.
 
 ## Implementation sequence
 
+Checkpoint status:
+
+- Phase 0 — complete: incomplete native behavior fails closed.
+- Phase 1 — complete: provenance and deterministic native builds verified.
+- Phase 2 — complete: Kotlin and Go share the strict upstream-compatible token
+  contract described below.
+- Phase 3 and later — not implemented; all corresponding capabilities remain
+  false and the app must not be represented as a working privacy VPN.
+
 ### Phase 0: restore fail-closed behavior
 
 Complete this before any networking refactor:
@@ -163,6 +172,14 @@ Acceptance condition: a clean checkout deterministically produces an AAR with
 the expected API, dependencies, ABIs, and 16 KB alignment.
 
 ### Phase 2: unify the token contract
+
+**Checkpoint complete.** The canonical read-only fixture corpus is
+`core-engine/testdata/token_fixtures.json`; it contains 43 deterministic cases.
+`go run ./cmd/generate-fixtures` is the only fixture-generation path and uses
+fixed key material. Both parsers reject whitespace and Base64URL padding,
+accept only canonical upstream field names, preserve accepted token bytes, and
+reserve `LEGACY_REISSUE_REQUIRED` for historical numeric-`r` tokens. Valid
+official fixtures are additionally checked with upstream `ParseConnBlob`.
 
 Use upstream `tailcat.ParseConnBlob` as the authority for official tokens. The
 Kotlin parser is an early UX/security check, but native validation remains

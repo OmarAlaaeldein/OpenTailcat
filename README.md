@@ -11,8 +11,9 @@ from a compact `tc...` token.
 
 **The current `main` branch is a development build and must not be distributed
 or relied on as a privacy VPN.** The Android shell, Go Mobile AAR, Tailcat
-handshake, and TCP proxy are integrated, but the native engine advertises a
-complete data plane before it actually provides one.
+handshake, and TCP proxy are integrated. The native capability contract now
+fails closed, so Android will not establish a default-route VPN until the
+remaining data-plane phases and live release gates pass.
 
 Known release blockers:
 
@@ -26,9 +27,8 @@ Known release blockers:
   WireGuard counters.
 - The existing tests do not establish a live Android tunnel or prove TCP, UDP,
   DNS, IPv4, IPv6, DERP fallback, roaming, or leak behavior.
-- The checked-in AAR predates the latest native-source branding change and its
-  build metadata contains local absolute source paths; it must be rebuilt from
-  the final audited source with reproducible-path settings.
+- Full data-plane release behavior has not been implemented or live-tested;
+  the bundled AAR therefore remains intentionally fail-closed.
 - Release signing and end-to-end testing with a production key and live gateway
   have not passed.
 
@@ -116,18 +116,18 @@ Current official tokens use:
 }))
 ```
 
-The Android and Go parsers also accept legacy numeric `r` and optional
-`exp`/`iat` fields. This is only parse compatibility: the Go fallback currently
-invents a disco key when `k` is absent, but a valid disco public key cannot be
-derived from the node public key. Legacy tokens without `k` must therefore be
-rejected for connection or reissued by the gateway; they must not be described
-as connectable.
+The Kotlin and Go parsers share one deterministic 43-vector corpus generated
+from the pinned upstream version. Official tokens are passed to upstream
+unchanged. Historical numeric-`r` tokens are classified as
+`LEGACY_REISSUE_REQUIRED` and cannot connect; no disco key is invented. Both
+parsers reject aliases, unknown or duplicate fields, padded/non-URL Base64,
+surrounding whitespace, malformed/oversized CBOR, invalid key lengths, invalid
+timestamps, and expired tokens.
 
 ## Build and verification
 
-Requirements for the current tree are JDK 21, Android SDK 35, a compatible
-Android NDK, and Go 1.27. The Go version in CI and documentation must match
-`core-engine/go.mod`.
+Requirements for the current tree are JDK 21, Android SDK 35, Android NDK
+29.0.14206865 (r29), and Go 1.27.0.
 
 ```bash
 cd core-engine
@@ -143,12 +143,7 @@ or native build flags change:
 
 ```bash
 cd core-engine
-gomobile bind \
-  -ldflags="-s -w" \
-  -target=android/arm64,android/amd64 \
-  -androidapi=26 \
-  -javapkg=com.tailcat.vpn \
-  -o ../app/libs/libtailcat.aar .
+./build-aar.sh
 ```
 
 The current Gradle configuration produces one multi-ABI unsigned release APK at

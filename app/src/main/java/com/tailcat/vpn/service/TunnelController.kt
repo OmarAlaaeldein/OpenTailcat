@@ -93,6 +93,7 @@ class TunnelController(
                 if (tunnelEngine.availability.isAvailable) null else tunnelEngine.availability.message
             }
             is TokenValidationState.Expired -> "The selected gateway token has expired"
+            is TokenValidationState.LegacyReissueRequired -> "Legacy token schema lacks separate disco key; reissue required"
             is TokenValidationState.Invalid -> validation.reason
             TokenValidationState.Empty -> "The selected gateway token is empty"
         }

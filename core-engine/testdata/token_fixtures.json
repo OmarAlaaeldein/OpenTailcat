@@ -1,0 +1,355 @@
+[
+  {
+    "name": "official_valid_short",
+    "token": "tco2FwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFrWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGme2FpGQEu",
+    "description": "Official Tailcat v0.4.0 short token with deterministic p, k, and region i (302)",
+    "expectedClassification": "VALID_OFFICIAL_SHORT",
+    "expectedNodeKeyHex": "07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c",
+    "expectedDiscoKeyHex": "5869aff450549732cbaaed5e5df9b30a6da31cb0e5742bad5ad4a1a768f1a67b",
+    "expectedRegionId": 302,
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "official_valid_resolved",
+    "token": "tco2FwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFrWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGme2FygaFhToGjYWhudGMzMDFhLmlwbi5kZXZhNG4xOTkuMzguMTgxLjE2NmE2cDI2MDc6Zjc0MDpmOjoyNmI",
+    "description": "Official Tailcat v0.4.0 resolved token with deterministic p, k, and embedded region array r",
+    "expectedClassification": "VALID_OFFICIAL_RESOLVED",
+    "expectedNodeKeyHex": "07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c",
+    "expectedDiscoKeyHex": "5869aff450549732cbaaed5e5df9b30a6da31cb0e5742bad5ad4a1a768f1a67b",
+    "expectedRegionId": 1,
+    "hasEmbeddedRegion": true
+  },
+  {
+    "name": "valid_with_future_exp",
+    "token": "tcpWFpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7YXBYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8Y2V4cBsAAAA6__Q-YGNpYXQaZVPxAA",
+    "description": "Valid official short token with valid iat and future exp",
+    "expectedClassification": "VALID_OFFICIAL_SHORT",
+    "expectedNodeKeyHex": "07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c",
+    "expectedDiscoKeyHex": "5869aff450549732cbaaed5e5df9b30a6da31cb0e5742bad5ad4a1a768f1a67b",
+    "expectedRegionId": 302,
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "expired_token",
+    "token": "tcpGFpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7YXBYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8Y2V4cBo7msoA",
+    "description": "Token with valid structure but expiration timestamp in the past",
+    "expectedClassification": "EXPIRED",
+    "expectedNodeKeyHex": "07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c",
+    "expectedDiscoKeyHex": "5869aff450549732cbaaed5e5df9b30a6da31cb0e5742bad5ad4a1a768f1a67b",
+    "expectedRegionId": 302,
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "legacy_numeric_r",
+    "token": "tcomFwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFyGQEu",
+    "description": "Historical legacy token with numeric r and missing disco key k",
+    "expectedClassification": "LEGACY_REISSUE_REQUIRED",
+    "expectedNodeKeyHex": "07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c",
+    "expectedRegionId": 302,
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_synthetic_disco_key",
+    "token": "tco2FpGQEuYWtYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8YXBYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8",
+    "description": "Invalid token where disco key k equals node key p",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_SYNTHETIC_DISCO_KEY",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_all_zero_disco_key",
+    "token": "tco2FpGQEuYWtYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYXBYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8",
+    "description": "Invalid token with all-zero disco key k",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_DISCO_KEY",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_missing_disco_key_in_short",
+    "token": "tcomFpGQEuYXBYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8",
+    "description": "Invalid short token missing disco key k",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_MISSING_DISCO_KEY",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_missing_node_key",
+    "token": "tcomFpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7",
+    "description": "Invalid token missing node key p",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_MISSING_NODE_KEY",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_short_node_key",
+    "token": "tco2FpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7YXBQB6N8vBQgk8i3VdwbEOhstA",
+    "description": "Invalid token with 16-byte node key p",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_NODE_KEY",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_long_node_key",
+    "token": "tco2FpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7YXBYMAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8B6N8vBQgk8i3VdwbEOhstA",
+    "description": "Invalid token with 48-byte node key p",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_NODE_KEY",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_all_zero_node_key",
+    "token": "tco2FpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7YXBYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "description": "Invalid token with all-zero node key p",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_NODE_KEY",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_short_disco_key",
+    "token": "tco2FpGQEuYWtQWGmv9FBUlzLLqu1eXfmzCmFwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfA",
+    "description": "Invalid token with 16-byte disco key k",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_DISCO_KEY",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_long_disco_key",
+    "token": "tco2FpGQEuYWtYMFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7WGmv9FBUlzLLqu1eXfmzCmFwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfA",
+    "description": "Invalid token with 48-byte disco key k",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_DISCO_KEY",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_duplicate_exact_p",
+    "token": "tcomFwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFwWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGmew",
+    "description": "Invalid token with duplicate exact 'p' key",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_DUPLICATE_KEY",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_duplicate_exact_k",
+    "token": "tco2FwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFrWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGme2FrWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGmew",
+    "description": "Invalid token with duplicate exact 'k' key",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_DUPLICATE_KEY",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_duplicate_exact_i",
+    "token": "tcpGFwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFrWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGme2FpGQEuYWkZAS4",
+    "description": "Invalid token with duplicate exact 'i' key",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_DUPLICATE_KEY",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_duplicate_exact_r",
+    "token": "tco2FwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFyGQEuYXIZAS4",
+    "description": "Invalid token with duplicate exact 'r' key",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_DUPLICATE_KEY",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_duplicate_exact_exp",
+    "token": "tcpGFwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFrWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGme2NleHAaZVQyEGNleHAaZVQyEA",
+    "description": "Invalid token with duplicate exact 'exp' key",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_DUPLICATE_KEY",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_duplicate_exact_iat",
+    "token": "tcpGFwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFrWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGme2NpYXQaZVQyEGNpYXQaZVQyEA",
+    "description": "Invalid token with duplicate exact 'iat' key",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_DUPLICATE_KEY",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_alias_only_pub",
+    "token": "tco2FpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7Y3B1YlggB6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9_AsrhtHHw",
+    "description": "Invalid token using alias-only key 'pub'",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_UNKNOWN_FIELD",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_alias_only_disco",
+    "token": "tco2FpGQEuYXBYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8ZWRpc2NvWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGmew",
+    "description": "Invalid token using alias-only key 'disco'",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_UNKNOWN_FIELD",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_mixed_case_key",
+    "token": "tco2FQWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7",
+    "description": "Invalid token using mixed-case key 'P'",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_UNKNOWN_FIELD",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_padded_base64",
+    "token": "tcpWFpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7YXBYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8Y2V4cBsAAAA6__Q-YGNpYXQaZVPxAA==",
+    "description": "Invalid token with Base64URL '=' padding",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_BASE64_PADDED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_base64_standard_plus",
+    "token": "tcABC+DEF",
+    "description": "Invalid token containing standard Base64 '+'",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_BASE64_CHAR",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_base64_standard_slash",
+    "token": "tcABC/DEF",
+    "description": "Invalid token containing standard Base64 '/'",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_BASE64_CHAR",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_leading_whitespace",
+    "token": " tco2FwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFrWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGme2FpGQEu",
+    "description": "Invalid token with leading whitespace",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_WHITESPACE",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_trailing_whitespace",
+    "token": "tco2FwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFrWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGme2FpGQEu ",
+    "description": "Invalid token with trailing whitespace",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_WHITESPACE",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_uppercase_prefix",
+    "token": "TCpWFpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7YXBYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8Y2V4cBsAAAA6__Q-YGNpYXQaZVPxAA",
+    "description": "Invalid token with uppercase 'TC' prefix",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_PREFIX",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_negative_region_id",
+    "token": "tco2FwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFrWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGme2FpIA",
+    "description": "Invalid token with negative region ID",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_REGION_ID",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_zero_region_id",
+    "token": "tco2FpAGFrWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGme2FwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfA",
+    "description": "Invalid token with region ID 0",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_REGION_ID",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_overflow_region_id",
+    "token": "tco2FpGgABEXBha1ggWGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpnthcFggB6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9_AsrhtHHw",
+    "description": "Invalid token with region ID \u003e 65535",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_REGION_ID",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_float_region_id",
+    "token": "tco2FwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFrWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGme2Fp-0By4AAAAAAA",
+    "description": "Invalid token with float-encoded region ID",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_negative_expiration",
+    "token": "tcpGFwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFrWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGme2FpGQEuY2V4cCA",
+    "description": "Invalid token with negative expiration",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_EXPIRATION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_zero_expiration",
+    "token": "tcpGFpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7YXBYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8Y2V4cAA",
+    "description": "Invalid token with expiration 0",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_EXPIRATION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_overflow_expiration",
+    "token": "tcpGFpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7YXBYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8Y2V4cBsAAAA6__RBgA",
+    "description": "Invalid token with expiration \u003e MaxUnixTimestampSec",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_EXPIRATION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_float_expiration",
+    "token": "tcpGFwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFrWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGme2FpGQEuY2V4cPtB2VQjAAAAAA",
+    "description": "Invalid token with float-encoded expiration",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_exp_before_iat",
+    "token": "tcpWFpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7YXBYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8Y2V4cBpfXhAAY2lhdBplU_EA",
+    "description": "Invalid token with exp \u003c iat",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_EXP_BEFORE_IAT",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_trailing_bytes",
+    "token": "tcpWFpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7YXBYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8Y2V4cBsAAAA6__Q-YGNpYXQaZVPxAAD_",
+    "description": "Invalid token with trailing unparsed bytes",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_TRAILING_DATA",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_empty_structured_r",
+    "token": "tco2FrWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGme2FwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFygA",
+    "description": "Invalid token with empty embedded region array",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_malformed_derp_node",
+    "token": "tco2FrWCBYaa_0UFSXMsuq7V5d-bMKbaMcsOV0K61a1KGnaPGme2FwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfGFygaJhToGhYW5kMzAxYWFpGQEt",
+    "description": "Invalid token with malformed DERP node",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_indefinite_length_cbor",
+    "token": "tcv2FwWCAHo3y8FCCTyLdV3BsQ6Gy0JjdK0WqoU-0L38CyuG0cfP8",
+    "description": "Invalid token using indefinite-length CBOR",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_unknown_field",
+    "token": "tcpGFpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7YXBYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8bXVua25vd25fZmllbGRqZGlzYWxsb3dlZA",
+    "description": "Invalid token containing unknown field",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_UNKNOWN_FIELD",
+    "hasEmbeddedRegion": false
+  }
+]

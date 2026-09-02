@@ -606,6 +606,34 @@ fun HomeScreen(
                                 }
                             }
                         }
+                        is TokenValidationState.LegacyReissueRequired -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(YellowWarning.copy(alpha = 0.12f))
+                                    .border(1.dp, YellowWarning.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.WarningAmber,
+                                        contentDescription = "Reissue Required",
+                                        tint = YellowWarning,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Legacy token format without disco key. Gateway reissue required.",
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            color = YellowWarning,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    )
+                                }
+                            }
+                        }
                         is TokenValidationState.Invalid -> {
                             Box(
                                 modifier = Modifier

@@ -83,6 +83,7 @@ class ProfileRepository(private val preferencesStore: PreferencesStore) {
         if (validation !is TokenValidationState.Valid) {
             val message = when (validation) {
                 is TokenValidationState.Expired -> "This gateway token expired on ${validation.expiredDate}"
+                is TokenValidationState.LegacyReissueRequired -> "Legacy token schema lacks separate disco key; reissue required"
                 is TokenValidationState.Invalid -> validation.reason
                 TokenValidationState.Empty -> "Connection token cannot be empty"
                 is TokenValidationState.Valid -> error("unreachable")

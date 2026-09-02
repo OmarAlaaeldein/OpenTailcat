@@ -1,266 +1,112 @@
 package com.tailcat.vpn
 
-import co.nstant.`in`.cbor.CborBuilder
-import co.nstant.`in`.cbor.CborEncoder
+import com.tailcat.vpn.core.token.TokenClassification
 import com.tailcat.vpn.core.token.TokenParser
 import com.tailcat.vpn.core.token.TokenValidationState
+import org.json.JSONArray
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.ByteArrayOutputStream
-import java.util.Base64
 
 class TokenParserTest {
 
-    private fun generateTestToken(
-        pubKeyBytes: ByteArray,
-        derpRegionId: Int,
-        expiresAtUnixSec: Long? = null,
-        issuedAtUnixSec: Long? = null
-    ): String {
-        val baos = ByteArrayOutputStream()
-        val mapBuilder = CborBuilder()
-            .addMap()
-            .put("p", pubKeyBytes)
-            .put("r", derpRegionId.toLong())
+    @Test
+    fun testAllSharedCrossLanguageFixtures() {
+        // Gradle declares core-engine/testdata as this test source set's resource directory.
+        val stream = javaClass.classLoader?.getResourceAsStream("token_fixtures.json")
+        assertNotNull("Canonical token fixture corpus was not found", stream)
+        val jsonText = stream!!.bufferedReader().use { it.readText() }
 
-        if (expiresAtUnixSec != null) {
-            mapBuilder.put("exp", expiresAtUnixSec)
+        val array = JSONArray(jsonText)
+        assertTrue("Fixtures array must not be empty", array.length() > 0)
+
+        for (i in 0 until array.length()) {
+            val obj = array.getJSONObject(i)
+            val name = obj.getString("name")
+            val token = obj.getString("token")
+            val expectedClassification = obj.getString("expectedClassification")
+            val expectedErrorCode = obj.optString("expectedErrorCode", "")
+            val expectedNodeKeyHex = obj.optString("expectedNodeKeyHex", "")
+            val expectedDiscoKeyHex = obj.optString("expectedDiscoKeyHex", "")
+            val expectedRegionId = obj.optInt("expectedRegionId", 0)
+            val hasEmbeddedRegion = obj.optBoolean("hasEmbeddedRegion", false)
+
+            val parsed = TokenParser.parse(token)
+
+            assertEquals(
+                "[$name] Classification mismatch",
+                expectedClassification,
+                parsed.classification.name
+            )
+
+            if (expectedClassification == "VALID_OFFICIAL_SHORT" || expectedClassification == "VALID_OFFICIAL_RESOLVED") {
+                assertTrue("[$name] Valid token must be connectable", parsed.isConnectable)
+                assertFalse("[$name] Valid token must not be expired", parsed.isExpired)
+
+                if (expectedNodeKeyHex.isNotEmpty()) {
+                    assertEquals("[$name] NodeKeyHex mismatch", expectedNodeKeyHex, parsed.serverPublicKeyHex)
+                }
+                if (expectedDiscoKeyHex.isNotEmpty()) {
+                    assertEquals("[$name] DiscoKeyHex mismatch", expectedDiscoKeyHex, parsed.serverDiscoKeyHex)
+                }
+                if (parsed.serverDiscoKeyHex != null) {
+                    assertFalse(
+                        "[$name] NodeKey and DiscoKey must be separate (p != k)",
+                        parsed.serverPublicKeyHex.equals(parsed.serverDiscoKeyHex, ignoreCase = true)
+                    )
+                }
+                if (expectedRegionId != 0) {
+                    assertEquals("[$name] RegionID mismatch", expectedRegionId, parsed.derpRegionId)
+                }
+                assertEquals("[$name] HasEmbeddedRegion mismatch", hasEmbeddedRegion, parsed.hasEmbeddedRegion)
+            }
+
+            if (expectedClassification == "LEGACY_REISSUE_REQUIRED") {
+                assertFalse("[$name] Legacy token must NEVER be connectable", parsed.isConnectable)
+                val validationState = TokenParser.validate(token)
+                assertTrue("[$name] Validation state must be LegacyReissueRequired", validationState is TokenValidationState.LegacyReissueRequired)
+            }
+
+            if (expectedClassification == "EXPIRED") {
+                assertFalse("[$name] Expired token must NEVER be connectable", parsed.isConnectable)
+                assertTrue("[$name] isExpired must be true", parsed.isExpired)
+                val validationState = TokenParser.validate(token)
+                assertTrue("[$name] Validation state must be Expired", validationState is TokenValidationState.Expired)
+            }
+
+            if (expectedClassification == "INVALID") {
+                assertFalse("[$name] Invalid token must NEVER be connectable", parsed.isConnectable)
+                if (expectedErrorCode.isNotEmpty()) {
+                    assertEquals("[$name] ErrorCode mismatch", expectedErrorCode, parsed.errorCode.name)
+                }
+                val validationState = TokenParser.validate(token)
+                assertTrue("[$name] Validation state must be Invalid", validationState is TokenValidationState.Invalid)
+            }
         }
-        if (issuedAtUnixSec != null) {
-            mapBuilder.put("iat", issuedAtUnixSec)
-        }
-
-        CborEncoder(baos).encode(mapBuilder.end().build())
-        val cborBytes = baos.toByteArray()
-        val b64 = Base64.getUrlEncoder().withoutPadding().encodeToString(cborBytes)
-        return "tc$b64"
-    }
-
-    @Test
-    fun testValidTokenParsingAndValidation() {
-        val fakeKey = ByteArray(32) { it.toByte() }
-        val token = generateTestToken(fakeKey, 1)
-
-        val result = TokenParser.parse(token)
-        assertTrue(result.isSuccess)
-
-        val parsed = result.getOrNull()
-        assertNotNull(parsed)
-        assertEquals(1, parsed!!.derpRegionId)
-        assertEquals("NYC (Region 1)", parsed.regionDisplayName)
-        assertEquals(32, parsed.serverPublicKeyBytes.size)
-
-        // Test real-time validation helper
-        val state = TokenParser.validate(token)
-        assertTrue(state is TokenValidationState.Valid)
-        val validState = state as TokenValidationState.Valid
-        assertEquals("NYC (Region 1)", validState.parsed.regionDisplayName)
-    }
-
-    @Test
-    fun testExpiredTokenValidation() {
-        val fakeKey = ByteArray(32) { it.toByte() }
-        // Expired 1 hour ago
-        val pastExp = (System.currentTimeMillis() / 1000L) - 3600L
-        val token = generateTestToken(fakeKey, 1, expiresAtUnixSec = pastExp)
-
-        val result = TokenParser.parse(token)
-        assertTrue(result.isSuccess)
-        val parsed = result.getOrThrow()
-        assertTrue(parsed.isExpired)
-
-        // Validate that live validator detects expired state
-        val state = TokenParser.validate(token)
-        assertTrue(state is TokenValidationState.Expired)
-        val expiredState = state as TokenValidationState.Expired
-        assertNotNull(expiredState.expiredDate)
-    }
-
-    @Test
-    fun testFutureExpiringTokenValidation() {
-        val fakeKey = ByteArray(32) { it.toByte() }
-        // Expires in 7 days
-        val futureExp = (System.currentTimeMillis() / 1000L) + (7 * 86400L)
-        val token = generateTestToken(fakeKey, 4, expiresAtUnixSec = futureExp)
-
-        val state = TokenParser.validate(token)
-        assertTrue(state is TokenValidationState.Valid)
-        val validState = state as TokenValidationState.Valid
-        assertEquals(false, validState.parsed.isExpired)
-        assertEquals("Frankfurt (Region 4)", validState.parsed.regionDisplayName)
-        assertNotNull(validState.parsed.expirationFormatted)
     }
 
     @Test
     fun testDerpRegionDisplayNames() {
-        val fakeKey = ByteArray(32) { 0x42.toByte() }
-
-        val regions = listOf(
+        val cases = listOf(
             1 to "NYC (Region 1)",
             2 to "SFO (Region 2)",
             3 to "Singapore (Region 3)",
             4 to "Frankfurt (Region 4)",
             6 to "London (Region 6)",
             7 to "Tokyo (Region 7)",
-            8 to "Toronto (Region 8)"
+            8 to "Toronto (Region 8)",
+            302 to "San Francisco (Region 302)"
         )
 
-        for ((regionId, expectedName) in regions) {
-            val token = generateTestToken(fakeKey, regionId)
-            val parsed = TokenParser.parse(token).getOrThrow()
+        for ((regionId, expectedName) in cases) {
+            val parsed = com.tailcat.vpn.core.token.ParsedToken(
+                rawToken = "tc...",
+                classification = TokenClassification.VALID_OFFICIAL_SHORT,
+                derpRegionId = regionId
+            )
             assertEquals(expectedName, parsed.regionDisplayName)
         }
-    }
-
-    @Test
-    fun testTokenPrefixValidation() {
-        val invalidToken = "wg_invalid_token_12345"
-        val result = TokenParser.parse(invalidToken)
-        assertTrue(result.isFailure)
-
-        val state = TokenParser.validate(invalidToken)
-        assertTrue(state is TokenValidationState.Invalid)
-        assertTrue((state as TokenValidationState.Invalid).reason.contains("prefix"))
-    }
-
-    @Test
-    fun testEmptyTokenValidation() {
-        val result = TokenParser.parse("")
-        assertTrue(result.isFailure)
-
-        val state = TokenParser.validate("")
-        assertTrue(state is TokenValidationState.Empty)
-    }
-
-    @Test
-    fun testCorruptedBase64Payload() {
-        val corruptedToken = "tc!!!invalid_base64_payload$$$"
-        val state = TokenParser.validate(corruptedToken)
-        assertTrue(state is TokenValidationState.Invalid)
-    }
-
-    @Test
-    fun testShortKeyRejected() {
-        val shortKey = ByteArray(8) { 1 }
-        val token = generateTestToken(shortKey, 1)
-
-        val result = TokenParser.parse(token)
-        assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull()?.message?.contains("exactly 32 bytes") == true)
-    }
-
-    @Test
-    fun testOversizedKeyRejected() {
-        val token = generateTestToken(ByteArray(33) { 1 }, 1)
-        val result = TokenParser.parse(token)
-
-        assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull()?.message?.contains("exactly 32 bytes") == true)
-    }
-
-    @Test
-    fun testExpirationCannotPredateIssuedAt() {
-        val issuedAt = (System.currentTimeMillis() / 1000L) + 3_600L
-        val token = generateTestToken(
-            pubKeyBytes = ByteArray(32) { 2 },
-            derpRegionId = 1,
-            expiresAtUnixSec = issuedAt - 1,
-            issuedAtUnixSec = issuedAt
-        )
-
-        val result = TokenParser.parse(token)
-        assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull()?.message?.contains("earlier than issued-at") == true)
-    }
-
-    @Test
-    fun testOfficialShortTokenParsing() {
-        // Official v0.4.0 token with p, k, i
-        val fakeNodeKey = ByteArray(32) { (it + 1).toByte() }
-        val fakeDiscoKey = ByteArray(32) { (it + 33).toByte() }
-
-        val baos = ByteArrayOutputStream()
-        val mapBuilder = CborBuilder()
-            .addMap()
-            .put("p", fakeNodeKey)
-            .put("k", fakeDiscoKey)
-            .put("i", 302L)
-
-        CborEncoder(baos).encode(mapBuilder.end().build())
-        val token = "tc" + Base64.getUrlEncoder().withoutPadding().encodeToString(baos.toByteArray())
-
-        val result = TokenParser.parse(token)
-        assertTrue(result.isSuccess)
-        val parsed = result.getOrThrow()
-        assertEquals(302, parsed.derpRegionId)
-        assertEquals("San Francisco (Region 302)", parsed.regionDisplayName)
-        assertNotNull(parsed.serverDiscoKeyBytes)
-        assertEquals(32, parsed.serverDiscoKeyBytes!!.size)
-    }
-
-    @Test
-    fun testOfficialResolvedTokenWithEmbeddedRegion() {
-        // Official v0.4.0 resolved token with p, k, r (array of region maps)
-        val fakeNodeKey = ByteArray(32) { 0x01 }
-        val fakeDiscoKey = ByteArray(32) { 0x02 }
-
-        val baos = ByteArrayOutputStream()
-        val mapBuilder = CborBuilder()
-            .addMap()
-            .put("p", fakeNodeKey)
-            .put("k", fakeDiscoKey)
-            .putArray("r")
-                .addMap()
-                    .put("i", 10L)
-                    .put("c", "sea")
-                    .put("m", "Seattle")
-                .end()
-            .end()
-
-        CborEncoder(baos).encode(mapBuilder.end().build())
-        val token = "tc" + Base64.getUrlEncoder().withoutPadding().encodeToString(baos.toByteArray())
-
-        val result = TokenParser.parse(token)
-        assertTrue(result.isSuccess)
-        val parsed = result.getOrThrow()
-        assertEquals(10, parsed.derpRegionId)
-        assertTrue(parsed.hasEmbeddedRegion)
-        assertEquals("Seattle (Region 10)", parsed.regionDisplayName)
-    }
-
-    @Test
-    fun testOfficialReadmeSampleToken() {
-        // Token from official Tailcat README:
-        // tailcat parse tcomFwWCCcjS5nKNqAod034nWoJZW0LZqDhhC8U_dKdnDRYQ8uNGFpGQEu
-        // ServerPublic: nodekey:9c8d2e6728da80a1dd37e275a82595b42d9a838610bc53f74a7670d1610f2e34
-        // RegionID: 302
-        val token = "tcomFwWCCcjS5nKNqAod034nWoJZW0LZqDhhC8U_dKdnDRYQ8uNGFpGQEu"
-        val result = TokenParser.parse(token)
-        assertTrue(result.isSuccess)
-        val parsed = result.getOrThrow()
-        assertEquals(302, parsed.derpRegionId)
-        assertEquals("9c8d2e6728da80a1dd37e275a82595b42d9a838610bc53f74a7670d1610f2e34", parsed.serverPublicKeyHex)
-        assertEquals("San Francisco (Region 302)", parsed.regionDisplayName)
-    }
-
-    @Test
-    fun testOfficialReadmeResolvedSampleToken() {
-        // Resolved token from official Tailcat README:
-        val token = "tcomFwWCCcjS5nKNqAod034nWoJZW0LZqDhhC8U_dKdnDRYQ8uNGFygaFhToGjYWhudGMzMDJhLmlwbi5kZXZhNG0yMDguMTExLjM5LjM4YTZzMjYwNzpmNzQwOjA6M2Y6OjcyMA"
-        val result = TokenParser.parse(token)
-        assertTrue(result.isSuccess)
-        val parsed = result.getOrThrow()
-        assertEquals("9c8d2e6728da80a1dd37e275a82595b42d9a838610bc53f74a7670d1610f2e34", parsed.serverPublicKeyHex)
-        assertTrue(parsed.hasEmbeddedRegion)
-    }
-
-    @Test
-    fun testRawBytesCannotMasqueradeAsCborMap() {
-        val raw = ByteArray(32) { 0x42 }
-        val token = "tc" + Base64.getUrlEncoder().withoutPadding().encodeToString(raw)
-
-        assertTrue(TokenParser.parse(token).isFailure)
     }
 }
