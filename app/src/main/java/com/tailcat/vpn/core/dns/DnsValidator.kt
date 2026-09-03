@@ -31,8 +31,8 @@ object DnsValidator {
 
         val trimmed = rawInput.trim()
 
-        if (trimmed.contains("/") || trimmed.contains(":53") || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-            return DnsValidationResult.Invalid("Enter a plain numeric IP without ports, paths, or CIDR prefixes")
+        if (trimmed.contains("/") || trimmed.contains(":53") || trimmed.contains("%") || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            return DnsValidationResult.Invalid("Enter a plain numeric IP without ports, paths, zones, or CIDR prefixes")
         }
 
         // Fast reject for domain names / hostnames containing alphabetical characters other than hex
@@ -118,6 +118,10 @@ object DnsValidator {
 
         if (parsed.isMulticastAddress) {
             return DnsValidationResult.Invalid("IPv6 multicast address cannot be used as a DNS server")
+        }
+
+        if (parsed.isLinkLocalAddress) {
+            return DnsValidationResult.Invalid("IPv6 link-local address cannot be used as a DNS server")
         }
 
         return DnsValidationResult.Valid(ip = ipStr, isIpv6 = true)

@@ -121,7 +121,9 @@ class DnsValidatorTest {
             "1.1.1.1:53",
             "1.1.1.1/24",
             "1.1.1.1/32",
-            "fe80::1%eth0"
+            "fe80::1",
+            "fe80::1%eth0",
+            "fe80::1%lo"
         )
 
         for (raw in malformed) {
