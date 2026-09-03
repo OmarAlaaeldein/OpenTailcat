@@ -113,6 +113,7 @@ func newNetstackProxy(bridge *TunBridge) (*netstackProxy, error) {
 	}
 
 	linkEP := channel.New(netstackQueueSize, netstackMTU, "")
+	linkEP.LinkEPCapabilities |= stack.CapabilityRXChecksumOffload
 	if err := ipStack.CreateNIC(netstackNIC, linkEP); err != nil {
 		ipStack.Destroy()
 		return nil, fmt.Errorf("create netstack NIC: %v", err)
@@ -216,7 +217,15 @@ func dialTimeoutFor(dst netip.AddrPort, v4Timeout time.Duration) time.Duration {
 }
 
 func (p *netstackProxy) acceptTCP(request *tcp.ForwarderRequest) {
-	if p.bridge == nil || p.bridge.client == nil {
+	if p.closed.Load() || p.bridge == nil || p.bridge.client == nil {
+		request.Complete(true)
+		return
+	}
+	go p.proxyTCP(request)
+}
+
+func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest) {
+	if p.closed.Load() || p.bridge == nil || p.bridge.client == nil {
 		request.Complete(true)
 		return
 	}
@@ -229,27 +238,44 @@ func (p *netstackProxy) acceptTCP(request *tcp.ForwarderRequest) {
 	destination := netip.AddrPortFrom(destinationIP.Unmap(), id.LocalPort)
 	resolvedDst := p.resolveDNSDestination(destination)
 
-	ctx, cancel := context.WithTimeout(p.bridge.ctx, dialTimeoutFor(resolvedDst, tcpDialTimeout))
-	remote, err := p.bridge.client.DialTCP(ctx, resolvedDst)
-	cancel()
-	if err != nil {
-		if strings.Contains(err.Error(), "proxy destination not permitted") {
-			p.bridge.policyRejections.Add(1)
-		}
-		request.Complete(true)
-		return
+	type dialResult struct {
+		conn net.Conn
+		err  error
 	}
+	dialed := make(chan dialResult, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(p.bridge.ctx, dialTimeoutFor(resolvedDst, tcpDialTimeout))
+		conn, err := p.bridge.client.DialTCP(ctx, resolvedDst)
+		cancel()
+		dialed <- dialResult{conn, err}
+	}()
 
 	var waitQueue waiter.Queue
 	endpoint, tcpErr := request.CreateEndpoint(&waitQueue)
 	if tcpErr != nil {
-		_ = remote.Close()
 		request.Complete(true)
+		res := <-dialed
+		if res.conn != nil {
+			_ = res.conn.Close()
+		}
 		return
 	}
 	request.Complete(false)
-
 	local := gonet.NewTCPConn(&waitQueue, endpoint)
+
+	res := <-dialed
+	if res.err != nil {
+		if strings.Contains(res.err.Error(), "proxy destination not permitted") {
+			p.bridge.policyRejections.Add(1)
+		}
+		_ = local.Close()
+		if res.conn != nil {
+			_ = res.conn.Close()
+		}
+		return
+	}
+	remote := res.conn
+
 	p.track(local)
 	p.track(remote)
 	defer p.untrack(local)

@@ -11,4 +11,7 @@ interface NativeEngine {
     fun stop()
     fun getStats(): NetworkMetrics
     fun updateNetworkState(networkStateJson: String)
+    fun measureTunnelPingMs(): Long
+    fun measureTunnelDownloadMbps(): Double
+    fun measureTunnelUploadMbps(): Double
 }

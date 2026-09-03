@@ -152,6 +152,24 @@ class TunnelEngine : NativeEngine {
         return NetworkMetrics.fromJson(raw)
     }
 
+    override fun measureTunnelPingMs(): Long {
+        check(availability.isAvailable) { availability.message }
+        val value = invoke(requireMethod("measureTunnelPingMS", parameterCount = 0))
+        return (value as? Number)?.toLong() ?: error("Tunnel ping returned invalid data")
+    }
+
+    override fun measureTunnelDownloadMbps(): Double {
+        check(availability.isAvailable) { availability.message }
+        val value = invoke(requireMethod("measureTunnelDownloadMbps", parameterCount = 0))
+        return (value as? Number)?.toDouble() ?: error("Tunnel download returned invalid data")
+    }
+
+    override fun measureTunnelUploadMbps(): Double {
+        check(availability.isAvailable) { availability.message }
+        val value = invoke(requireMethod("measureTunnelUploadMbps", parameterCount = 0))
+        return (value as? Number)?.toDouble() ?: error("Tunnel upload returned invalid data")
+    }
+
     private fun inspectCapabilities(): EngineCapabilities? {
         val klass = engineClass ?: return null
         return runCatching {

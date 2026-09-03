@@ -294,6 +294,19 @@ func TestDisarmPumpsPreventsFailedOnTunClose(t *testing.T) {
 	}
 }
 
+func TestTunnelSpeedTestRequiresRunning(t *testing.T) {
+	_ = Stop()
+	if _, err := MeasureTunnelPingMS(); err == nil {
+		t.Fatal("expected ping to fail when stopped")
+	}
+	if _, err := MeasureTunnelDownloadMbps(); err == nil {
+		t.Fatal("expected download to fail when stopped")
+	}
+	if _, err := MeasureTunnelUploadMbps(); err == nil {
+		t.Fatal("expected upload to fail when stopped")
+	}
+}
+
 func TestAttachTunBeforePrepare(t *testing.T) {
 	_ = Stop()
 	if err := AttachTun(3); err == nil {

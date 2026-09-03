@@ -119,7 +119,11 @@ fun SpeedTestScreen(
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Text(
-                    text = "Direct Device-Network Benchmark: Measures underlying physical connection speed (bypassing the VPN tunnel), not tunnel throughput.",
+                    text = if (testState.viaGateway) {
+                        "Gateway tunnel benchmark: traffic uses Tailcat DialTCP through the connected gateway."
+                    } else {
+                        "Physical-network benchmark: the app UID bypasses the VPN, so this is the direct device path."
+                    },
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = TextSecondary,
                         fontSize = 11.sp

@@ -16,6 +16,7 @@ data class SpeedTestResult(
     val downloadMbps: Double = 0.0,
     val uploadMbps: Double = 0.0,
     val progress: Float = 0f, // 0.0 to 1.0
-    val currentSpeedGauge: Double = 0.0, // Real-time Mbps for needle
-    val errorMessage: String? = null
+    val currentSpeedGauge: Double = 0.0,
+    val errorMessage: String? = null,
+    val viaGateway: Boolean = false
 )

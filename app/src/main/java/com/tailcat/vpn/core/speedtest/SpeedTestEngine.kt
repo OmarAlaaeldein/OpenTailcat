@@ -1,5 +1,6 @@
 package com.tailcat.vpn.core.speedtest
 
+import com.tailcat.vpn.TailcatApplication
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -20,15 +21,23 @@ class SpeedTestEngine {
     private val _testState = MutableStateFlow(SpeedTestResult())
     val testState: StateFlow<SpeedTestResult> = _testState.asStateFlow()
 
-    suspend fun runSpeedTest() = withContext(Dispatchers.IO) {
-        _testState.value = SpeedTestResult(stage = SpeedTestStage.MEASURING_PING, progress = 0.05f)
+    suspend fun runSpeedTest(viaGateway: Boolean = false) = withContext(Dispatchers.IO) {
+        _testState.value = SpeedTestResult(
+            stage = SpeedTestStage.MEASURING_PING,
+            progress = 0.05f,
+            viaGateway = viaGateway
+        )
 
         try {
             // Stage 1: Ping & Jitter Measurement
             val pingSamples = mutableListOf<Long>()
             for (i in 1..5) {
                 if (!isActive) return@withContext
-                val ping = measureSinglePing()
+                val ping = if (viaGateway) {
+                    runCatching { TailcatApplication.instance.tunnelEngine.measureTunnelPingMs() }.getOrDefault(-1L)
+                } else {
+                    measureSinglePing()
+                }
                 if (ping > 0) {
                     pingSamples.add(ping)
                 }
@@ -55,8 +64,16 @@ class SpeedTestEngine {
                 progress = 0.20f
             )
 
-            // Stage 2: Download Speed Benchmark
-            val downloadSpeed = measureDownloadSpeed { currentMbps, stageProgress ->
+            val downloadSpeed = if (viaGateway) {
+                val mbps = TailcatApplication.instance.tunnelEngine.measureTunnelDownloadMbps()
+                check(mbps > 0.0) { "Download test returned no data" }
+                _testState.value = _testState.value.copy(
+                    downloadMbps = mbps,
+                    currentSpeedGauge = mbps,
+                    progress = 0.60f
+                )
+                mbps
+            } else measureDownloadSpeed { currentMbps, stageProgress ->
                 _testState.value = _testState.value.copy(
                     downloadMbps = currentMbps,
                     currentSpeedGauge = currentMbps,
@@ -71,8 +88,11 @@ class SpeedTestEngine {
                 progress = 0.60f
             )
 
-            // Stage 3: Upload Speed Benchmark
-            val uploadSpeed = measureUploadSpeed { currentMbps, stageProgress ->
+            val uploadSpeed = if (viaGateway) {
+                val mbps = TailcatApplication.instance.tunnelEngine.measureTunnelUploadMbps()
+                check(mbps > 0.0) { "Upload test returned no data" }
+                mbps
+            } else measureUploadSpeed { currentMbps, stageProgress ->
                 _testState.value = _testState.value.copy(
                     uploadMbps = currentMbps,
                     currentSpeedGauge = currentMbps,
