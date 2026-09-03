@@ -9,7 +9,12 @@ object VpnInterfaceSpec {
     data class InetRoute(val address: String, val prefixLength: Int)
 
     fun defaultRoutes(enabled: Boolean): List<InetRoute> {
-        if (!enabled) return emptyList()
+        if (!enabled) {
+            return listOf(
+                InetRoute(IPV4_ADDRESS, IPV4_PREFIX),
+                InetRoute(IPV6_ADDRESS, IPV6_PREFIX)
+            )
+        }
         return listOf(
             InetRoute("0.0.0.0", 0),
             InetRoute("::", 0)

@@ -32,7 +32,7 @@ are live. This is not a production privacy VPN.
   omit-means-preserve exist. The engine does not inspect DNS TC bits. IPv4 `dns`
   is test-enabled.
 - **Phase 5 (IPv6)**: Android installs `::/0` after pumps are live. Native
-  proxies IPv6 TCP/UDP with a 2s dial timeout; ICMPv6 echo is dropped;
+  proxies IPv6 TCP/UDP with a 250ms dial timeout; ICMPv6 echo is dropped;
   oversized IPv6 gets a local Packet Too Big. `ipv6` remains false until live
   dual-stack evidence.
 - **Phase 6 (Lifecycle)**: Cancellable prepare, readiness barriers, pump-failure

@@ -90,14 +90,13 @@ class TailcatVpnService : VpnService() {
             vpnInterface = warm
             attachLive(app, warm, networkState)
 
-            app.tunnelEngine.disarmPumps()
             currentCoroutineContext().ensureActive()
             val routed = vpnBuilder(profile, dnsValidation.ip, defaultRoutes = true).establish()
                 ?: throw IllegalStateException("Android could not install default routes")
             val previous = vpnInterface
             vpnInterface = routed
-            runCatching { previous?.close() }
             val metrics = attachLive(app, routed, networkState)
+            runCatching { previous?.close() }
             app.tunnelController.onEngineConnected(metrics)
             startMetricsNotificationUpdater(profile)
         } catch (error: CancellationException) {
@@ -137,7 +136,7 @@ class TailcatVpnService : VpnService() {
             .addAddress(VpnInterfaceSpec.IPV4_ADDRESS, VpnInterfaceSpec.IPV4_PREFIX)
             .addAddress(VpnInterfaceSpec.IPV6_ADDRESS, VpnInterfaceSpec.IPV6_PREFIX)
             .addDnsServer(dnsIp)
-            .setBlocking(false)
+            .setBlocking(true)
         for (route in VpnInterfaceSpec.defaultRoutes(defaultRoutes)) {
             builder.addRoute(route.address, route.prefixLength)
         }

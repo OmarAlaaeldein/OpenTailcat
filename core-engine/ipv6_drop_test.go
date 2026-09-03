@@ -31,8 +31,8 @@ func TestIPv6TCPDialUsesShortDeadline(t *testing.T) {
 	)
 	bridge.handleOutboundPacket(pkt)
 	waitAtomic(t, dialTCP, 1, 2*time.Second, "DialTCP for IPv6 timeout")
-	if deadline > 3*time.Second || deadline < 500*time.Millisecond {
-		t.Fatalf("expected ~2s IPv6 dial deadline, got %v", deadline)
+	if deadline > time.Second || deadline < 50*time.Millisecond {
+		t.Fatalf("expected ~250ms IPv6 dial deadline, got %v", deadline)
 	}
 }
 

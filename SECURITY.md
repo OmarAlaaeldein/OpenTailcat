@@ -38,7 +38,7 @@ privacy VPN.
 
 - **IPv4 flags are test-enabled, not Phase 8 accepted**: leak capture still pending.
 - **IPv6 dual-stack egress**: Android installs `::/0` after pumps are live.
-  Native proxies IPv6 TCP/UDP with a 2s dial timeout; ICMPv6 echo is dropped;
+  Native proxies IPv6 TCP/UDP with a 250ms dial timeout; ICMPv6 echo is dropped;
   oversized IPv6 gets a local Packet Too Big. Live IPv6 internet depends on the
   gateway. `ipv6` stays false.
 - **Lifecycle / telemetry promotion**: two-phase warm TUN plus live `DiscoPing`

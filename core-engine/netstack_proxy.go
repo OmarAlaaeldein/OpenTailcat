@@ -33,7 +33,7 @@ const (
 	tcpMaxInFlight             = 1024
 	tcpDialTimeout             = 15 * time.Second
 	udpDialTimeout             = 10 * time.Second
-	ipv6DialTimeout            = 2 * time.Second
+	ipv6DialTimeout            = 250 * time.Millisecond
 	udpIdleTimeout             = 30 * time.Second
 	maxActiveUDPFlowsTotal     = 1024
 	maxActiveUDPFlowsPerSource = 128

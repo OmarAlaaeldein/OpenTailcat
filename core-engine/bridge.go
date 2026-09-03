@@ -282,6 +282,10 @@ func (b *TunBridge) readLoop(ready chan struct{}) error {
 			if b.closed.Load() || b.ctx.Err() != nil {
 				return nil
 			}
+			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
+				time.Sleep(time.Millisecond)
+				continue
+			}
 			if errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) {
 				return err
 			}
