@@ -138,6 +138,7 @@ class TunnelController(
         _lastError.value = null
         _networkMetrics.value = initialMetrics
         _tunnelState.value = TunnelState.CONNECTED
+        refreshPublicIp()
 
         pollingJob?.cancel()
         pollingJob = scope.launch {
@@ -176,12 +177,14 @@ class TunnelController(
         pollingJob?.cancel()
         _tunnelState.value = TunnelState.DISCONNECTED
         _networkMetrics.value = NetworkMetrics()
+        refreshPublicIp()
     }
 
     fun onVpnStartFailed(message: String) {
         pollingJob?.cancel()
         _tunnelState.value = TunnelState.DISCONNECTED
         _networkMetrics.value = NetworkMetrics()
+        refreshPublicIp()
         reportError(message)
     }
 

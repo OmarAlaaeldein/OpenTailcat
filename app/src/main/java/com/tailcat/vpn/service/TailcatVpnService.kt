@@ -90,6 +90,8 @@ class TailcatVpnService : VpnService() {
                 .setMtu(profile.mtu)
                 .addAddress("100.64.0.2", 32)
                 .addRoute("0.0.0.0", 0)
+                .addAddress("fd7a:115c:a1e0::2", 128)
+                .addRoute("::", 0)
                 .addDnsServer(dnsValidation.ip)
                 .setBlocking(false)
 

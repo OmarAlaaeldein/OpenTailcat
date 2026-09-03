@@ -98,7 +98,7 @@ fun TelemetryCard(
                         }
                         if (tunnelActive) {
                             Text(
-                                text = "VPN address: 100.64.0.2",
+                                text = "VPN address: 100.64.0.2 / fd7a:115c:a1e0::2",
                                 style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
                             )
                         } else if (egressInfo.city != null || egressInfo.country != null) {

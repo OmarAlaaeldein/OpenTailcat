@@ -2,7 +2,7 @@
 
 ## Release status
 
-OpenTailcat 1.1.3 in the current source tree is a development build. It has an
+OpenTailcat 1.1.4 in the current source tree is a development build. It has an
 integrated Go Mobile Tailcat engine with Phase 0 fail-closed capability gates,
 Phase 1 reproducible builds, Phase 2 official token validation, and Phase 3
 tunneled UDP userspace netstack code. IPv4 test-routing capabilities are true so
@@ -36,9 +36,8 @@ privacy VPN.
 ### Remaining release blockers & pending gates
 
 - **IPv4 flags are test-enabled, not Phase 8 accepted**: leak capture still pending.
-- **IPv6 dual-stack route**: Native TUN IPv6 is dropped. Android still installs
-  no IPv6 VPN address or `::/0` (Phase 5). IPv6 may bypass over the underlying
-  network if a VPN were active.
+- **IPv6 dual-stack egress**: Android installs `::/0` and a ULA; native drops
+  TUN IPv6 (fail-closed). No public IPv6 egress. `ipv6` stays false.
 - **Lifecycle promotion**: the cancellable machine exists; `twoPhaseStart` and
   `cancelSafeLifecycle` stay false until promotion evidence (Phase 6).
 - **Live physical-device acceptance**: Uplink packet capture on multi-interface

@@ -7,7 +7,7 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.1.3 on `main`. IPv4 test-routing capabilities are
+- Android repository: version 1.1.4 on `main`. IPv4 test-routing capabilities are
   true so Connect can be exercised with a live token. `ipv6` remains false.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
@@ -51,7 +51,7 @@ honest promotion-table evidence for the IPv4 flags now set true.
 | IPv4 TCP | gVisor terminates TCP and proxies the stream with `Client.DialTCP` | Tailcat WireGuard/Magicsock to gateway |
 | IPv4 UDP destination port 53 | gVisor proxies datagram via `Client.DialUDP` to TUN dest (PROFILE_RESOLVER) or `ForcedDNS` (FORCED_RESOLVER). Engine does not inspect TC bits; a libc/app TCP/53 retry is a normal TCP proxy | Tailcat WireGuard/Magicsock to gateway |
 | Other IPv4 UDP | gVisor proxies datagrams via `Client.DialUDP` across Tailcat netstack | Tailcat WireGuard/Magicsock to gateway (pending live acceptance) |
-| IPv6 | Android does not add a VPN IPv6 address or `::/0`. Native `handleIPv6` drops TUN IPv6 | Underlying IPv6 bypass, or blocked only by Android lockdown |
+| IPv6 | Android `::/0` + ULA; native `handleIPv6` drops TUN IPv6 | No IPv6 internet (fail-closed drop) |
 | IPv4 ICMP echo | Constructs a local echo reply | No gateway/Internet request is made |
 | ICMPv6 echo | Dropped | No gateway/Internet request is made |
 | Native exit audit | TLS/HTTP through `Client.DialTCP` | Tailcat gateway |
@@ -325,10 +325,11 @@ Acceptance condition: configured policy and observed resolver destination match,
 
 ### Phase 5: complete or deliberately block IPv6
 
-**Checkpoint status: Native drop only; `ipv6` remains false.** Android installs
-only `100.64.0.2/32` and `0.0.0.0/0`. There is no IPv6 VPN address and no `::/0`.
-`handleIPv6` drops all IPv6 TUN packets (no inject, no ICMPv6 echo). Native
-gVisor still registers IPv6 for unpromoted proxy tests that inject directly.
+**Checkpoint status: Fail-closed capture; `ipv6` remains false.** Android
+installs `100.64.0.2/32`, `0.0.0.0/0`, `fd7a:115c:a1e0::2/128`, and `::/0`.
+`handleIPv6` drops all IPv6 TUN packets (no inject, no ICMPv6 echo). This is not
+public IPv6 egress. Native gVisor still registers IPv6 for unpromoted proxy tests
+that inject directly.
 
 The release definition requires working IPv6, not silent bypass.
 
