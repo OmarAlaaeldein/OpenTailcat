@@ -64,9 +64,9 @@ type TunBridge struct {
 	txRateKbps atomic.Int64
 	rxRateKbps atomic.Int64
 
-	// RTT snapshot and jitter samples. Production never calls RecordRTT.
-	rttMu      sync.Mutex
-	rttSamples []int64
+	rttMu       sync.Mutex
+	rttSamples  []int64
+	rttSampling atomic.Bool
 
 	// Egress probe audit results
 	egressIP        atomic.Value // string
@@ -87,7 +87,7 @@ type TunBridge struct {
 
 // DNSConfig defines the active DNS resolver policy and optional forced resolver destination.
 type DNSConfig struct {
-	Policy    string          // "PROFILE_RESOLVER" (default) or "FORCED_RESOLVER"
+	Policy    string         // "PROFILE_RESOLVER" (default) or "FORCED_RESOLVER"
 	ForcedDNS netip.AddrPort // non-zero if Policy is FORCED_RESOLVER
 }
 
@@ -426,6 +426,15 @@ func (b *TunBridge) handleICMPv4(pkt []byte, ihl int, srcIP, dstIP netip.Addr) {
 	b.writeTunPacket(reply)
 }
 
+const (
+	rttSampleInterval = 5 * time.Second
+	rttSampleTimeout  = 2 * time.Second
+)
+
+type discoPinger interface {
+	DiscoPing(context.Context) (*ipnstate.PingResult, error)
+}
+
 func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -433,6 +442,7 @@ func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 	if b.onHealth != nil {
 		b.onHealth()
 	}
+	var lastRTTSample time.Time
 
 	for {
 		select {
@@ -456,8 +466,35 @@ func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 			b.lastTx = currentTx
 			b.lastRx = currentRx
 			b.lastTime = t
+
+			if lastRTTSample.IsZero() || t.Sub(lastRTTSample) >= rttSampleInterval {
+				if b.rttSampling.CompareAndSwap(false, true) {
+					lastRTTSample = t
+					go func() {
+						defer b.rttSampling.Store(false)
+						b.sampleLiveRTT()
+					}()
+				}
+			}
 		}
 	}
+}
+
+func (b *TunBridge) sampleLiveRTT() {
+	if b.client == nil {
+		return
+	}
+	sampler, ok := b.client.(discoPinger)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(b.ctx, rttSampleTimeout)
+	defer cancel()
+	res, err := sampler.DiscoPing(ctx)
+	if err != nil || res == nil || res.LatencySeconds <= 0 {
+		return
+	}
+	b.RecordRTT(int64(res.LatencySeconds * 1000))
 }
 
 // GetStats returns current measured metrics from the live bridge and client.
@@ -485,7 +522,6 @@ func (b *TunBridge) currentJitterMs() *int64 {
 	b.rttMu.Lock()
 	defer b.rttMu.Unlock()
 
-	// Jitter is null until >= 3 RecordRTT samples. Production never calls RecordRTT.
 	if len(b.rttSamples) < 3 {
 		return nil
 	}

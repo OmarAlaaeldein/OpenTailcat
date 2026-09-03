@@ -108,6 +108,7 @@ echo "${JAVAP_OUT}"
 REQUIRED_METHODS=(
     "touch"
     "attachTun"
+    "detachTun"
     "getCapabilitiesJSON"
     "getStatsJSON"
     "parseToken"

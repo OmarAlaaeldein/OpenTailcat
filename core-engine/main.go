@@ -272,7 +272,7 @@ type Capabilities struct {
 
 // GetCapabilitiesJSON returns the capability contract.
 // IPv4-only test routing is enabled so a live token can Connect. ipv6 stays
-// false (no ::/0). This is not Phase 8 production acceptance.
+// false. This is not Phase 8 production acceptance.
 func GetCapabilitiesJSON() string {
 	caps := Capabilities{
 		APIVersion:          2,

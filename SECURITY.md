@@ -25,7 +25,8 @@ privacy VPN.
   expired tokens.
 - Tunneled UDP uses a single gVisor netstack proxy routing datagrams exclusively
   through Tailcat WireGuard/Magicsock via `Client.DialUDP` without direct OS UDP
-  sockets in `core-engine`. This path is unpromoted (`udp` is false).
+  sockets in `core-engine`. IPv4 `udp` is test-enabled; Phase 8 leak capture is
+  still pending.
 - TCP-only gateways (including official v0.4.0 `nullexit`) can `prepare`. DNS
   port 53 is carried over TCP. Other UDP is dropped. This is not a full UDP VPN.
 - Profiles and tokens are stored in encrypted preferences backed by Android
@@ -36,11 +37,12 @@ privacy VPN.
 ### Remaining release blockers & pending gates
 
 - **IPv4 flags are test-enabled, not Phase 8 accepted**: leak capture still pending.
-- **IPv6 dual-stack egress**: Android installs `::/0`. Native proxies IPv6
-  TCP/UDP; ICMPv6 is dropped. Live IPv6 internet depends on the gateway. `ipv6`
-  stays false.
-- **Lifecycle promotion**: the cancellable machine exists; `twoPhaseStart` and
-  `cancelSafeLifecycle` stay false until promotion evidence (Phase 6).
+- **IPv6 dual-stack egress**: Android installs `::/0` after pumps are live.
+  Native proxies IPv6 TCP/UDP with a 2s dial timeout; ICMPv6 is dropped. Live
+  IPv6 internet depends on the gateway. `ipv6` stays false.
+- **Lifecycle / telemetry promotion**: two-phase warm TUN plus live `DiscoPing`
+  RTT exist in code; `twoPhaseStart`, `cancelSafeLifecycle`, and `liveStats`
+  are test-enabled until Phase 8 evidence.
 - **Live physical-device acceptance**: Uplink packet capture on multi-interface
   devices to verify zero direct destination leaks (Phase 8).
 - **Production release signing**: Signing with a production keystore (Phase 8).

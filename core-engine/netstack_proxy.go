@@ -33,6 +33,7 @@ const (
 	tcpMaxInFlight             = 1024
 	tcpDialTimeout             = 15 * time.Second
 	udpDialTimeout             = 10 * time.Second
+	ipv6DialTimeout            = 2 * time.Second
 	udpIdleTimeout             = 30 * time.Second
 	maxActiveUDPFlowsTotal     = 1024
 	maxActiveUDPFlowsPerSource = 128
@@ -207,6 +208,13 @@ func (p *netstackProxy) resolveDNSDestination(dstAP netip.AddrPort) netip.AddrPo
 	return dstAP
 }
 
+func dialTimeoutFor(dst netip.AddrPort, v4Timeout time.Duration) time.Duration {
+	if dst.Addr().Is6() {
+		return ipv6DialTimeout
+	}
+	return v4Timeout
+}
+
 func (p *netstackProxy) acceptTCP(request *tcp.ForwarderRequest) {
 	if p.bridge == nil || p.bridge.client == nil {
 		request.Complete(true)
@@ -221,7 +229,7 @@ func (p *netstackProxy) acceptTCP(request *tcp.ForwarderRequest) {
 	destination := netip.AddrPortFrom(destinationIP.Unmap(), id.LocalPort)
 	resolvedDst := p.resolveDNSDestination(destination)
 
-	ctx, cancel := context.WithTimeout(p.bridge.ctx, tcpDialTimeout)
+	ctx, cancel := context.WithTimeout(p.bridge.ctx, dialTimeoutFor(resolvedDst, tcpDialTimeout))
 	remote, err := p.bridge.client.DialTCP(ctx, resolvedDst)
 	cancel()
 	if err != nil {
@@ -361,7 +369,7 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 	}
 
 	ctx, cancel := context.WithCancel(p.bridge.ctx)
-	dialCtx, dialCancel := context.WithTimeout(ctx, udpDialTimeout)
+	dialCtx, dialCancel := context.WithTimeout(ctx, dialTimeoutFor(resolvedDst, udpDialTimeout))
 	remoteConn, err := p.bridge.client.DialUDP(dialCtx, resolvedDst)
 	dialCancel()
 	if err != nil {
@@ -470,7 +478,7 @@ func (p *netstackProxy) runDNSOverTCPFlow(ctx context.Context, flow *udpFlow, ds
 }
 
 func (p *netstackProxy) exchangeDNSOverTCP(ctx context.Context, dst netip.AddrPort, query []byte, flow *udpFlow) error {
-	dialCtx, cancel := context.WithTimeout(ctx, tcpDialTimeout)
+	dialCtx, cancel := context.WithTimeout(ctx, dialTimeoutFor(dst, tcpDialTimeout))
 	defer cancel()
 	conn, err := p.bridge.client.DialTCP(dialCtx, dst)
 	if err != nil {

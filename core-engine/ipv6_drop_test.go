@@ -12,6 +12,55 @@ import (
 	"time"
 )
 
+func TestIPv6TCPDialUsesShortDeadline(t *testing.T) {
+	var deadline time.Duration
+	bridge, dialTCP, _, cleanup := newIPv6DropTestBridge(t)
+	defer cleanup()
+	mock := bridge.client.(*mockTunnelClient)
+	mock.dialTCPFn = func(ctx context.Context, dst netip.AddrPort) (net.Conn, error) {
+		if dl, ok := ctx.Deadline(); ok {
+			deadline = time.Until(dl)
+		}
+		dialTCP.Add(1)
+		return nil, errors.New("no ipv6 egress")
+	}
+
+	pkt := buildIPv6TCPSyn(
+		netip.MustParseAddrPort("[fd7a:115c:a1e0::2]:54321"),
+		netip.MustParseAddrPort("[2606:4700:4700::1111]:443"),
+	)
+	bridge.handleOutboundPacket(pkt)
+	waitAtomic(t, dialTCP, 1, 2*time.Second, "DialTCP for IPv6 timeout")
+	if deadline > 3*time.Second || deadline < 500*time.Millisecond {
+		t.Fatalf("expected ~2s IPv6 dial deadline, got %v", deadline)
+	}
+}
+
+func TestIPv4TCPDialKeepsLongDeadline(t *testing.T) {
+	var deadline time.Duration
+	dialTCP := new(atomic.Int64)
+	bridge, _, _, cleanup := newIPv6DropTestBridge(t)
+	defer cleanup()
+	mock := bridge.client.(*mockTunnelClient)
+	mock.dialTCPFn = func(ctx context.Context, dst netip.AddrPort) (net.Conn, error) {
+		if dl, ok := ctx.Deadline(); ok {
+			deadline = time.Until(dl)
+		}
+		dialTCP.Add(1)
+		return nil, errors.New("unused")
+	}
+
+	pkt := buildIPv4TCPSyn(
+		netip.MustParseAddrPort("100.64.0.2:54321"),
+		netip.MustParseAddrPort("1.1.1.1:443"),
+	)
+	bridge.handleOutboundPacket(pkt)
+	waitAtomic(t, dialTCP, 1, 2*time.Second, "DialTCP for IPv4 timeout")
+	if deadline < 10*time.Second {
+		t.Fatalf("expected ~15s IPv4 dial deadline, got %v", deadline)
+	}
+}
+
 func TestIPv6TCPInjected(t *testing.T) {
 	bridge, dialTCP, _, cleanup := newIPv6DropTestBridge(t)
 	defer cleanup()

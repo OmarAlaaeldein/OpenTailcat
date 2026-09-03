@@ -288,6 +288,32 @@ func AttachTun(tunFD int) error {
 	return nil
 }
 
+func DetachTun() error {
+	globalCore.mu.Lock()
+	if globalCore.sess == nil {
+		globalCore.mu.Unlock()
+		return nil
+	}
+	if globalCore.state != StateRunning && globalCore.state != StateAttaching && globalCore.state != StatePrepared {
+		globalCore.mu.Unlock()
+		return errors.New("cannot detach TUN: engine not attached")
+	}
+	sess := globalCore.sess
+	bridge := sess.bridge
+	if bridge != nil {
+		bridge.onPumpDead = nil
+	}
+	sess.bridge = nil
+	globalCore.state = StatePrepared
+	globalCore.healthUnix.Store(0)
+	globalCore.mu.Unlock()
+
+	if bridge != nil {
+		_ = bridge.Stop()
+	}
+	return nil
+}
+
 func abandonAttach(sess *session, bridge *TunBridge) {
 	if bridge != nil {
 		_ = bridge.Stop()

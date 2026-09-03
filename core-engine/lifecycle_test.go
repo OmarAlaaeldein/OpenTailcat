@@ -203,6 +203,57 @@ func TestGetStatsDuringBlockedPrepare(t *testing.T) {
 	_ = Stop()
 }
 
+func TestDetachTunKeepsPreparedClient(t *testing.T) {
+	_ = Stop()
+	fake := &prepareTestClient{caps: tailcat.CapExitTCP | tailcat.CapExitUDP}
+	installClient(t, fake)
+	if err := Prepare(officialTestToken(t)); err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer r.Close()
+	defer w.Close()
+	if err := AttachTun(int(r.Fd())); err != nil {
+		t.Fatalf("AttachTun: %v", err)
+	}
+	if err := DetachTun(); err != nil {
+		t.Fatalf("DetachTun: %v", err)
+	}
+	stats, st := statsState(t)
+	if st != StatePrepared || stats.State != "PREPARED" {
+		t.Fatalf("expected PREPARED after DetachTun, got state=%s json=%s", st, stats.State)
+	}
+	if fake.closed {
+		t.Fatal("DetachTun must not close the prepared client")
+	}
+	if stats.HealthUnixSec != 0 {
+		t.Fatalf("expected health 0 after detach, got %d", stats.HealthUnixSec)
+	}
+
+	r2, w2, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe2: %v", err)
+	}
+	defer r2.Close()
+	defer w2.Close()
+	if err := AttachTun(int(r2.Fd())); err != nil {
+		t.Fatalf("reattach after DetachTun: %v", err)
+	}
+	stats, st = statsState(t)
+	if st != StateRunning || stats.State != "RUNNING" {
+		t.Fatalf("expected RUNNING after reattach, got state=%s json=%s", st, stats.State)
+	}
+	if err := DetachTun(); err != nil {
+		t.Fatalf("second DetachTun: %v", err)
+	}
+	if err := DetachTun(); err != nil {
+		t.Fatalf("idempotent DetachTun: %v", err)
+	}
+}
+
 func TestAttachTunBeforePrepare(t *testing.T) {
 	_ = Stop()
 	if err := AttachTun(3); err == nil {

@@ -7,13 +7,13 @@ import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.core.model.GatewayProfile
+import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TunnelState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collectLatest
@@ -85,16 +85,19 @@ class TailcatVpnService : VpnService() {
             app.tunnelEngine.prepare(profile.token)
             currentCoroutineContext().ensureActive()
 
-            val established = vpnBuilder(profile, dnsValidation.ip).establish()
+            val warm = vpnBuilder(profile, dnsValidation.ip, defaultRoutes = false).establish()
                 ?: throw IllegalStateException("Android could not establish the VPN interface")
-            vpnInterface = established
+            vpnInterface = warm
+            attachLive(app, warm, networkState)
+
+            app.tunnelEngine.detachTun()
             currentCoroutineContext().ensureActive()
-            app.tunnelEngine.attachTun(established.fd)
-            app.tunnelEngine.updateNetworkState(networkState)
-            val metrics = app.tunnelEngine.getStats()
-            check(EngineHealth.shouldConnect(metrics, TunnelController.unixNow())) {
-                "VPN engine did not become live after attach"
-            }
+            val routed = vpnBuilder(profile, dnsValidation.ip, defaultRoutes = true).establish()
+                ?: throw IllegalStateException("Android could not install default routes")
+            val previous = vpnInterface
+            vpnInterface = routed
+            runCatching { previous?.close() }
+            val metrics = attachLive(app, routed, networkState)
             app.tunnelController.onEngineConnected(metrics)
             startMetricsNotificationUpdater(profile)
         } catch (error: CancellationException) {
@@ -108,19 +111,36 @@ class TailcatVpnService : VpnService() {
         }
     }
 
+    private suspend fun attachLive(
+        app: TailcatApplication,
+        established: ParcelFileDescriptor,
+        networkState: String
+    ): NetworkMetrics {
+        currentCoroutineContext().ensureActive()
+        app.tunnelEngine.attachTun(established.fd)
+        app.tunnelEngine.updateNetworkState(networkState)
+        val metrics = app.tunnelEngine.getStats()
+        check(EngineHealth.shouldConnect(metrics, TunnelController.unixNow())) {
+            "VPN engine did not become live after attach"
+        }
+        return metrics
+    }
+
     private fun vpnBuilder(
         profile: GatewayProfile,
-        dnsIp: String
+        dnsIp: String,
+        defaultRoutes: Boolean
     ): Builder {
         val builder = Builder()
             .setSession("OpenTailcat - ${profile.name}")
             .setMtu(profile.mtu)
-            .addAddress("100.64.0.2", 32)
-            .addAddress("fd7a:115c:a1e0::2", 128)
-            .addRoute("0.0.0.0", 0)
-            .addRoute("::", 0)
+            .addAddress(VpnInterfaceSpec.IPV4_ADDRESS, VpnInterfaceSpec.IPV4_PREFIX)
+            .addAddress(VpnInterfaceSpec.IPV6_ADDRESS, VpnInterfaceSpec.IPV6_PREFIX)
             .addDnsServer(dnsIp)
             .setBlocking(false)
+        for (route in VpnInterfaceSpec.defaultRoutes(defaultRoutes)) {
+            builder.addRoute(route.address, route.prefixLength)
+        }
         val app = TailcatApplication.instance
         for (excluded in app.preferencesStore.splitTunnelExcludedApps) {
             runCatching { builder.addDisallowedApplication(excluded) }

@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -242,6 +243,75 @@ func TestJitterNullWhenInsufficientSamples(t *testing.T) {
 	}
 	if unmarshaled["jitterMs"] != nil {
 		t.Fatalf("expected null jitterMs in JSON, got %v", unmarshaled["jitterMs"])
+	}
+}
+
+func TestSampleLiveRTTFromDiscoPing(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	latencies := []float64{0.025, 0.035, 0.029}
+	n := 0
+	mock := &mockTunnelClient{
+		discoPingFn: func(context.Context) (*ipnstate.PingResult, error) {
+			if n >= len(latencies) {
+				n = len(latencies) - 1
+			}
+			sec := latencies[n]
+			n++
+			return &ipnstate.PingResult{LatencySeconds: sec}, nil
+		},
+	}
+	bridge := &TunBridge{
+		sessionID: 1,
+		token:     &ParsedToken{RegionID: 1},
+		client:    mock,
+		ctx:       ctx,
+		cancel:    cancel,
+	}
+	bridge.sampleLiveRTT()
+	bridge.sampleLiveRTT()
+	if bridge.GetStats().JitterMs != nil {
+		t.Fatal("jitter should be null before 3 samples")
+	}
+	bridge.sampleLiveRTT()
+	stats := bridge.GetStats()
+	if stats.JitterMs == nil {
+		t.Fatal("expected jitter after 3 live samples")
+	}
+	if *stats.JitterMs != 8 {
+		t.Fatalf("expected jitter 8 ms, got %d", *stats.JitterMs)
+	}
+	if stats.RTTMs != 29 {
+		t.Fatalf("expected rtt 29 ms, got %d", stats.RTTMs)
+	}
+}
+
+func TestSampleLiveRTTSkipsFailedPing(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mock := &mockTunnelClient{
+		discoPingFn: func(context.Context) (*ipnstate.PingResult, error) {
+			return nil, errors.New("disco timeout")
+		},
+	}
+	bridge := &TunBridge{
+		sessionID:  1,
+		token:      &ParsedToken{RegionID: 1},
+		client:     mock,
+		ctx:        ctx,
+		cancel:     cancel,
+		rttMs:      40,
+		rttSamples: []int64{40},
+	}
+	bridge.sampleLiveRTT()
+	if bridge.currentRTTMs() != 40 {
+		t.Fatalf("failed ping must not overwrite RTT, got %d", bridge.currentRTTMs())
+	}
+	bridge.rttMu.Lock()
+	n := len(bridge.rttSamples)
+	bridge.rttMu.Unlock()
+	if n != 1 {
+		t.Fatalf("failed ping must not append a sample, got %d", n)
 	}
 }
 

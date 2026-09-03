@@ -21,14 +21,15 @@ import (
 
 // mockTunnelClient implements TunnelClient for test injection
 type mockTunnelClient struct {
-	mu         sync.Mutex
-	dialUDPFn  func(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
-	dialTCPFn  func(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
-	statusFn   func() *ipnstate.Status
-	nodeKey    key.NodePublic
-	derpMap    *tailcfg.DERPMap
-	serverCaps uint8
-	closed     bool
+	mu          sync.Mutex
+	dialUDPFn   func(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
+	dialTCPFn   func(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
+	discoPingFn func(ctx context.Context) (*ipnstate.PingResult, error)
+	statusFn    func() *ipnstate.Status
+	nodeKey     key.NodePublic
+	derpMap     *tailcfg.DERPMap
+	serverCaps  uint8
+	closed      bool
 }
 
 func (m *mockTunnelClient) Dial(ctx context.Context, network, address string) (net.Conn, error) {
@@ -81,6 +82,16 @@ func (m *mockTunnelClient) DERPMap() *tailcfg.DERPMap {
 	return m.derpMap
 }
 
+func (m *mockTunnelClient) DiscoPing(ctx context.Context) (*ipnstate.PingResult, error) {
+	m.mu.Lock()
+	fn := m.discoPingFn
+	m.mu.Unlock()
+	if fn != nil {
+		return fn(ctx)
+	}
+	return nil, errors.New("mock disco ping not configured")
+}
+
 // pairedDatagramConn connects local and remote ends in memory for datagram tests
 type pairedDatagramConn struct {
 	in      chan []byte
@@ -130,8 +141,12 @@ func (p *pairedDatagramConn) Close() error {
 	return nil
 }
 
-func (p *pairedDatagramConn) LocalAddr() net.Addr                { return &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1000} }
-func (p *pairedDatagramConn) RemoteAddr() net.Addr               { return &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 2000} }
+func (p *pairedDatagramConn) LocalAddr() net.Addr {
+	return &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1000}
+}
+func (p *pairedDatagramConn) RemoteAddr() net.Addr {
+	return &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 2000}
+}
 func (p *pairedDatagramConn) SetDeadline(t time.Time) error      { return nil }
 func (p *pairedDatagramConn) SetReadDeadline(t time.Time) error  { return nil }
 func (p *pairedDatagramConn) SetWriteDeadline(t time.Time) error { return nil }
@@ -378,16 +393,16 @@ func TestQUICFramedInitialDatagram(t *testing.T) {
 	quicInitial := []byte{
 		0xc0,                   // Header byte: Long header, Initial packet
 		0x00, 0x00, 0x00, 0x01, // QUIC Version 1
-		0x08,                                                 // DCIL: 8 bytes
-		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,       // Destination Connection ID
-		0x08,                                                 // SCIL: 8 bytes
-		0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,       // Source Connection ID
-		0x00,                                                 // Token Length (0)
-		0x40, 0x20,                                           // Length (varint 32 bytes)
-		0x00, 0x01,                                           // Packet number
-		0x06,                                                 // Frame Type: CRYPTO
-		0x00, 0x1c,                                           // Offset + Length
-		0x01, 0x00, 0x00, 0x18, 0x03, 0x03,                   // TLS ClientHello prefix
+		0x08,                                           // DCIL: 8 bytes
+		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, // Destination Connection ID
+		0x08,                                           // SCIL: 8 bytes
+		0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, // Source Connection ID
+		0x00,       // Token Length (0)
+		0x40, 0x20, // Length (varint 32 bytes)
+		0x00, 0x01, // Packet number
+		0x06,       // Frame Type: CRYPTO
+		0x00, 0x1c, // Offset + Length
+		0x01, 0x00, 0x00, 0x18, 0x03, 0x03, // TLS ClientHello prefix
 	}
 	// Pad to 1200 bytes per QUIC RFC 9000 minimum Initial size
 	quicPktPayload := make([]byte, 1200)
@@ -827,5 +842,22 @@ func TestAcceptCloseRace(t *testing.T) {
 		if total != 0 || flows != 0 || sources != 0 {
 			t.Fatalf("shutdown leaked UDP accounting: total=%d flows=%d sources=%d", total, flows, sources)
 		}
+	}
+}
+
+func TestDialTimeoutForIPv6IsShort(t *testing.T) {
+	v6 := netip.MustParseAddrPort("[2606:4700:4700::1111]:443")
+	v4 := netip.MustParseAddrPort("1.1.1.1:443")
+	if got := dialTimeoutFor(v6, tcpDialTimeout); got != ipv6DialTimeout {
+		t.Fatalf("ipv6 tcp timeout %v, want %v", got, ipv6DialTimeout)
+	}
+	if got := dialTimeoutFor(v4, tcpDialTimeout); got != tcpDialTimeout {
+		t.Fatalf("ipv4 tcp timeout %v, want %v", got, tcpDialTimeout)
+	}
+	if got := dialTimeoutFor(v6, udpDialTimeout); got != ipv6DialTimeout {
+		t.Fatalf("ipv6 udp timeout %v, want %v", got, ipv6DialTimeout)
+	}
+	if got := dialTimeoutFor(v4, udpDialTimeout); got != udpDialTimeout {
+		t.Fatalf("ipv4 udp timeout %v, want %v", got, udpDialTimeout)
 	}
 }

@@ -13,7 +13,8 @@ from a compact `tc...` token.
 on as a production privacy VPN.** The Android shell, Go Mobile AAR, Tailcat
 handshake, official token parser, TCP proxy, and userspace netstack UDP proxy are
 integrated. IPv4 test-routing capabilities are true so Connect can run with a
-live token. `ipv6` is false (no `::/0`). This is not a production privacy VPN.
+live token. `ipv6` is false. Android installs `0.0.0.0/0` and `::/0` after pumps
+are live. This is not a production privacy VPN.
 
 ### Audited status
 
@@ -30,17 +31,18 @@ live token. `ipv6` is false (no `::/0`). This is not a production privacy VPN.
 - **Phase 4 (DNS routing)**: PROFILE/FORCED resolver routing, pending-config, and
   omit-means-preserve exist. The engine does not inspect DNS TC bits. IPv4 `dns`
   is test-enabled.
-- **Phase 5 (IPv6)**: Android installs `::/0`. Native proxies IPv6 TCP/UDP
-  through Tailcat; ICMPv6 is dropped. `ipv6` remains false until live dual-stack
-  evidence.
+- **Phase 5 (IPv6)**: Android installs `::/0` after pumps are live. Native
+  proxies IPv6 TCP/UDP with a 2s dial timeout; ICMPv6 is dropped. `ipv6`
+  remains false until live dual-stack evidence.
 - **Phase 6 (Lifecycle)**: Cancellable prepare, readiness barriers, pump-failure
-  `FAILED`, and bounded stop exist. `twoPhaseStart` and `cancelSafeLifecycle`
-  are test-enabled.
+  `FAILED`, bounded stop, and `detachTun` exist. Android warms the TUN without
+  default routes, then installs `0.0.0.0/0`/`::/0` and reattaches.
+  `twoPhaseStart` and `cancelSafeLifecycle` are test-enabled.
 - **Phase 7 (Telemetry)**: Schema version 2 and live WireGuard peer counters exist
   while a bridge is running. Kotlin rejects v1 and requires live `RUNNING` health.
-  RTT is a prepare-time snapshot; production jitter is always null. `liveStats`
-  is test-enabled.
-- **Remaining**: IPv6 dual-stack, Phase 8 physical leak capture, production signing.
+  RTT is sampled from `DiscoPing` while a bridge is running; jitter is null
+  until three samples. `liveStats` is test-enabled.
+- **Remaining**: live IPv6 egress evidence, Phase 8 physical leak capture, production signing.
 
 ## Native engine API
 
@@ -50,6 +52,7 @@ The bundled AAR exposes:
 getCapabilitiesJSON() -> String
 prepare(token: String)
 attachTun(tunFd: Long)
+detachTun()
 getStatsJSON() -> String
 stop()
 updateNetworkState(json: String)
@@ -59,11 +62,14 @@ parseToken(token: String)
 Current behavior:
 
 1. `getCapabilitiesJSON` reports API v2 with IPv4 test-routing capabilities true
-   (`ipv6` false). Kotlin may install IPv4 `0.0.0.0/0`. This is not leak-free.
+   (`ipv6` false). Kotlin may install `0.0.0.0/0` and `::/0` after pumps are live.
+   This is not leak-free.
 2. `prepare` validates an official token, completes a Meow/Meowed handshake, and
-   rejects TCP-only gateways. `stop` cancels an in-flight `prepare`.
+   allows TCP-only gateways (DNS over TCP; other UDP dropped). `stop` cancels an
+   in-flight `prepare`.
 3. `attachTun` duplicates the descriptor and returns after required pumps have
-   entered their loops. Pump death reports `FAILED`.
+   entered their loops. Pump death reports `FAILED`. `detachTun` stops pumps and
+   keeps the prepared client.
 4. `updateNetworkState` accepts Android LinkProperties JSON. Absent `dnsPolicy`
    preserves the pending resolver policy.
 5. `stop` is bounded and idempotent. `ipv6` stays false.
