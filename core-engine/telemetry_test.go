@@ -179,6 +179,18 @@ func TestDERPRegionMetadataResolution(t *testing.T) {
 	}
 }
 
+func TestDERPRegionNameNotSynthesized(t *testing.T) {
+	bridge := &TunBridge{
+		sessionID: 1,
+		token:     &ParsedToken{RegionID: 302},
+		transport: "DERP_RELAY",
+	}
+	stats := bridge.GetStats()
+	if stats.DerpRegionName != "" {
+		t.Fatalf("expected empty DERP name without DERPMap, got %q", stats.DerpRegionName)
+	}
+}
+
 func TestJitterNullWhenInsufficientSamples(t *testing.T) {
 	bridge := &TunBridge{
 		sessionID: 1,

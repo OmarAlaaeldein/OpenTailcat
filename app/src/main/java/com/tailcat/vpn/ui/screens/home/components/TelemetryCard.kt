@@ -148,7 +148,10 @@ fun TelemetryCard(
                             Triple(EmeraldConnected, Icons.Default.FlashOn, text)
                         }
                         TransportType.DERP_RELAY -> {
-                            val name = metrics.derpRegionName ?: "Region #${metrics.derpRegionId ?: 1}"
+                            val name = metrics.derpRegionName
+                                ?: metrics.derpRegionCode
+                                ?: metrics.derpRegionId?.let { "DERP $it" }
+                                ?: "DERP"
                             Triple(
                                 VioletDerp,
                                 Icons.Default.Shield,
@@ -176,6 +179,8 @@ fun TelemetryCard(
 
                 Text(
                     text = if (metrics.transportType == TransportType.UNKNOWN) {
+                        "—"
+                    } else if (metrics.rttLatencyMs <= 0 && metrics.jitterMs == null) {
                         "—"
                     } else if (metrics.jitterMs != null) {
                         "${metrics.rttLatencyMs} ms (±${metrics.jitterMs})"

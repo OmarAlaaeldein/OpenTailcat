@@ -16,7 +16,7 @@ unsafe shortcuts already found in the tree.
 - Phase 3 tunneled UDP data plane implementation complete; live physical acceptance pending; `udp` remains false.
 - Phase 4 DNS routing exists with pending-config and omit-means-preserve; `dns` remains false until promotion evidence.
 - Phase 5 native IPv6 TUN packets are dropped (no inject, no ICMPv6 echo); Android still has no `::/0`; `ipv6` remains false.
-- Phase 6 cancellable session context, readiness barriers, pump-failure `FAILED`, and bounded `Stop` exist; `twoPhaseStart` and `cancelSafeLifecycle` remain false.
+- Phase 6 cancellable session context, readiness barriers, pump-failure `FAILED`, and bounded `Stop` exist; IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
 - Phase 7 telemetry schema and WireGuard counters exist; Kotlin rejects schema v1 and does not synthesize `RUNNING`; `liveStats` remains false until promotion evidence.
 - Upstream Tailcat base: signed `v0.4.0`, commit
   `ce6fedcabc220bab3b94d470ab330219111eeae8`.
@@ -24,7 +24,7 @@ unsafe shortcuts already found in the tree.
   `49c65dace2d79b41d89f536289002816d13e5274` and later UDP, DNS, NetMon, and status extensions.
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.0 and NDK 29.0.14206865. Current SHA-256:
-  `d6c2d851f9558b209a4271f77ff2986a003d4e27c0c65e7246557fc3e453220c`.
+  `a115f88550b642502049253553b32801db149239cc3c3370dabeda616e4fb047`.
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
@@ -129,7 +129,7 @@ Checkpoint status:
 - Phase 3 — implementation complete: native userspace netstack UDP proxy, gateway CapExitUDP capability check, AllowProxy policy enforcement, and synchronized shutdown; physical-device live acceptance pending; `udp` remains false.
 - Phase 4 — DNS routing code exists: pending DNS is stored before attach and applied on `attachTun`. Absent `dnsPolicy` in later `updateNetworkState` does not reset policy. `GATEWAY_RESOLVER` is unused (treated as PROFILE). The engine does not inspect DNS TC bits. `dns` remains false until promotion evidence.
 - Phase 5 — native fail-closed IPv6 drop in `handleIPv6`; no Android `::/0`. `ipv6` remains false.
-- Phase 6 — session context, short mutex, always-Close previous client, readiness barriers, pump-exit `FAILED` + `healthUnixSec`, bounded `Stop`. Android `establish()` still installs `0.0.0.0/0` before `attachTun`. `twoPhaseStart` and `cancelSafeLifecycle` remain false.
+- Phase 6 — session context, short mutex, always-Close previous client, readiness barriers, pump-exit `FAILED` + `healthUnixSec`, bounded `Stop`. Android `establish()` still installs `0.0.0.0/0` before `attachTun`. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
 - Phase 7 — telemetry code exists: schema version 2, live WireGuard peer Tx/Rx and Magicsock path from `Client.Status()` while a bridge is running. RTT is a prepare-time snapshot; `RecordRTT` is not called in production, so jitter is always null. Kotlin requires version 2, does not synthesize missing `state` as `RUNNING`, and CONNECTED requires live `RUNNING` + fresh `healthUnixSec`. `liveStats` remains false until promotion evidence.
 - Phase 8 — planned. Every unproven capability remains false.
 
@@ -279,7 +279,7 @@ Every UDP flow table must be:
   address/port;
 - bounded globally and per source, with a defined rejection policy;
 - cancellation-safe and closed exactly once;
-- protected from data races (`lastActive` is currently raced);
+- protected from data races (`lastActive` is an atomic);
 - equipped with idle deadlines and maximum datagram sizes;
 - backpressured so unbounded goroutines cannot be created by packet input; and
 - tested for concurrent close, late replies, port reuse, zero-length datagrams,
@@ -314,7 +314,7 @@ only Tailcat transport between client and gateway.
    - Added `DnsPolicy` enum (`PROFILE_RESOLVER`, `FORCED_RESOLVER`, `GATEWAY_RESOLVER`) and `DnsPreset` presets (Cloudflare, Quad9, Google). There is no UI policy picker; add-profile defaults to `PROFILE_RESOLVER`. `GATEWAY_RESOLVER` is never selected. `DnsPreset.ALL_PRESETS` is unused.
    - Added `PreferencesStorage` interface and `defaultDns` setting.
    - Integrated DNS validation and policy persistence in `ProfileRepository` (`addOrUpdateFromToken`, `updateProfileDns`) with fallback for corrupt legacy data.
-   - Enforced DNS validation in `TailcatVpnService` before calling `Builder.addDnsServer`, propagating policy to native engine via the first `updateNetworkState`. Later `TunnelController` network-state updates omit `dnsPolicy`/`forcedDns` and can wipe the native policy.
+   - Enforced DNS validation in `TailcatVpnService` before calling `Builder.addDnsServer`. Native omit-means-preserve keeps pending DNS across roam `updateNetworkState` payloads that lack `dnsPolicy`.
    - Updated UI in `HomeScreen` (Add Profile dialog) and `SettingsScreen` (Defaults card) with real-time validation error feedback.
 
 3. **Automated test coverage:**
@@ -348,14 +348,14 @@ connected, and neither family reaches the Internet directly on pump failure.
 
 ### Phase 6: lifecycle, readiness, and roaming
 
-**Checkpoint status: Machine exists; `twoPhaseStart` and `cancelSafeLifecycle`
-remain false.** Session context cancels blocked `prepare`. Mutex is not held
-across Ping/DiscoPing. A second `prepare` closes a previous unattached client.
-`attachTun` waits for TUN read, gVisor write, UDP GC, and health loops to enter.
-Required pump exit sets `FAILED` and clears `healthUnixSec`. `Stop` is bounded
-and concurrent-idempotent. Android `establish()` still installs `0.0.0.0/0`
-before `attachTun`. CONNECTED requires native `RUNNING` plus fresh
-`healthUnixSec`. Extra capability JSON keys are ignored.
+**Checkpoint status: Machine exists; IPv4 test-routing enables `twoPhaseStart`
+and `cancelSafeLifecycle`.** Session context cancels blocked `prepare`. Mutex is
+not held across Ping/DiscoPing. A second `prepare` closes a previous unattached
+client. `attachTun` waits for TUN read, gVisor write, UDP GC, and health loops
+to enter. Required pump exit sets `FAILED` and clears `healthUnixSec`. `Stop` is
+bounded and concurrent-idempotent. Android `establish()` still installs
+`0.0.0.0/0` before `attachTun`. CONNECTED requires native `RUNNING` plus fresh
+`healthUnixSec`. Unknown capability JSON fields fail closed.
 
 Refactor the global engine into a synchronized state machine:
 
@@ -411,7 +411,7 @@ Current code reports schema version 2 with:
 - jitter only after ≥3 `RecordRTT` samples, otherwise `null`. Live jitter is therefore always null. The formula is mean absolute consecutive difference, not RFC 3550 `J := J + (|D|-J)/16`;
 - packet/drop counters for TCP, UDP, DNS, malformed IP, MTU, queue exhaustion, and policy rejections;
 - exit-audit IP plus timestamp and error state;
-- DERP names from `client.DERPMap()` when present, else hardcoded `regionNameForID`.
+- DERP names from `client.DERPMap()` when present; otherwise empty (not invented).
 
 Kotlin `NetworkMetrics.fromJson` requires schema version 2, rejects v1 and missing version, and leaves missing `state` empty. `onEngineConnected` requires `RUNNING` plus fresh `healthUnixSec`.
 

@@ -400,45 +400,6 @@ func (b *TunBridge) handleICMPv4(pkt []byte, ihl int, srcIP, dstIP netip.Addr) {
 	b.writeTunPacket(reply)
 }
 
-// handleICMPv6 generates an echo reply for IPv6 ping packets.
-func (b *TunBridge) handleICMPv6(pkt []byte, offset int, srcIP, dstIP netip.Addr) {
-	icmpPayload := pkt[offset:]
-	if len(icmpPayload) < 8 {
-		return
-	}
-
-	icmpType := icmpPayload[0]
-	if icmpType != 128 { // Echo request IPv6
-		return
-	}
-
-	reply := make([]byte, len(pkt))
-	copy(reply, pkt)
-
-	// Swap IPv6 addresses
-	copy(reply[8:24], pkt[24:40])
-	copy(reply[24:40], pkt[8:24])
-
-	// Change ICMPv6 type to Echo Reply (129)
-	reply[offset] = 129
-
-	// Recompute ICMPv6 checksum with IPv6 pseudo-header
-	reply[offset+2] = 0
-	reply[offset+3] = 0
-
-	pseudoHeader := make([]byte, 40)
-	copy(pseudoHeader[0:16], reply[8:24])
-	copy(pseudoHeader[16:32], reply[24:40])
-	binary.BigEndian.PutUint32(pseudoHeader[32:36], uint32(len(reply)-offset))
-	pseudoHeader[39] = 58 // Next header = ICMPv6
-
-	icmpChk := checksum(pseudoHeader, reply[offset:])
-	binary.BigEndian.PutUint16(reply[offset+2:offset+4], icmpChk)
-
-	b.rxBytes.Add(int64(len(reply)))
-	b.writeTunPacket(reply)
-}
-
 func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -516,14 +477,18 @@ func (b *TunBridge) currentJitterMs() *int64 {
 }
 
 func (b *TunBridge) resolveRegionName(id int) string {
-	if b.client != nil {
-		if dm := b.client.DERPMap(); dm != nil && len(dm.Regions) > 0 {
-			if reg, ok := dm.Regions[tailcfg.DERPRegionID(id)]; ok && reg != nil && reg.RegionName != "" {
-				return reg.RegionName
-			}
-		}
+	if b.client == nil {
+		return ""
 	}
-	return regionNameForID(id)
+	dm := b.client.DERPMap()
+	if dm == nil || len(dm.Regions) == 0 {
+		return ""
+	}
+	reg, ok := dm.Regions[tailcfg.DERPRegionID(id)]
+	if !ok || reg == nil {
+		return ""
+	}
+	return reg.RegionName
 }
 
 // GetStats returns authoritative telemetry from the live bridge, netstack, and WireGuard engine.
@@ -595,38 +560,6 @@ func (b *TunBridge) GetStats() EngineStats {
 	stats.JitterMs = b.currentJitterMs()
 
 	return stats
-}
-
-func regionNameForID(id int) string {
-	switch id {
-	case 1:
-		return "New York City"
-	case 2:
-		return "San Francisco"
-	case 3:
-		return "Singapore"
-	case 4:
-		return "Frankfurt"
-	case 5:
-		return "Sydney"
-	case 6:
-		return "London"
-	case 7:
-		return "Tokyo"
-	case 8:
-		return "Toronto"
-	case 9:
-		return "Dallas"
-	case 10:
-		return "Seattle"
-	case 302:
-		return "San Francisco"
-	default:
-		if id > 0 {
-			return fmt.Sprintf("Region %d", id)
-		}
-		return "Default Relay"
-	}
 }
 
 func buildIPv4UDPPacket(srcAP, dstAP netip.AddrPort, payload []byte) []byte {

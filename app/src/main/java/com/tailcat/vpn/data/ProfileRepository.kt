@@ -47,7 +47,6 @@ class ProfileRepository(private val preferencesStore: PreferencesStorage) {
                             customDns = validatedDns,
                             dnsPolicy = policy,
                             mtu = obj.optInt("mtu", 1280),
-                            tcpMss = obj.optInt("tcpMss", 1120),
                             isDefault = obj.optBoolean("isDefault", false),
                             createdAt = obj.optLong("createdAt", System.currentTimeMillis())
                         )
@@ -78,7 +77,6 @@ class ProfileRepository(private val preferencesStore: PreferencesStorage) {
                 put("customDns", p.customDns)
                 put("dnsPolicy", p.dnsPolicy.name)
                 put("mtu", p.mtu)
-                put("tcpMss", p.tcpMss)
                 put("isDefault", p.isDefault)
                 put("createdAt", p.createdAt)
             }
@@ -123,7 +121,6 @@ class ProfileRepository(private val preferencesStore: PreferencesStorage) {
             customDns = dnsValidation.ip,
             dnsPolicy = dnsPolicy,
             mtu = preferencesStore.defaultMtu,
-            tcpMss = preferencesStore.defaultTcpMss,
             isDefault = existing?.isDefault ?: _profiles.value.isEmpty(),
             createdAt = existing?.createdAt ?: System.currentTimeMillis()
         )

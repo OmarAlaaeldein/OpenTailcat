@@ -13,10 +13,7 @@ import org.junit.Test
 
 class FakePreferencesStorage : PreferencesStorage {
     override var activeProfileId: String? = null
-    override var isKillSwitchEnabled: Boolean = false
-    override var isAutoDerpOnEnterpriseWifi: Boolean = false
     override var defaultMtu: Int = 1280
-    override var defaultTcpMss: Int = 1120
     override var defaultDns: String = "1.1.1.1"
     override var splitTunnelExcludedApps: Set<String> = emptySet()
     override var savedProfilesJson: String? = null
@@ -148,7 +145,6 @@ class ProfileRepositoryTest {
                 put("customDns", "malformed-ip-address")
                 put("dnsPolicy", "UNKNOWN_POLICY")
                 put("mtu", 1280)
-                put("tcpMss", 1120)
                 put("isDefault", true)
                 put("createdAt", 1000L)
             })

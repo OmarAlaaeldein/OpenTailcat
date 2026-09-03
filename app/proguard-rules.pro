@@ -5,6 +5,9 @@
 -keep class com.tailcat.vpn.service.TailcatVpnService { *; }
 -keep class engine.** { *; }
 -keep class com.tailcat.vpn.engine.** { *; }
+-keepclassmembers class com.tailcat.vpn.engine.Engine {
+    public static *;
+}
 -keep class go.** { *; }
 -keepclasseswithmembernames class * {
     native <methods>;

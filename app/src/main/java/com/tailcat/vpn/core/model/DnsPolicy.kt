@@ -38,36 +38,3 @@ enum class DnsPolicy(val displayName: String, val description: String) {
         }
     }
 }
-
-/**
- * Standard trusted public resolver presets for easy selection.
- */
-data class DnsPreset(
-    val name: String,
-    val ipv4: String,
-    val ipv6: String,
-    val description: String
-) {
-    companion object {
-        val CLOUDFLARE = DnsPreset(
-            name = "Cloudflare",
-            ipv4 = "1.1.1.1",
-            ipv6 = "2606:4700:4700::1111",
-            description = "Fast, privacy-focused public resolver (1.1.1.1)"
-        )
-        val QUAD9 = DnsPreset(
-            name = "Quad9",
-            ipv4 = "9.9.9.9",
-            ipv6 = "2620:fe::fe",
-            description = "Malware-blocking secure resolver (9.9.9.9)"
-        )
-        val GOOGLE = DnsPreset(
-            name = "Google Public DNS",
-            ipv4 = "8.8.8.8",
-            ipv6 = "2001:4860:4860::8888",
-            description = "Reliable global public resolver (8.8.8.8)"
-        )
-
-        val ALL_PRESETS = listOf(CLOUDFLARE, QUAD9, GOOGLE)
-    }
-}

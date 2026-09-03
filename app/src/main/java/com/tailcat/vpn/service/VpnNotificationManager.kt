@@ -58,15 +58,16 @@ class VpnNotificationManager(private val context: Context) {
 
         val title = when (state) {
             TunnelState.CONNECTING -> "OpenTailcat: Connecting to $profileName..."
-            TunnelState.CONNECTED -> "OpenTailcat: Protected ($profileName)"
+            TunnelState.CONNECTED -> "OpenTailcat: Connected ($profileName)"
             TunnelState.RECONNECTING -> "OpenTailcat: Reconnecting..."
             TunnelState.DEGRADED -> "OpenTailcat: Tunnel Degraded"
             TunnelState.DISCONNECTED -> "OpenTailcat: Disconnected"
         }
 
+        val rttSuffix = if (metrics.rttLatencyMs > 0) " (${metrics.rttLatencyMs}ms)" else ""
         val transportStr = when (metrics.transportType) {
-            TransportType.DIRECT_P2P -> "Direct P2P (${metrics.rttLatencyMs}ms)"
-            TransportType.DERP_RELAY -> "DERP Relay #${metrics.derpRegionId ?: "?"} (${metrics.rttLatencyMs}ms)"
+            TransportType.DIRECT_P2P -> "Direct P2P$rttSuffix"
+            TransportType.DERP_RELAY -> "DERP Relay #${metrics.derpRegionId ?: "?"}$rttSuffix"
             TransportType.UNKNOWN -> "Establishing transport..."
         }
 

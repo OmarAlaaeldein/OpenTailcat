@@ -347,12 +347,6 @@ func GetStatsJSON() string {
 			State:     state.String(),
 			Transport: "DISCONNECTED",
 		}
-		if state == StatePreparing || state == StateAttaching {
-			stats.State = "PREPARED"
-		}
-		if state == StateStopping {
-			stats.State = "STOPPED"
-		}
 		b, err := json.Marshal(stats)
 		if err != nil {
 			return `{"version":2,"state":"STOPPED","transport":"DISCONNECTED"}`
@@ -382,7 +376,7 @@ func GetStatsJSON() string {
 	}
 	bytes, err := json.Marshal(stats)
 	if err != nil {
-		return `{"version":2,"state":"ERROR","transport":"UNKNOWN","rttMs":0,"txBytes":0,"rxBytes":0}`
+		return `{"version":2,"state":"ERROR","transport":"UNKNOWN"}`
 	}
 	return string(bytes)
 }

@@ -205,12 +205,6 @@ class TunnelEngine : NativeEngine {
         }
     }
 
-    private fun JSONObject.optIntOrNull(name: String): Int? =
-        if (has(name) && !isNull(name)) optInt(name) else null
-
-    private fun JSONObject.optNullableString(name: String): String? =
-        if (has(name) && !isNull(name)) optString(name).takeIf { it.isNotBlank() } else null
-
     companion object {
         private val ENGINE_CLASS_NAMES = listOf(
             "engine.Engine",
