@@ -400,13 +400,11 @@ func (c *prepareTestClient) Status() *ipnstate.Status       { return nil }
 func (c *prepareTestClient) ServerNodeKey() key.NodePublic { return key.NodePublic{} }
 func (c *prepareTestClient) DERPMap() *tailcfg.DERPMap     { return nil }
 
-func TestPrepareRejectsTCPOnlyGateway(t *testing.T) {
+func TestPrepareAcceptsTCPOnlyGateway(t *testing.T) {
 	if err := Stop(); err != nil {
 		t.Fatalf("reset engine: %v", err)
 	}
 
-	// Generate an official token and inject a reachable handshake client that
-	// advertises TCP exit support but deliberately omits CapExitUDP.
 	var nodeRaw, discoRaw [32]byte
 	for i := 0; i < 32; i++ {
 		nodeRaw[i] = byte(i + 1)
@@ -431,17 +429,13 @@ func TestPrepareRejectsTCPOnlyGateway(t *testing.T) {
 		_ = Stop()
 	}()
 
-	err := Prepare(tokenStr)
-	if err == nil {
-		t.Fatal("expected Prepare to reject TCP-only gateway")
+	if err := Prepare(tokenStr); err != nil {
+		t.Fatalf("expected Prepare to accept TCP-only gateway: %v", err)
 	}
-	if !strings.Contains(err.Error(), "does not support tunneled UDP") {
-		t.Fatalf("Prepare failed before the UDP capability gate: %v", err)
+	if globalCore.state != StatePrepared {
+		t.Errorf("expected PREPARED, got %s", globalCore.state)
 	}
-	if globalCore.state != StateStopped {
-		t.Errorf("expected engine state STOPPED after TCP-only reject, got %s", globalCore.state)
-	}
-	if !fake.closed {
-		t.Error("expected rejected TCP-only client to be closed")
+	if globalCore.sess == nil || !globalCore.sess.tcpOnly {
+		t.Fatal("expected tcpOnly session for CapExitTCP without CapExitUDP")
 	}
 }

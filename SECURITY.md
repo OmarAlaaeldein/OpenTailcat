@@ -2,7 +2,7 @@
 
 ## Release status
 
-OpenTailcat 1.1.2 in the current source tree is a development build. It has an
+OpenTailcat 1.1.3 in the current source tree is a development build. It has an
 integrated Go Mobile Tailcat engine with Phase 0 fail-closed capability gates,
 Phase 1 reproducible builds, Phase 2 official token validation, and Phase 3
 tunneled UDP userspace netstack code. IPv4 test-routing capabilities are true so
@@ -26,8 +26,8 @@ privacy VPN.
 - Tunneled UDP uses a single gVisor netstack proxy routing datagrams exclusively
   through Tailcat WireGuard/Magicsock via `Client.DialUDP` without direct OS UDP
   sockets in `core-engine`. This path is unpromoted (`udp` is false).
-- The native engine checks gateway `CapExitUDP` during `prepare` and fails before
-  TUN attachment if connected to a legacy/TCP-only gateway.
+- TCP-only gateways (including official v0.4.0 `nullexit`) can `prepare`. DNS
+  port 53 is carried over TCP. Other UDP is dropped. This is not a full UDP VPN.
 - Profiles and tokens are stored in encrypted preferences backed by Android
   Keystore. Android backup and device-to-device transfer are disabled.
 - The app UID bypasses the VPN to prevent Magicsock/DERP transport recursion.

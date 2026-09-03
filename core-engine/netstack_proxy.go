@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -285,6 +286,11 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 	srcAP := netip.AddrPortFrom(srcIP.Unmap(), id.RemotePort)
 	dstAP := netip.AddrPortFrom(dstIP.Unmap(), id.LocalPort)
 
+	if p.bridge.tcpOnly && dstAP.Port() != 53 {
+		p.bridge.policyRejections.Add(1)
+		return false
+	}
+
 	flowKey := udpFlowKey{
 		isIPv6: srcIP.Is6() || dstIP.Is6(),
 		src:    srcAP,
@@ -330,6 +336,29 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 	localConn := gonet.NewUDPConn(&wq, ep)
 
 	resolvedDst := p.resolveDNSDestination(dstAP)
+
+	if p.bridge.tcpOnly && resolvedDst.Port() == 53 {
+		ctx, cancel := context.WithCancel(p.bridge.ctx)
+		flow := &udpFlow{
+			key:       flowKey,
+			localConn: localConn,
+			cancel:    cancel,
+		}
+		flow.touch()
+		p.udpMu.Lock()
+		if p.closed.Load() {
+			p.rollbackReservationLocked(srcAP.Addr())
+			p.udpMu.Unlock()
+			flow.close()
+			p.udpWg.Done()
+			return false
+		}
+		p.udpFlows[flowKey] = flow
+		p.udpMu.Unlock()
+		p.track(localConn)
+		go p.runDNSOverTCPFlow(ctx, flow, resolvedDst)
+		return true
+	}
 
 	ctx, cancel := context.WithCancel(p.bridge.ctx)
 	dialCtx, dialCancel := context.WithTimeout(ctx, udpDialTimeout)
@@ -411,6 +440,66 @@ func (p *netstackProxy) unregisterFlow(flow *udpFlow) {
 			delete(p.udpActivePerSource, srcAddr)
 		}
 	}
+}
+
+func (p *netstackProxy) runDNSOverTCPFlow(ctx context.Context, flow *udpFlow, dst netip.AddrPort) {
+	defer func() {
+		flow.close()
+		p.untrack(flow.localConn)
+		p.unregisterFlow(flow)
+		p.udpWg.Done()
+	}()
+	buf := make([]byte, maxUDPPacketSize)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		_ = flow.localConn.SetReadDeadline(time.Now().Add(udpIdleTimeout))
+		n, err := flow.localConn.Read(buf)
+		if err != nil {
+			return
+		}
+		flow.touch()
+		query := append([]byte(nil), buf[:n]...)
+		if err := p.exchangeDNSOverTCP(ctx, dst, query, flow); err != nil {
+			return
+		}
+	}
+}
+
+func (p *netstackProxy) exchangeDNSOverTCP(ctx context.Context, dst netip.AddrPort, query []byte, flow *udpFlow) error {
+	dialCtx, cancel := context.WithTimeout(ctx, tcpDialTimeout)
+	defer cancel()
+	conn, err := p.bridge.client.DialTCP(dialCtx, dst)
+	if err != nil {
+		if strings.Contains(err.Error(), "proxy destination not permitted") {
+			p.bridge.policyRejections.Add(1)
+		}
+		return err
+	}
+	defer conn.Close()
+	if err := binary.Write(conn, binary.BigEndian, uint16(len(query))); err != nil {
+		return err
+	}
+	if _, err := conn.Write(query); err != nil {
+		return err
+	}
+	var ln uint16
+	if err := binary.Read(conn, binary.BigEndian, &ln); err != nil {
+		return err
+	}
+	if int(ln) > maxUDPPacketSize {
+		return fmt.Errorf("dns-over-tcp response too large: %d", ln)
+	}
+	resp := make([]byte, ln)
+	if _, err := io.ReadFull(conn, resp); err != nil {
+		return err
+	}
+	flow.touch()
+	_, err = flow.localConn.Write(resp)
+	return err
 }
 
 func (p *netstackProxy) runUDPFlow(ctx context.Context, flow *udpFlow) {

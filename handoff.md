@@ -7,7 +7,7 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.1.2 on `main`. IPv4 test-routing capabilities are
+- Android repository: version 1.1.3 on `main`. IPv4 test-routing capabilities are
   true so Connect can be exercised with a live token. `ipv6` remains false.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
@@ -24,7 +24,7 @@ unsafe shortcuts already found in the tree.
   `49c65dace2d79b41d89f536289002816d13e5274` and later UDP, DNS, NetMon, and status extensions.
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.0 and NDK 29.0.14206865. Current SHA-256:
-  `a115f88550b642502049253553b32801db149239cc3c3370dabeda616e4fb047`.
+  `f85ed177b67bd8807776bcc04d3cd76419c1b4b4520a2f8e25bf3b7d911e28bd`.
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.

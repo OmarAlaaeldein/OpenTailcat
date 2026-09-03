@@ -9,7 +9,7 @@ from a compact `tc...` token.
 
 ## Safety status
 
-**OpenTailcat 1.1.2 is a development build and must not be distributed or relied
+**OpenTailcat 1.1.3 is a development build and must not be distributed or relied
 on as a production privacy VPN.** The Android shell, Go Mobile AAR, Tailcat
 handshake, official token parser, TCP proxy, and userspace netstack UDP proxy are
 integrated. IPv4 test-routing capabilities are true so Connect can run with a

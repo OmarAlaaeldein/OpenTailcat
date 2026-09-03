@@ -41,6 +41,7 @@ type TunBridge struct {
 	transport string
 	rttMs     int64
 	mtu       int
+	tcpOnly   bool
 
 	ctx    context.Context
 	cancel context.CancelFunc

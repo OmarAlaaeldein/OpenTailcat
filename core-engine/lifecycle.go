@@ -54,6 +54,7 @@ type session struct {
 	bridge    *TunBridge
 	transport string
 	rttMs     int64
+	tcpOnly   bool
 }
 
 type TailcatCore struct {
@@ -154,11 +155,7 @@ func Prepare(tokenStr string) error {
 		abandonPrepare(sess)
 		return errors.New("invalid reachability latency from gateway")
 	}
-	if !client.HasServerCap(tailcat.CapExitUDP) {
-		_ = client.Close()
-		abandonPrepare(sess)
-		return errors.New("gateway does not support tunneled UDP data plane (TCP-only exit node)")
-	}
+	tcpOnly := !client.HasServerCap(tailcat.CapExitUDP)
 
 	transport := "DERP_RELAY"
 	rttMs := res.Latency.Milliseconds()
@@ -190,6 +187,7 @@ func Prepare(tokenStr string) error {
 	sess.client = client
 	sess.transport = transport
 	sess.rttMs = rttMs
+	sess.tcpOnly = tcpOnly
 	globalCore.state = StatePrepared
 	globalCore.mu.Unlock()
 
@@ -228,6 +226,7 @@ func AttachTun(tunFD int) error {
 	transport := sess.transport
 	rttMs := sess.rttMs
 	sessionID := sess.id
+	tcpOnly := sess.tcpOnly
 	dns := globalCore.pendingDNS.Load()
 	globalCore.mu.Unlock()
 
@@ -241,6 +240,7 @@ func AttachTun(tunFD int) error {
 		abandonAttach(sess, nil)
 		return fmt.Errorf("create tun bridge: %w", err)
 	}
+	bridge.tcpOnly = tcpOnly
 	if dns != nil {
 		bridge.SetDNSConfig(*dns)
 	}
