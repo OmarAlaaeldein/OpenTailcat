@@ -177,9 +177,22 @@ class TunnelEngineTest {
     @Test
     fun testStopLifecycleIdempotent() {
         val engine = TunnelEngine()
-        // Stop should be safe and idempotent regardless of engine availability
         engine.stop()
         engine.stop()
+    }
+
+    @Test
+    fun testDetachTunSafeWhenUnavailable() {
+        val engine = TunnelEngine()
+        engine.detachTun()
+        engine.detachTun()
+    }
+
+    @Test
+    fun testDisarmPumpsSafeWhenUnavailable() {
+        val engine = TunnelEngine()
+        engine.disarmPumps()
+        engine.disarmPumps()
     }
 
     @Test

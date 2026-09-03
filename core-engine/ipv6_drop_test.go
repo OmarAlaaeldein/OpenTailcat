@@ -192,6 +192,63 @@ func TestIPv6MTUExceededWritesPacketTooBig(t *testing.T) {
 	}
 }
 
+func TestIPv4MTUExceededWritesFragNeeded(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	defer r.Close()
+	defer w.Close()
+
+	bridge, dialTCP, dialUDP, cleanup := newIPv6DropTestBridge(t)
+	defer cleanup()
+	bridge.tunFile = w
+	bridge.mtu = 1280
+
+	payload := make([]byte, 1400)
+	pkt := buildIPv4UDPPacket(
+		netip.MustParseAddrPort("100.64.0.2:54321"),
+		netip.MustParseAddrPort("1.1.1.1:443"),
+		payload,
+	)
+	if len(pkt) <= 1280 {
+		t.Fatalf("test packet must exceed MTU, got %d", len(pkt))
+	}
+	dialTCPBefore := dialTCP.Load()
+	dialUDPBefore := dialUDP.Load()
+	bridge.handleOutboundPacket(pkt)
+	if bridge.mtuExceeded.Load() != 1 {
+		t.Fatalf("expected 1 mtuExceeded, got %d", bridge.mtuExceeded.Load())
+	}
+	if dialTCP.Load() != dialTCPBefore || dialUDP.Load() != dialUDPBefore {
+		t.Fatal("oversized IPv4 must not dial")
+	}
+
+	_ = r.SetReadDeadline(time.Now().Add(time.Second))
+	buf := make([]byte, 4096)
+	n, readErr := r.Read(buf)
+	if readErr != nil {
+		t.Fatalf("expected IPv4 Fragmentation Needed on TUN: %v", readErr)
+	}
+	if n < 28 {
+		t.Fatalf("frag-needed too short: %d", n)
+	}
+	if buf[0]>>4 != 4 {
+		t.Fatalf("expected IPv4 ICMP, version=%d", buf[0]>>4)
+	}
+	ihl := int(buf[0]&0x0f) * 4
+	if buf[9] != 1 {
+		t.Fatalf("expected ICMP proto 1, got %d", buf[9])
+	}
+	if buf[ihl] != 3 || buf[ihl+1] != 4 {
+		t.Fatalf("expected ICMP type 3 code 4, got %d/%d", buf[ihl], buf[ihl+1])
+	}
+	gotMTU := binary.BigEndian.Uint16(buf[ihl+6 : ihl+8])
+	if gotMTU != 1280 {
+		t.Fatalf("expected next-hop MTU 1280, got %d", gotMTU)
+	}
+}
+
 func TestIPv6ExtensionHeaderNotPolicyRejected(t *testing.T) {
 	bridge, _, _, cleanup := newIPv6DropTestBridge(t)
 	defer cleanup()

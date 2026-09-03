@@ -311,6 +311,8 @@ func (b *TunBridge) handleOutboundPacket(pkt []byte) {
 		b.mtuExceeded.Add(1)
 		if version == 6 {
 			b.writeICMPv6PacketTooBig(pkt)
+		} else if version == 4 {
+			b.writeIPv4FragNeeded(pkt)
 		}
 		return
 	}
@@ -431,6 +433,44 @@ func (b *TunBridge) writeICMPv6PacketTooBig(pkt []byte) {
 	pseudo[39] = 58
 	chk := checksum(pseudo, reply[40:])
 	binary.BigEndian.PutUint16(reply[42:44], chk)
+	b.rxBytes.Add(int64(len(reply)))
+	_ = b.writeTunPacket(reply)
+}
+
+func (b *TunBridge) writeIPv4FragNeeded(pkt []byte) {
+	if len(pkt) < 20 {
+		return
+	}
+	ihl := int(pkt[0]&0x0f) * 4
+	if ihl < 20 || len(pkt) < ihl {
+		return
+	}
+	if pkt[9] == 1 && len(pkt) >= ihl+1 && pkt[ihl] < 8 {
+		return
+	}
+	mtu := b.mtu
+	if mtu <= 0 {
+		mtu = 1280
+	}
+	quoted := ihl + 8
+	if quoted > len(pkt) {
+		quoted = len(pkt)
+	}
+	total := 20 + 8 + quoted
+	reply := make([]byte, total)
+	reply[0] = 0x45
+	binary.BigEndian.PutUint16(reply[2:4], uint16(total))
+	reply[8] = 64
+	reply[9] = 1
+	copy(reply[12:16], pkt[16:20])
+	copy(reply[16:20], pkt[12:16])
+	binary.BigEndian.PutUint16(reply[10:12], ipv4Checksum(reply[:20]))
+	reply[20] = 3
+	reply[21] = 4
+	binary.BigEndian.PutUint16(reply[26:28], uint16(mtu))
+	copy(reply[28:], pkt[:quoted])
+	icmpChk := checksum(reply[20:])
+	binary.BigEndian.PutUint16(reply[22:24], icmpChk)
 	b.rxBytes.Add(int64(len(reply)))
 	_ = b.writeTunPacket(reply)
 }
