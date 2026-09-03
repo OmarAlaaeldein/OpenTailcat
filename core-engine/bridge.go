@@ -588,14 +588,8 @@ func (b *TunBridge) GetStats() EngineStats {
 		}
 	}
 
-	// WireGuard counters take precedence as official tunnel Tx/Rx, falling back to TUN counts
-	if stats.WireguardTxBytes > 0 || stats.WireguardRxBytes > 0 {
-		stats.TxBytes = stats.WireguardTxBytes
-		stats.RxBytes = stats.WireguardRxBytes
-	} else {
-		stats.TxBytes = stats.TunTxBytes
-		stats.RxBytes = stats.TunRxBytes
-	}
+	stats.TxBytes = stats.WireguardTxBytes
+	stats.RxBytes = stats.WireguardRxBytes
 
 	stats.RTTMs = b.currentRTTMs()
 	stats.JitterMs = b.currentJitterMs()

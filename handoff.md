@@ -23,7 +23,7 @@ unsafe shortcuts already found in the tree.
   `49c65dace2d79b41d89f536289002816d13e5274` and later UDP, DNS, NetMon, and status extensions.
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.0 and NDK 29.0.14206865. Current SHA-256:
-  `2bdb4f6042a6cc233a155c4c547f4ff42db9b5aadbebb5f07c1047cd6601d661`.
+  `38f59b4a8caef448ec8baf375bb08ac66b4da046028ecadeb5ebc2f9bedf120f`.
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
@@ -38,8 +38,9 @@ userspace netstack UDP proxy. DNS routing and telemetry code exist but are not
 promoted. It is not a production full-device VPN. Do not distribute the APK as a
 privacy or security product.
 
-The remaining data-plane work is IPv6 dual-stack (`::/0`), cancellable lifecycle
-state machine, capability promotion evidence, and physical-device acceptance.
+The remaining work is IPv6 dual-stack (`::/0`) with real egress, capability
+promotion evidence, and physical-device acceptance (Phase 8). The lifecycle
+machine and native IPv6 drop exist but are unpromoted.
 Phase 0 prevents incomplete paths from being activated: every unproven
 capability (`dataPlane`, `wireGuard`, `magicsock`, `twoPhaseStart`, `ipv4`,
 `ipv6`, `tcp`, `udp`, `dns`, `liveStats`, `cancelSafeLifecycle`) remains false
@@ -52,8 +53,9 @@ and Android refuses to establish a default-route VPN.
 | IPv4 TCP | gVisor terminates TCP and proxies the stream with `Client.DialTCP` | Tailcat WireGuard/Magicsock to gateway |
 | IPv4 UDP destination port 53 | gVisor proxies datagram via `Client.DialUDP` to TUN dest (PROFILE_RESOLVER) or `ForcedDNS` (FORCED_RESOLVER). Engine does not inspect TC bits; a libc/app TCP/53 retry is a normal TCP proxy | Tailcat WireGuard/Magicsock to gateway |
 | Other IPv4 UDP | gVisor proxies datagrams via `Client.DialUDP` across Tailcat netstack | Tailcat WireGuard/Magicsock to gateway (pending live acceptance) |
-| IPv6 | Android does not add a VPN IPv6 address or `::/0` | Underlying IPv6, or blocked only by Android lockdown |
-| ICMP/ICMPv6 echo | Constructs a local echo reply | No gateway/Internet request is made |
+| IPv6 | Android does not add a VPN IPv6 address or `::/0`. Native `handleIPv6` drops TUN IPv6 | Underlying IPv6 bypass, or blocked only by Android lockdown |
+| IPv4 ICMP echo | Constructs a local echo reply | No gateway/Internet request is made |
+| ICMPv6 echo | Dropped | No gateway/Internet request is made |
 | Native exit audit | TLS/HTTP through `Client.DialTCP` | Tailcat gateway |
 | In-app speed test | `HttpURLConnection` from excluded app UID | Direct device network (explicitly labeled as physical-network benchmark in UI) |
 
@@ -406,7 +408,7 @@ Current code reports schema version 2 with:
 - engine state `STOPPED` / `PREPARED` / `RUNNING` (no `FAILED`); marshal-failure stub uses `ERROR`;
 - monotonic session ID;
 - WireGuard peer TX/RX, last handshake, CurAddr, and Relay from `client.Status()` while a bridge is running;
-- TUN accepted/dropped counters distinct from WG when WG counters are non-zero; if both WG counters are 0, `txBytes`/`rxBytes` fall back to TUN;
+- TUN accepted/dropped counters distinct from WG. `txBytes`/`rxBytes` are WireGuard peer counters only (0 when WG has no traffic; never a TUN fallback);
 - prepare-time Ping/DiscoPing RTT snapshot; `RecordRTT` is never called in production;
 - jitter only after ≥3 `RecordRTT` samples, otherwise `null`. Live jitter is therefore always null. The formula is mean absolute consecutive difference, not RFC 3550 `J := J + (|D|-J)/16`;
 - packet/drop counters for TCP, UDP, DNS, malformed IP, MTU, queue exhaustion, and policy rejections;

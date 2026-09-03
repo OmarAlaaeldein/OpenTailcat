@@ -18,8 +18,8 @@ relied on as a production privacy VPN.
   Production IPv4 default-route installation requires `dataPlane`, `wireGuard`,
   `magicsock`, `twoPhaseStart`, `ipv4`, `tcp`, `udp`, `dns`, `liveStats`, and
   `cancelSafeLifecycle`. `ipv6` is required only when IPv6 routes would be
-  installed (`requireIpv6`). Extra JSON keys are ignored. Incomplete engines fail
-  closed immediately.
+  installed (`requireIpv6`). Unknown capability JSON fields fail closed.
+  Incomplete engines fail closed immediately.
 - Token validation in Android and Go strictly enforces official token structures,
   rejects legacy/synthetic disco keys, rejects duplicate CBOR keys, and rejects
   expired tokens.

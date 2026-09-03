@@ -49,6 +49,32 @@ class TunnelEngineTest {
     }
 
     @Test
+    fun testEngineCapabilitiesUnknownFieldsFailClosed() {
+        val json = """{
+            "apiVersion": 2,
+            "dataPlane": true,
+            "wireGuard": true,
+            "magicsock": true,
+            "twoPhaseStart": true,
+            "ipv4": true,
+            "ipv6": false,
+            "tcp": true,
+            "udp": true,
+            "dns": true,
+            "liveStats": true,
+            "cancelSafeLifecycle": true,
+            "experimentalLeak": true
+        }"""
+        try {
+            EngineCapabilities.fromJson(json)
+            fail("Expected unknown capability fields to fail closed")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message?.contains("unknown capability fields") == true)
+            assertTrue(e.message?.contains("experimentalLeak") == true)
+        }
+    }
+
+    @Test
     fun testEngineCapabilitiesIndividualMissingFlagsFailClosed() {
         // Base complete map
         val baseFlags = mutableMapOf(

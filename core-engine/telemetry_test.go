@@ -72,9 +72,23 @@ func TestAuthoritativeWireGuardVsTUNCounters(t *testing.T) {
 		t.Fatalf("WireGuard counters mismatch: tx=%d rx=%d (expected 50000/75000)", stats.WireguardTxBytes, stats.WireguardRxBytes)
 	}
 
-	// Reported TxBytes/RxBytes for backward-compat mirror WireGuard
 	if stats.TxBytes != 50000 || stats.RxBytes != 75000 {
-		t.Fatalf("Mirror counters mismatch: tx=%d rx=%d", stats.TxBytes, stats.RxBytes)
+		t.Fatalf("official Tx/Rx must be WireGuard, got tx=%d rx=%d", stats.TxBytes, stats.RxBytes)
+	}
+
+	zeroWG := &TunBridge{
+		sessionID: 1,
+		token:     &ParsedToken{RegionID: 1},
+		transport: "DERP_RELAY",
+	}
+	zeroWG.txBytes.Store(12000)
+	zeroWG.rxBytes.Store(18000)
+	zeroStats := zeroWG.GetStats()
+	if zeroStats.TunTxBytes != 12000 || zeroStats.TunRxBytes != 18000 {
+		t.Fatalf("TUN counters mismatch when WG is zero: tx=%d rx=%d", zeroStats.TunTxBytes, zeroStats.TunRxBytes)
+	}
+	if zeroStats.TxBytes != 0 || zeroStats.RxBytes != 0 {
+		t.Fatalf("TxBytes/RxBytes must not fall back to TUN: tx=%d rx=%d", zeroStats.TxBytes, zeroStats.RxBytes)
 	}
 
 	if stats.LastHandshakeSec != 1725300000 {

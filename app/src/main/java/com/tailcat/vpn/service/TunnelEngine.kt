@@ -39,8 +39,27 @@ data class EngineCapabilities(
     companion object {
         const val REQUIRED_API_VERSION = 2
 
+        private val KNOWN_FIELDS = setOf(
+            "apiVersion",
+            "dataPlane",
+            "wireGuard",
+            "magicsock",
+            "twoPhaseStart",
+            "ipv4",
+            "ipv6",
+            "tcp",
+            "udp",
+            "dns",
+            "liveStats",
+            "cancelSafeLifecycle"
+        )
+
         fun fromJson(raw: String): EngineCapabilities {
             val json = JSONObject(raw)
+            val unknown = json.keys().asSequence().filterNot { it in KNOWN_FIELDS }.sorted().toList()
+            if (unknown.isNotEmpty()) {
+                error("VPN engine advertised unknown capability fields: ${unknown.joinToString()}")
+            }
             return EngineCapabilities(
                 apiVersion = json.optInt("apiVersion", 0),
                 dataPlane = json.optBoolean("dataPlane", false),

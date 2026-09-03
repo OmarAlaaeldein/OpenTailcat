@@ -21,8 +21,9 @@ for privacy-sensitive traffic:
 - UDP destination port 53 would be proxied to the TUN destination
   (PROFILE_RESOLVER) or a forced resolver (FORCED_RESOLVER). The engine does not
   inspect DNS TC bits.
-- Android installs no IPv6 VPN address or default route. If a VPN were active,
-  IPv6 may use the underlying network unless Android's system lockdown blocks it.
+- Android installs no IPv6 VPN address or default route. Native code drops IPv6
+  that hits the TUN. If a VPN were active without `::/0`, IPv6 may still use the
+  underlying network unless Android's system lockdown blocks it.
 - The in-app network benchmark uses ordinary app connections. OpenTailcat's own
   UID bypasses the VPN, so these requests measure the direct device network and
   are explicitly labeled as physical-network benchmarks in the UI.
