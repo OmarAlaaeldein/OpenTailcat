@@ -90,6 +90,20 @@ func TestLifecycleHappyPathPrepareAttachStop(t *testing.T) {
 		t.Fatal("expected healthUnixSec > 0 while running")
 	}
 
+	r2, w2, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe2: %v", err)
+	}
+	defer r2.Close()
+	defer w2.Close()
+	if err := AttachTun(int(r2.Fd())); err != nil {
+		t.Fatalf("reattach TUN: %v", err)
+	}
+	stats, st = statsState(t)
+	if st != StateRunning || stats.State != "RUNNING" {
+		t.Fatalf("expected RUNNING after reattach, got state=%s json=%s", st, stats.State)
+	}
+
 	if err := Stop(); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}

@@ -214,11 +214,20 @@ func abandonPrepare(sess *session) {
 
 func AttachTun(tunFD int) error {
 	globalCore.mu.Lock()
-	if globalCore.state != StatePrepared || globalCore.sess == nil || globalCore.sess.client == nil || globalCore.sess.token == nil {
+	if globalCore.sess == nil || globalCore.sess.client == nil || globalCore.sess.token == nil {
+		globalCore.mu.Unlock()
+		return errors.New("cannot attach TUN: engine not prepared")
+	}
+	if globalCore.state != StatePrepared && globalCore.state != StateRunning {
 		globalCore.mu.Unlock()
 		return errors.New("cannot attach TUN: engine not prepared")
 	}
 	sess := globalCore.sess
+	oldBridge := sess.bridge
+	if oldBridge != nil {
+		oldBridge.onPumpDead = nil
+	}
+	sess.bridge = nil
 	globalCore.state = StateAttaching
 	parentCtx := sess.ctx
 	client := sess.client
@@ -229,6 +238,10 @@ func AttachTun(tunFD int) error {
 	tcpOnly := sess.tcpOnly
 	dns := globalCore.pendingDNS.Load()
 	globalCore.mu.Unlock()
+
+	if oldBridge != nil {
+		_ = oldBridge.Stop()
+	}
 
 	if parentCtx.Err() != nil {
 		abandonAttach(sess, nil)
@@ -248,7 +261,12 @@ func AttachTun(tunFD int) error {
 		globalCore.healthUnix.Store(time.Now().Unix())
 	}
 	bridge.onPumpDead = func(pumpErr error) {
-		globalCore.markFailed(sess, pumpErr)
+		globalCore.mu.Lock()
+		live := globalCore.sess == sess && sess.bridge == bridge
+		globalCore.mu.Unlock()
+		if live {
+			globalCore.markFailed(sess, pumpErr)
+		}
 	}
 
 	if err := bridge.Start(); err != nil {
