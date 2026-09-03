@@ -354,7 +354,32 @@ func (b *TunBridge) handleIPv6(pkt []byte) {
 		b.malformedIP.Add(1)
 		return
 	}
-	b.policyRejections.Add(1)
+	nextHeader := pkt[6]
+	switch nextHeader {
+	case 58: // ICMPv6
+		b.policyRejections.Add(1)
+		return
+	case 6:
+		b.tcpPackets.Add(1)
+		if len(pkt) >= 44 {
+			dstPort := binary.BigEndian.Uint16(pkt[42:44])
+			if dstPort == 53 {
+				b.dnsQueries.Add(1)
+			}
+		}
+		b.netstack.inject(pkt, true)
+	case 17:
+		b.udpPackets.Add(1)
+		if len(pkt) >= 44 {
+			dstPort := binary.BigEndian.Uint16(pkt[42:44])
+			if dstPort == 53 {
+				b.dnsQueries.Add(1)
+			}
+		}
+		b.netstack.inject(pkt, true)
+	default:
+		b.netstack.inject(pkt, true)
+	}
 }
 
 func (b *TunBridge) writeTunPacket(pkt []byte) error {

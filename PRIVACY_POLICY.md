@@ -12,14 +12,14 @@ The current build is not a leak-free full-device VPN and must not be relied on
 for privacy-sensitive traffic:
 
 - IPv4 Connect is enabled for live-token testing. Android may install
-  `0.0.0.0/0` and `::/0`. This build is not leak-free. `ipv6` is false; IPv6
-  hitting the TUN is dropped (no IPv6 internet via the gateway).
+  `0.0.0.0/0` and `::/0`. This build is not leak-free. IPv6 TCP/UDP is proxied
+  if the gateway can egress IPv6; ICMPv6 is dropped.
 - IPv4 TCP is proxied through gVisor and Tailcat to the selected gateway.
 - IPv4 UDP is proxied through gVisor userspace netstack via `Client.DialUDP`.
 - UDP destination port 53 is proxied to the TUN destination (PROFILE_RESOLVER)
   or a forced resolver (FORCED_RESOLVER). The engine does not inspect DNS TC bits.
-- Android installs an IPv6 ULA and `::/0`. Native code drops IPv6 on the TUN
-  (fail-closed). There is no tunneled IPv6 internet.
+- Android installs an IPv6 ULA and `::/0`. IPv6 TCP/UDP is tunneled when the
+  gateway supports it. ICMPv6 is dropped.
 - The in-app network benchmark uses ordinary app connections. OpenTailcat's own
   UID bypasses the VPN, so these requests measure the direct device network and
   are explicitly labeled as physical-network benchmarks in the UI.

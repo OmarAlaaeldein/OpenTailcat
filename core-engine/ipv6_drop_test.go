@@ -12,19 +12,23 @@ import (
 	"time"
 )
 
-func TestIPv6TCPDroppedNoDial(t *testing.T) {
-	bridge, dialTCP, dialUDP, cleanup := newIPv6DropTestBridge(t)
+func TestIPv6TCPInjected(t *testing.T) {
+	bridge, dialTCP, _, cleanup := newIPv6DropTestBridge(t)
 	defer cleanup()
 
 	pkt := buildIPv6TCPSyn(
 		netip.MustParseAddrPort("[fd7a:115c:a1e0::2]:54321"),
 		netip.MustParseAddrPort("[2606:4700:4700::1111]:443"),
 	)
-	assertIPv6Dropped(t, bridge, pkt, dialTCP, dialUDP)
+	bridge.handleOutboundPacket(pkt)
+	if bridge.tcpPackets.Load() != 1 {
+		t.Fatalf("expected 1 ipv6 tcpPacket, got %d", bridge.tcpPackets.Load())
+	}
+	waitAtomic(t, dialTCP, 1, 2*time.Second, "DialTCP for IPv6 TCP")
 }
 
-func TestIPv6UDPDroppedNoDial(t *testing.T) {
-	bridge, dialTCP, dialUDP, cleanup := newIPv6DropTestBridge(t)
+func TestIPv6UDPInjected(t *testing.T) {
+	bridge, _, dialUDP, cleanup := newIPv6DropTestBridge(t)
 	defer cleanup()
 
 	pkt := buildIPv6UDPPacket(
@@ -32,11 +36,15 @@ func TestIPv6UDPDroppedNoDial(t *testing.T) {
 		netip.MustParseAddrPort("[2606:4700:4700::1111]:443"),
 		[]byte("ipv6-udp"),
 	)
-	assertIPv6Dropped(t, bridge, pkt, dialTCP, dialUDP)
+	bridge.handleOutboundPacket(pkt)
+	if bridge.udpPackets.Load() != 1 {
+		t.Fatalf("expected 1 ipv6 udpPacket, got %d", bridge.udpPackets.Load())
+	}
+	waitAtomic(t, dialUDP, 1, 2*time.Second, "DialUDP for IPv6 UDP")
 }
 
-func TestIPv6UDPDNSDroppedNoDial(t *testing.T) {
-	bridge, dialTCP, dialUDP, cleanup := newIPv6DropTestBridge(t)
+func TestIPv6UDPDNSInjected(t *testing.T) {
+	bridge, _, dialUDP, cleanup := newIPv6DropTestBridge(t)
 	defer cleanup()
 
 	pkt := buildIPv6UDPPacket(
@@ -44,10 +52,11 @@ func TestIPv6UDPDNSDroppedNoDial(t *testing.T) {
 		netip.MustParseAddrPort("[2606:4700:4700::1111]:53"),
 		[]byte("dns-query"),
 	)
-	assertIPv6Dropped(t, bridge, pkt, dialTCP, dialUDP)
-	if bridge.dnsQueries.Load() != 0 {
-		t.Fatalf("expected 0 dnsQueries for dropped IPv6 UDP/53, got %d", bridge.dnsQueries.Load())
+	bridge.handleOutboundPacket(pkt)
+	if bridge.dnsQueries.Load() != 1 {
+		t.Fatalf("expected 1 ipv6 dnsQuery, got %d", bridge.dnsQueries.Load())
 	}
+	waitAtomic(t, dialUDP, 1, 2*time.Second, "DialUDP for IPv6 UDP/53")
 }
 
 func TestIPv6ICMPEchoDroppedNoReply(t *testing.T) {
@@ -78,15 +87,18 @@ func TestIPv6ICMPEchoDroppedNoReply(t *testing.T) {
 	}
 }
 
-func TestIPv6ExtensionHeaderDroppedNoDial(t *testing.T) {
-	bridge, dialTCP, dialUDP, cleanup := newIPv6DropTestBridge(t)
+func TestIPv6ExtensionHeaderNotPolicyRejected(t *testing.T) {
+	bridge, _, _, cleanup := newIPv6DropTestBridge(t)
 	defer cleanup()
 
 	pkt := buildIPv6HopByHop(
 		netip.MustParseAddr("fd7a:115c:a1e0::2"),
 		netip.MustParseAddr("2606:4700:4700::1111"),
 	)
-	assertIPv6Dropped(t, bridge, pkt, dialTCP, dialUDP)
+	bridge.handleOutboundPacket(pkt)
+	if bridge.policyRejections.Load() != 0 {
+		t.Fatalf("expected 0 policyRejections for IPv6 extension header inject, got %d", bridge.policyRejections.Load())
+	}
 }
 
 func TestIPv6TruncatedMalformedNotPolicy(t *testing.T) {

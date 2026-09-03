@@ -9,7 +9,7 @@ from a compact `tc...` token.
 
 ## Safety status
 
-**OpenTailcat 1.1.6 is a development build and must not be distributed or relied
+**OpenTailcat 1.1.7 is a development build and must not be distributed or relied
 on as a production privacy VPN.** The Android shell, Go Mobile AAR, Tailcat
 handshake, official token parser, TCP proxy, and userspace netstack UDP proxy are
 integrated. IPv4 test-routing capabilities are true so Connect can run with a
@@ -30,8 +30,9 @@ live token. `ipv6` is false (no `::/0`). This is not a production privacy VPN.
 - **Phase 4 (DNS routing)**: PROFILE/FORCED resolver routing, pending-config, and
   omit-means-preserve exist. The engine does not inspect DNS TC bits. IPv4 `dns`
   is test-enabled.
-- **Phase 5 (IPv6)**: Android installs `::/0` so IPv6 is captured. Native TUN
-  IPv6 is dropped (fail-closed, not dual-stack egress). `ipv6` remains false.
+- **Phase 5 (IPv6)**: Android installs `::/0`. Native proxies IPv6 TCP/UDP
+  through Tailcat; ICMPv6 is dropped. `ipv6` remains false until live dual-stack
+  evidence.
 - **Phase 6 (Lifecycle)**: Cancellable prepare, readiness barriers, pump-failure
   `FAILED`, and bounded stop exist. `twoPhaseStart` and `cancelSafeLifecycle`
   are test-enabled.
