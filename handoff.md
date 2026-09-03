@@ -7,7 +7,8 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.1.1 on `main`. Every unproven capability is false.
+- Android repository: version 1.1.1 on `main`. IPv4 test-routing capabilities are
+  true so Connect can be exercised with a live token. `ipv6` remains false.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
 - Phase 1 reproducible-build checkpoint: `76563c9`.
@@ -23,7 +24,7 @@ unsafe shortcuts already found in the tree.
   `49c65dace2d79b41d89f536289002816d13e5274` and later UDP, DNS, NetMon, and status extensions.
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.0 and NDK 29.0.14206865. Current SHA-256:
-  `38f59b4a8caef448ec8baf375bb08ac66b4da046028ecadeb5ebc2f9bedf120f`.
+  `d6c2d851f9558b209a4271f77ff2986a003d4e27c0c65e7246557fc3e453220c`.
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
@@ -38,13 +39,10 @@ userspace netstack UDP proxy. DNS routing and telemetry code exist but are not
 promoted. It is not a production full-device VPN. Do not distribute the APK as a
 privacy or security product.
 
-The remaining work is IPv6 dual-stack (`::/0`) with real egress, capability
-promotion evidence, and physical-device acceptance (Phase 8). The lifecycle
-machine and native IPv6 drop exist but are unpromoted.
-Phase 0 prevents incomplete paths from being activated: every unproven
-capability (`dataPlane`, `wireGuard`, `magicsock`, `twoPhaseStart`, `ipv4`,
-`ipv6`, `tcp`, `udp`, `dns`, `liveStats`, `cancelSafeLifecycle`) remains false
-and Android refuses to establish a default-route VPN.
+IPv4-only Connect is enabled for live-token testing. `ipv6` remains false and
+Android does not install `::/0`. This is not a production leak-free release.
+Remaining work is IPv6 dual-stack, Phase 8 physical capture/signing, and
+honest promotion-table evidence for the IPv4 flags now set true.
 
 ## Current data-flow truth table
 

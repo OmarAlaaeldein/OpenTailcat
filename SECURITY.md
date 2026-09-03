@@ -5,10 +5,10 @@
 OpenTailcat 1.1.1 in the current source tree is a development build. It has an
 integrated Go Mobile Tailcat engine with Phase 0 fail-closed capability gates,
 Phase 1 reproducible builds, Phase 2 official token validation, and Phase 3
-tunneled UDP userspace netstack code. Every unproven capability is false, so
-Android refuses to establish a default-route VPN. Physical-device live
-acceptance and full release gates are pending; it must not be distributed or
-relied on as a production privacy VPN.
+tunneled UDP userspace netstack code. IPv4 test-routing capabilities are true so
+a live token can Connect. `ipv6` is false. Physical-device leak acceptance and
+full release gates are pending; it must not be relied on as a production
+privacy VPN.
 
 ### Implemented security controls
 
@@ -35,8 +35,7 @@ relied on as a production privacy VPN.
 
 ### Remaining release blockers & pending gates
 
-- **Capability promotion**: `dns`, `liveStats`, and `twoPhaseStart` stay false
-  until the evidence in [handoff.md](handoff.md) exists.
+- **IPv4 flags are test-enabled, not Phase 8 accepted**: leak capture still pending.
 - **IPv6 dual-stack route**: Native TUN IPv6 is dropped. Android still installs
   no IPv6 VPN address or `::/0` (Phase 5). IPv6 may bypass over the underlying
   network if a VPN were active.

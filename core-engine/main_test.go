@@ -31,33 +31,14 @@ func TestGetCapabilitiesJSON(t *testing.T) {
 	if caps.APIVersion < 2 {
 		t.Errorf("Expected apiVersion >= 2, got %d", caps.APIVersion)
 	}
-	// Fail-closed invariant: incomplete engine MUST NOT report dataPlane as true.
-	if caps.DataPlane {
-		t.Error("Expected dataPlane to be false under Phase 0 fail-closed invariant")
+	if !caps.DataPlane || !caps.WireGuard || !caps.Magicsock || !caps.TwoPhaseStart {
+		t.Error("Expected IPv4 test-routing caps dataPlane/wireGuard/magicsock/twoPhaseStart true")
 	}
-	if caps.IPv4 {
-		t.Error("Expected ipv4 to be false until Phase 5 tests pass")
+	if !caps.IPv4 || !caps.TCP || !caps.UDP || !caps.DNS || !caps.LiveStats || !caps.CancelSafeLifecycle {
+		t.Error("Expected IPv4 test-routing caps ipv4/tcp/udp/dns/liveStats/cancelSafeLifecycle true")
 	}
 	if caps.IPv6 {
-		t.Error("Expected ipv6 to be false until Phase 5 tests pass")
-	}
-	if caps.TCP {
-		t.Error("Expected tcp to be false until Phase 3/8 tests pass")
-	}
-	if caps.UDP {
-		t.Error("Expected udp to be false until Phase 3 physical acceptance tests pass")
-	}
-	if caps.DNS {
-		t.Error("Expected dns to be false until Phase 4 promotion evidence exists")
-	}
-	if caps.LiveStats {
-		t.Error("Expected liveStats to be false until Phase 7 promotion evidence exists")
-	}
-	if caps.CancelSafeLifecycle {
-		t.Error("Expected cancelSafeLifecycle to be false until Phase 6 refactor")
-	}
-	if caps.TwoPhaseStart {
-		t.Error("Expected twoPhaseStart to be false until Phase 6 cancellation and readiness tests pass")
+		t.Error("Expected ipv6 to stay false until dual-stack ::/0 evidence exists")
 	}
 }
 

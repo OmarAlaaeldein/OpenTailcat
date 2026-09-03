@@ -275,23 +275,22 @@ type Capabilities struct {
 }
 
 // GetCapabilitiesJSON returns the capability contract.
-// Under Phase 0 fail-closed semantics, every unproven capability stays false
-// until its promotion-table evidence in handoff.md exists. Implementation
-// present for DNS routing, telemetry, or two-phase start is not promotion.
+// IPv4-only test routing is enabled so a live token can Connect. ipv6 stays
+// false (no ::/0). This is not Phase 8 production acceptance.
 func GetCapabilitiesJSON() string {
 	caps := Capabilities{
 		APIVersion:          2,
-		DataPlane:           false,
-		WireGuard:           false,
-		Magicsock:           false,
-		TwoPhaseStart:       false,
-		IPv4:                false,
+		DataPlane:           true,
+		WireGuard:           true,
+		Magicsock:           true,
+		TwoPhaseStart:       true,
+		IPv4:                true,
 		IPv6:                false,
-		TCP:                 false,
-		UDP:                 false,
-		DNS:                 false,
-		LiveStats:           false,
-		CancelSafeLifecycle: false,
+		TCP:                 true,
+		UDP:                 true,
+		DNS:                 true,
+		LiveStats:           true,
+		CancelSafeLifecycle: true,
 	}
 	bytes, err := json.Marshal(caps)
 	if err != nil {

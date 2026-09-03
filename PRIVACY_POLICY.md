@@ -11,16 +11,12 @@ the current source tree, including its known development limitations.
 The current build is not a leak-free full-device VPN and must not be relied on
 for privacy-sensitive traffic:
 
-- Fail-closed capability negotiation refuses default-route VPN establishment
-  while data-plane capabilities remain unproven. Connect does not install a
-  tunnel in this build.
-- If the native adapter were attached, IPv4 TCP would be proxied through gVisor
-  and Tailcat to the selected gateway.
-- IPv4 UDP would be proxied through gVisor userspace netstack via
-  `Client.DialUDP`. That path is unpromoted.
-- UDP destination port 53 would be proxied to the TUN destination
-  (PROFILE_RESOLVER) or a forced resolver (FORCED_RESOLVER). The engine does not
-  inspect DNS TC bits.
+- IPv4 Connect is enabled for live-token testing. Android may install
+  `0.0.0.0/0`. This build is not leak-free. `ipv6` is false; IPv6 may bypass.
+- IPv4 TCP is proxied through gVisor and Tailcat to the selected gateway.
+- IPv4 UDP is proxied through gVisor userspace netstack via `Client.DialUDP`.
+- UDP destination port 53 is proxied to the TUN destination (PROFILE_RESOLVER)
+  or a forced resolver (FORCED_RESOLVER). The engine does not inspect DNS TC bits.
 - Android installs no IPv6 VPN address or default route. Native code drops IPv6
   that hits the TUN. If a VPN were active without `::/0`, IPv6 may still use the
   underlying network unless Android's system lockdown blocks it.

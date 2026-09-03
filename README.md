@@ -12,8 +12,8 @@ from a compact `tc...` token.
 **OpenTailcat 1.1.1 is a development build and must not be distributed or relied
 on as a production privacy VPN.** The Android shell, Go Mobile AAR, Tailcat
 handshake, official token parser, TCP proxy, and userspace netstack UDP proxy are
-integrated. Every unproven native capability is false, so Android refuses to
-establish a default-route VPN.
+integrated. IPv4 test-routing capabilities are true so Connect can run with a
+live token. `ipv6` is false (no `::/0`). This is not a production privacy VPN.
 
 ### Audited status
 
@@ -26,21 +26,20 @@ establish a default-route VPN.
 - **Phase 3 (Tunneled UDP Data Plane)**: Implementation complete in code. Unified
   gVisor netstack proxy routes UDP datagrams through `Client.DialUDP` without
   direct OS UDP sockets; gateway `CapExitUDP` check and `AllowProxy` filtering
-  exist. `udp` remains false until physical acceptance.
+  exist. IPv4 `udp` is test-enabled; physical leak acceptance is still pending.
 - **Phase 4 (DNS routing)**: PROFILE/FORCED resolver routing, pending-config, and
-  omit-means-preserve exist. The engine does not inspect DNS TC bits. `dns`
-  remains false until promotion evidence.
+  omit-means-preserve exist. The engine does not inspect DNS TC bits. IPv4 `dns`
+  is test-enabled.
 - **Phase 5 (IPv6)**: Native TUN IPv6 is dropped. Android has no `::/0`. `ipv6`
   remains false.
 - **Phase 6 (Lifecycle)**: Cancellable prepare, readiness barriers, pump-failure
   `FAILED`, and bounded stop exist. `twoPhaseStart` and `cancelSafeLifecycle`
-  remain false.
+  are test-enabled.
 - **Phase 7 (Telemetry)**: Schema version 2 and live WireGuard peer counters exist
   while a bridge is running. Kotlin rejects v1 and requires live `RUNNING` health.
   RTT is a prepare-time snapshot; production jitter is always null. `liveStats`
-  remains false until promotion evidence.
-- **Remaining (Phase 8 and capability promotion)**: physical acceptance / production
-  signing, and promotion-table evidence.
+  is test-enabled.
+- **Remaining**: IPv6 dual-stack, Phase 8 physical leak capture, production signing.
 
 ## Native engine API
 
@@ -58,16 +57,15 @@ parseToken(token: String)
 
 Current behavior:
 
-1. `getCapabilitiesJSON` reports API v2 with every unproven capability false, so
-   Kotlin refuses to create a default-route VPN.
+1. `getCapabilitiesJSON` reports API v2 with IPv4 test-routing capabilities true
+   (`ipv6` false). Kotlin may install IPv4 `0.0.0.0/0`. This is not leak-free.
 2. `prepare` validates an official token, completes a Meow/Meowed handshake, and
    rejects TCP-only gateways. `stop` cancels an in-flight `prepare`.
 3. `attachTun` duplicates the descriptor and returns after required pumps have
    entered their loops. Pump death reports `FAILED`.
 4. `updateNetworkState` accepts Android LinkProperties JSON. Absent `dnsPolicy`
    preserves the pending resolver policy.
-5. `stop` is bounded and idempotent. Capability flags stay false, so Android
-   still refuses a default-route VPN.
+5. `stop` is bounded and idempotent. `ipv6` stays false.
 
 ## Token compatibility
 

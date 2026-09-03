@@ -121,10 +121,10 @@ class TunnelEngineTest {
         val engine = TunnelEngine()
         val availability = engine.availability
 
-        // Incomplete engine or host environment must report isAvailable == false
+        // Host JVM cannot load the Android JNI engine, so unit tests stay unavailable.
         assertNotNull(availability)
         assertNotNull(availability.message)
-        assertFalse("Incomplete engine must not be available for route installation", availability.isAvailable)
+        assertFalse("Host unit tests cannot load native JNI; engine must stay unavailable here", availability.isAvailable)
     }
 
     @Test
