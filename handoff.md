@@ -7,7 +7,7 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.1.8 on `main`. IPv4 test-routing capabilities are
+- Android repository: version 1.1.9 on `main`. IPv4 test-routing capabilities are
   true so Connect can be exercised with a live token. `ipv6` remains false.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
