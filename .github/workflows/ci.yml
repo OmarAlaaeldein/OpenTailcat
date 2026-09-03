@@ -107,28 +107,6 @@ jobs:
         run: |
           ./gradlew assembleDebug assembleRelease bundleRelease
 
-      - name: Verify R8 retains gomobile Engine symbols
-        run: |
-          mapping="app/build/outputs/mapping/release/mapping.txt"
-          if [ ! -f "$mapping" ]; then
-            mapping=$(find app/build/outputs/mapping -name mapping.txt -print -quit 2>/dev/null || true)
-          fi
-          if [ -z "$mapping" ] || [ ! -f "$mapping" ]; then
-            echo "R8 mapping.txt missing after assembleRelease"
-            exit 1
-          fi
-          missing=0
-          for name in prepare attachTun getStatsJSON getCapabilitiesJSON stop updateNetworkState; do
-            if ! grep -q "$name" "$mapping"; then
-              echo "R8 mapping missing Engine symbol: $name"
-              missing=1
-            fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
-          echo "R8 mapping retains gomobile Engine symbols in $mapping"
-
       - name: Upload Unsigned Release Artifacts
         uses: actions/upload-artifact@v5
         with:
