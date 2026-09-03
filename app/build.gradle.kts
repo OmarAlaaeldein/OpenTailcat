@@ -4,6 +4,8 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val enableAbiSplits = gradle.startParameter.taskNames.none { it.contains("bundle", ignoreCase = true) }
+
 android {
     namespace = "com.tailcat.vpn"
     compileSdk = 35
@@ -17,6 +19,11 @@ android {
         versionName = "1.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        if (!enableAbiSplits) {
+            ndk {
+                abiFilters += listOf("arm64-v8a", "x86_64")
+            }
+        }
     }
 
     buildTypes {
@@ -34,7 +41,8 @@ android {
     }
     splits {
         abi {
-            isEnable = true
+            // ABI splits cannot be combined with bundleRelease (AGP issue 402800800).
+            isEnable = enableAbiSplits
             reset()
             include("arm64-v8a", "x86_64")
             isUniversalApk = false
