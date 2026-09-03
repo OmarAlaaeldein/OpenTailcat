@@ -107,7 +107,7 @@ jobs:
         run: |
           ./gradlew assembleDebug assembleRelease bundleRelease
 
-      - name: Upload Unsigned Release Artifacts
+      - name: Upload Release Artifacts
         uses: actions/upload-artifact@v5
         with:
           name: opentailcat-release-artifacts
