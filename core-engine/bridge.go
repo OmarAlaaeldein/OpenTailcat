@@ -81,6 +81,7 @@ type TunBridge struct {
 	closed atomic.Bool
 	wg     sync.WaitGroup
 
+	pumpDeadMu sync.Mutex
 	onPumpDead func(error)
 	onHealth   func()
 }
@@ -170,12 +171,21 @@ func signalReady(ch chan struct{}) {
 	}
 }
 
+func (b *TunBridge) setOnPumpDead(fn func(error)) {
+	b.pumpDeadMu.Lock()
+	b.onPumpDead = fn
+	b.pumpDeadMu.Unlock()
+}
+
 func (b *TunBridge) reportPumpDead(err error) {
 	if err == nil || b.closed.Load() || b.ctx.Err() != nil {
 		return
 	}
-	if b.onPumpDead != nil {
-		b.onPumpDead(err)
+	b.pumpDeadMu.Lock()
+	fn := b.onPumpDead
+	b.pumpDeadMu.Unlock()
+	if fn != nil {
+		fn(err)
 	}
 }
 

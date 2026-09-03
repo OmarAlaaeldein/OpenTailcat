@@ -225,7 +225,7 @@ func AttachTun(tunFD int) error {
 	sess := globalCore.sess
 	oldBridge := sess.bridge
 	if oldBridge != nil {
-		oldBridge.onPumpDead = nil
+		oldBridge.setOnPumpDead(nil)
 	}
 	sess.bridge = nil
 	globalCore.state = StateAttaching
@@ -260,14 +260,14 @@ func AttachTun(tunFD int) error {
 	bridge.onHealth = func() {
 		globalCore.healthUnix.Store(time.Now().Unix())
 	}
-	bridge.onPumpDead = func(pumpErr error) {
+	bridge.setOnPumpDead(func(pumpErr error) {
 		globalCore.mu.Lock()
 		live := globalCore.sess == sess && sess.bridge == bridge
 		globalCore.mu.Unlock()
 		if live {
 			globalCore.markFailed(sess, pumpErr)
 		}
-	}
+	})
 
 	if err := bridge.Start(); err != nil {
 		_ = bridge.Stop()
@@ -294,7 +294,7 @@ func DisarmPumps() {
 	if globalCore.sess == nil || globalCore.sess.bridge == nil {
 		return
 	}
-	globalCore.sess.bridge.onPumpDead = nil
+	globalCore.sess.bridge.setOnPumpDead(nil)
 }
 
 func DetachTun() error {
@@ -310,7 +310,7 @@ func DetachTun() error {
 	sess := globalCore.sess
 	bridge := sess.bridge
 	if bridge != nil {
-		bridge.onPumpDead = nil
+		bridge.setOnPumpDead(nil)
 	}
 	sess.bridge = nil
 	globalCore.state = StatePrepared
