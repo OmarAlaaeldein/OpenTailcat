@@ -254,6 +254,46 @@ func TestDetachTunKeepsPreparedClient(t *testing.T) {
 	}
 }
 
+func TestDisarmPumpsPreventsFailedOnTunClose(t *testing.T) {
+	_ = Stop()
+	fake := &prepareTestClient{caps: tailcat.CapExitTCP | tailcat.CapExitUDP}
+	installClient(t, fake)
+	if err := Prepare(officialTestToken(t)); err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	if err := AttachTun(int(r.Fd())); err != nil {
+		r.Close()
+		w.Close()
+		t.Fatalf("AttachTun: %v", err)
+	}
+	DisarmPumps()
+	_ = r.Close()
+	_ = w.Close()
+	time.Sleep(200 * time.Millisecond)
+	_, st := statsState(t)
+	if st == StateFailed {
+		t.Fatal("disarmed pumps must not mark FAILED when the TUN closes")
+	}
+
+	r2, w2, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe2: %v", err)
+	}
+	defer r2.Close()
+	defer w2.Close()
+	if err := AttachTun(int(r2.Fd())); err != nil {
+		t.Fatalf("reattach after disarm: %v", err)
+	}
+	stats, st := statsState(t)
+	if st != StateRunning || stats.State != "RUNNING" {
+		t.Fatalf("expected RUNNING after reattach, got state=%s json=%s", st, stats.State)
+	}
+}
+
 func TestAttachTunBeforePrepare(t *testing.T) {
 	_ = Stop()
 	if err := AttachTun(3); err == nil {

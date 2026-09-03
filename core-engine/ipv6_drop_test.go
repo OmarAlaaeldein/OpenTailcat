@@ -136,6 +136,62 @@ func TestIPv6ICMPEchoDroppedNoReply(t *testing.T) {
 	}
 }
 
+func TestIPv6MTUExceededWritesPacketTooBig(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	defer r.Close()
+	defer w.Close()
+
+	bridge, dialTCP, dialUDP, cleanup := newIPv6DropTestBridge(t)
+	defer cleanup()
+	bridge.tunFile = w
+	bridge.mtu = 1280
+
+	payload := make([]byte, 1400)
+	pkt := buildIPv6UDPPacket(
+		netip.MustParseAddrPort("[fd7a:115c:a1e0::2]:54321"),
+		netip.MustParseAddrPort("[2606:4700:4700::1111]:443"),
+		payload,
+	)
+	if len(pkt) <= 1280 {
+		t.Fatalf("test packet must exceed MTU, got %d", len(pkt))
+	}
+	dialTCPBefore := dialTCP.Load()
+	dialUDPBefore := dialUDP.Load()
+	bridge.handleOutboundPacket(pkt)
+	if bridge.mtuExceeded.Load() != 1 {
+		t.Fatalf("expected 1 mtuExceeded, got %d", bridge.mtuExceeded.Load())
+	}
+	if dialTCP.Load() != dialTCPBefore || dialUDP.Load() != dialUDPBefore {
+		t.Fatal("oversized IPv6 must not dial")
+	}
+
+	_ = r.SetReadDeadline(time.Now().Add(time.Second))
+	buf := make([]byte, 4096)
+	n, readErr := r.Read(buf)
+	if readErr != nil {
+		t.Fatalf("expected ICMPv6 Packet Too Big on TUN: %v", readErr)
+	}
+	if n < 48 {
+		t.Fatalf("PTB too short: %d", n)
+	}
+	if buf[0]>>4 != 6 {
+		t.Fatalf("expected IPv6 PTB, version=%d", buf[0]>>4)
+	}
+	if buf[6] != 58 {
+		t.Fatalf("expected ICMPv6 next header 58, got %d", buf[6])
+	}
+	if buf[40] != 2 {
+		t.Fatalf("expected ICMPv6 type 2 Packet Too Big, got %d", buf[40])
+	}
+	gotMTU := binary.BigEndian.Uint32(buf[44:48])
+	if gotMTU != 1280 {
+		t.Fatalf("expected PTB MTU 1280, got %d", gotMTU)
+	}
+}
+
 func TestIPv6ExtensionHeaderNotPolicyRejected(t *testing.T) {
 	bridge, _, _, cleanup := newIPv6DropTestBridge(t)
 	defer cleanup()

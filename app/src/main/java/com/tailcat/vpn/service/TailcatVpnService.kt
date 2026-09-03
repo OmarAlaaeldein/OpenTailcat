@@ -90,7 +90,7 @@ class TailcatVpnService : VpnService() {
             vpnInterface = warm
             attachLive(app, warm, networkState)
 
-            app.tunnelEngine.detachTun()
+            app.tunnelEngine.disarmPumps()
             currentCoroutineContext().ensureActive()
             val routed = vpnBuilder(profile, dnsValidation.ip, defaultRoutes = true).establish()
                 ?: throw IllegalStateException("Android could not install default routes")

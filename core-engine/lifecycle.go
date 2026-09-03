@@ -288,6 +288,15 @@ func AttachTun(tunFD int) error {
 	return nil
 }
 
+func DisarmPumps() {
+	globalCore.mu.Lock()
+	defer globalCore.mu.Unlock()
+	if globalCore.sess == nil || globalCore.sess.bridge == nil {
+		return
+	}
+	globalCore.sess.bridge.onPumpDead = nil
+}
+
 func DetachTun() error {
 	globalCore.mu.Lock()
 	if globalCore.sess == nil {

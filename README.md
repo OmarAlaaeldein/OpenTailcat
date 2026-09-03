@@ -35,8 +35,9 @@ are live. This is not a production privacy VPN.
   proxies IPv6 TCP/UDP with a 2s dial timeout; ICMPv6 is dropped. `ipv6`
   remains false until live dual-stack evidence.
 - **Phase 6 (Lifecycle)**: Cancellable prepare, readiness barriers, pump-failure
-  `FAILED`, bounded stop, and `detachTun` exist. Android warms the TUN without
-  default routes, then installs `0.0.0.0/0`/`::/0` and reattaches.
+  `FAILED`, bounded stop, `detachTun`, and `disarmPumps` exist. Android warms
+  the TUN without default routes, disarms pump-failure, then installs
+  `0.0.0.0/0`/`::/0` and reattaches.
   `twoPhaseStart` and `cancelSafeLifecycle` are test-enabled.
 - **Phase 7 (Telemetry)**: Schema version 2 and live WireGuard peer counters exist
   while a bridge is running. Kotlin rejects v1 and requires live `RUNNING` health.
@@ -53,6 +54,7 @@ getCapabilitiesJSON() -> String
 prepare(token: String)
 attachTun(tunFd: Long)
 detachTun()
+disarmPumps()
 getStatsJSON() -> String
 stop()
 updateNetworkState(json: String)
@@ -69,7 +71,8 @@ Current behavior:
    in-flight `prepare`.
 3. `attachTun` duplicates the descriptor and returns after required pumps have
    entered their loops. Pump death reports `FAILED`. `detachTun` stops pumps and
-   keeps the prepared client.
+   keeps the prepared client. `disarmPumps` clears pump-failure so default
+   routes can be installed and the TUN reattached without a `FAILED` race.
 4. `updateNetworkState` accepts Android LinkProperties JSON. Absent `dnsPolicy`
    preserves the pending resolver policy.
 5. `stop` is bounded and idempotent. `ipv6` stays false.

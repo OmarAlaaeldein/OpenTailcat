@@ -7,6 +7,7 @@ interface NativeEngine {
     fun prepare(token: String)
     fun attachTun(tunFd: Int)
     fun detachTun()
+    fun disarmPumps()
     fun stop()
     fun getStats(): NetworkMetrics
     fun updateNetworkState(networkStateJson: String)

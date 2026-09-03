@@ -16,7 +16,7 @@ unsafe shortcuts already found in the tree.
 - Phase 3 tunneled UDP data plane implementation complete; live physical acceptance pending; IPv4 `udp` is test-enabled.
 - Phase 4 DNS routing exists with pending-config and omit-means-preserve; IPv4 `dns` is test-enabled.
 - Phase 5 IPv6 TCP/UDP is proxied with a 2s dial timeout; ICMPv6 is dropped; Android installs `::/0` only after pumps are live; `ipv6` remains false.
-- Phase 6 cancellable session context, readiness barriers, pump-failure `FAILED`, bounded `Stop`, and `DetachTun` exist. Android warms the TUN without default routes, then installs `0.0.0.0/0` and `::/0` and reattaches. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
+- Phase 6 cancellable session context, readiness barriers, pump-failure `FAILED`, bounded `Stop`, `DetachTun`, and `DisarmPumps` exist. Android warms the TUN without default routes, attaches, disarms pump-failure, then installs `0.0.0.0/0` and `::/0` and reattaches. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
 - Phase 7 telemetry schema and WireGuard counters exist; RTT is sampled from live `DiscoPing` while a bridge is running; Kotlin rejects schema v1 and does not synthesize `RUNNING`; `liveStats` is test-enabled.
 - Upstream Tailcat base: signed `v0.4.0`, commit
   `ce6fedcabc220bab3b94d470ab330219111eeae8`.
@@ -24,7 +24,7 @@ unsafe shortcuts already found in the tree.
   `49c65dace2d79b41d89f536289002816d13e5274` and later UDP, DNS, NetMon, and status extensions.
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.0 and NDK 29.0.14206865. Current SHA-256:
-   `b9284850c5bb0b49fddfe3ca64a3531bbb6367ae5b266da070b0191e18f055e5`.
+   `0df8acc3dfddb690137c61fe4a9be0d8576d8f3c17a842b21e48ae6d0f3b5b45`.
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
@@ -53,9 +53,9 @@ IPv4 flags now set true.
 | IPv4 UDP destination port 53 | gVisor proxies datagram via `Client.DialUDP` to TUN dest (PROFILE_RESOLVER) or `ForcedDNS` (FORCED_RESOLVER). Engine does not inspect TC bits; a libc/app TCP/53 retry is a normal TCP proxy | Tailcat WireGuard/Magicsock to gateway |
 | Other IPv4 UDP | gVisor proxies datagrams via `Client.DialUDP` across Tailcat netstack | Tailcat WireGuard/Magicsock to gateway (pending live acceptance) |
 | IPv6 TCP/UDP | gVisor inject → `DialTCP`/`DialUDP` with 2s timeout | Gateway if it has IPv6 WAN; else RST/drop so apps can use tunneled IPv4 |
-| ICMPv6 | Dropped | No echo |
-| IPv4 ICMP echo | Constructs a local echo reply | No gateway/Internet request is made |
 | ICMPv6 echo | Dropped | No gateway/Internet request is made |
+| IPv6 over MTU | Local ICMPv6 Packet Too Big | No gateway request |
+| IPv4 ICMP echo | Constructs a local echo reply | No gateway/Internet request is made |
 | Native exit audit | TLS/HTTP through `Client.DialTCP` | Tailcat gateway |
 | In-app speed test | `HttpURLConnection` from excluded app UID | Direct device network (explicitly labeled as physical-network benchmark in UI) |
 
@@ -131,7 +131,7 @@ Checkpoint status:
 - Phase 3 — implementation complete: native userspace netstack UDP proxy, gateway CapExitUDP capability check, AllowProxy policy enforcement, and synchronized shutdown; physical-device live acceptance pending; IPv4 `udp` is test-enabled.
 - Phase 4 — DNS routing code exists: pending DNS is stored before attach and applied on `attachTun`. Absent `dnsPolicy` in later `updateNetworkState` does not reset policy. `GATEWAY_RESOLVER` is unused (treated as PROFILE). The engine does not inspect DNS TC bits. IPv4 `dns` is test-enabled.
 - Phase 5 — IPv6 TCP/UDP proxied with a 2s dial timeout; ICMPv6 dropped; Android installs `::/0` after pumps are live. `ipv6` remains false.
-- Phase 6 — session context, short mutex, always-Close previous client, readiness barriers, pump-exit `FAILED` + `healthUnixSec`, bounded `Stop`, `DetachTun`. Android warms the TUN without default routes, attaches, detaches, then installs `0.0.0.0/0`/`::/0` and reattaches. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
+- Phase 6 — session context, short mutex, always-Close previous client, readiness barriers, pump-exit `FAILED` + `healthUnixSec`, bounded `Stop`, `DetachTun`, `DisarmPumps`. Android warms the TUN without default routes, attaches, disarms pump-failure, then installs `0.0.0.0/0`/`::/0` and reattaches. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
 - Phase 7 — telemetry code exists: schema version 2, live WireGuard peer Tx/Rx and Magicsock path from `Client.Status()` while a bridge is running. RTT is sampled from `DiscoPing` about every 5s while a bridge is running; jitter is null until three samples. Kotlin requires version 2, does not synthesize missing `state` as `RUNNING`, and CONNECTED requires live `RUNNING` + fresh `healthUnixSec`. `liveStats` is test-enabled.
 - Phase 8 — planned. IPv4 test-routing flags are true; `ipv6` remains false until dual-stack evidence.
 
@@ -357,7 +357,8 @@ not held across Ping/DiscoPing. A second `prepare` closes a previous unattached
 client. `attachTun` waits for TUN read, gVisor output, UDP, and health loops
 to enter. Required pump exit sets `FAILED` and clears `healthUnixSec`. `Stop` is
 bounded and concurrent-idempotent. `DetachTun` stops pumps and returns to
-`PREPARED`. Android warms the TUN without default routes, attaches pumps, then
+`PREPARED`. `DisarmPumps` clears pump-failure without stopping the session.
+Android warms the TUN without default routes, attaches pumps, disarms, then
 installs `0.0.0.0/0`/`::/0` and reattaches. CONNECTED requires native `RUNNING` plus fresh
 `healthUnixSec`. Unknown capability JSON fields fail closed.
 

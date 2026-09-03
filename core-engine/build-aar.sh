@@ -109,6 +109,7 @@ REQUIRED_METHODS=(
     "touch"
     "attachTun"
     "detachTun"
+    "disarmPumps"
     "getCapabilitiesJSON"
     "getStatsJSON"
     "parseToken"

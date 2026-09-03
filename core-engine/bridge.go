@@ -296,12 +296,15 @@ func (b *TunBridge) handleOutboundPacket(pkt []byte) {
 		return
 	}
 
+	version := pkt[0] >> 4
 	if b.mtu > 0 && len(pkt) > b.mtu {
 		b.mtuExceeded.Add(1)
+		if version == 6 {
+			b.writeICMPv6PacketTooBig(pkt)
+		}
 		return
 	}
 
-	version := pkt[0] >> 4
 	switch version {
 	case 4:
 		b.handleIPv4(pkt)
@@ -380,6 +383,46 @@ func (b *TunBridge) handleIPv6(pkt []byte) {
 	default:
 		b.netstack.inject(pkt, true)
 	}
+}
+
+func (b *TunBridge) writeICMPv6PacketTooBig(pkt []byte) {
+	if len(pkt) < 40 {
+		return
+	}
+	if pkt[6] == 58 && len(pkt) >= 41 && pkt[40] < 128 {
+		return
+	}
+	mtu := b.mtu
+	if mtu <= 0 {
+		mtu = 1280
+	}
+	maxBody := mtu - 48
+	if maxBody < 40 {
+		return
+	}
+	invoking := pkt
+	if len(invoking) > maxBody {
+		invoking = pkt[:maxBody]
+	}
+	reply := make([]byte, 40+8+len(invoking))
+	reply[0] = 0x60
+	binary.BigEndian.PutUint16(reply[4:6], uint16(8+len(invoking)))
+	reply[6] = 58
+	reply[7] = 64
+	copy(reply[8:24], pkt[24:40])
+	copy(reply[24:40], pkt[8:24])
+	reply[40] = 2
+	binary.BigEndian.PutUint32(reply[44:48], uint32(mtu))
+	copy(reply[48:], invoking)
+	pseudo := make([]byte, 40)
+	copy(pseudo[0:16], reply[8:24])
+	copy(pseudo[16:32], reply[24:40])
+	binary.BigEndian.PutUint32(pseudo[32:36], uint32(8+len(invoking)))
+	pseudo[39] = 58
+	chk := checksum(pseudo, reply[40:])
+	binary.BigEndian.PutUint16(reply[42:44], chk)
+	b.rxBytes.Add(int64(len(reply)))
+	_ = b.writeTunPacket(reply)
 }
 
 func (b *TunBridge) writeTunPacket(pkt []byte) error {
