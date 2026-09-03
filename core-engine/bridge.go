@@ -79,6 +79,9 @@ type TunBridge struct {
 
 	closed atomic.Bool
 	wg     sync.WaitGroup
+
+	onPumpDead func(error)
+	onHealth   func()
 }
 
 // DNSConfig defines the active DNS resolver policy and optional forced resolver destination.
@@ -105,6 +108,7 @@ func newTunBridge(
 	transport string,
 	rttMs int64,
 	sessionID int64,
+	parentCtx context.Context,
 ) (*TunBridge, error) {
 	if tunFD < 0 {
 		return nil, errors.New("invalid tun file descriptor")
@@ -121,7 +125,10 @@ func newTunBridge(
 		return nil, errors.New("failed to wrap duplicated tun fd in os.File")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parentCtx)
 
 	b := &TunBridge{
 		sessionID: sessionID,
@@ -151,33 +158,55 @@ func newTunBridge(
 	return b, nil
 }
 
-// Start launches the background packet pumps and returns only when they are live.
+func signalReady(ch chan struct{}) {
+	if ch == nil {
+		return
+	}
+	select {
+	case <-ch:
+	default:
+		close(ch)
+	}
+}
+
+func (b *TunBridge) reportPumpDead(err error) {
+	if err == nil || b.closed.Load() || b.ctx.Err() != nil {
+		return
+	}
+	if b.onPumpDead != nil {
+		b.onPumpDead(err)
+	}
+}
+
+// Start launches the background packet pumps and returns after required loops are entered.
 func (b *TunBridge) Start() error {
-	started := make(chan struct{})
+	tunReady := make(chan struct{})
+	gvisorReady := make(chan struct{})
+	udpReady := make(chan struct{})
+	healthReady := make(chan struct{})
 
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
-		close(started)
-		b.readLoop()
+		b.reportPumpDead(b.readLoop(tunReady))
 	}()
 
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
-		b.netstack.writeLoop()
+		b.reportPumpDead(b.netstack.writeLoop(gvisorReady))
 	}()
 
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
-		b.netstack.cleanupIdleUDPFlows()
+		b.netstack.cleanupIdleUDPFlows(udpReady)
 	}()
 
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
-		b.rateCalcLoop()
+		b.rateCalcLoop(healthReady)
 	}()
 
 	b.wg.Add(1)
@@ -186,12 +215,18 @@ func (b *TunBridge) Start() error {
 		b.egressProbeLoop()
 	}()
 
-	select {
-	case <-started:
-		return nil
-	case <-time.After(2 * time.Second):
-		return errors.New("timeout starting packet bridge pumps")
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	for _, ch := range []chan struct{}{tunReady, gvisorReady, udpReady, healthReady} {
+		select {
+		case <-ch:
+		case <-b.ctx.Done():
+			return b.ctx.Err()
+		case <-timer.C:
+			return errors.New("timeout starting packet bridge pumps")
+		}
 	}
+	return nil
 }
 
 // Stop terminates packet pumps and closes open descriptors.
@@ -208,25 +243,38 @@ func (b *TunBridge) Stop() error {
 		b.tunFile.Close()
 	}
 
-	b.wg.Wait()
-	return nil
+	done := make(chan struct{})
+	go func() {
+		b.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-time.After(stopWaitTimeout):
+		return errors.New("timeout waiting for packet pumps to stop")
+	}
 }
 
-func (b *TunBridge) readLoop() {
+func (b *TunBridge) readLoop(ready chan struct{}) error {
 	buf := make([]byte, 65535)
+	signalReady(ready)
 	for {
 		select {
 		case <-b.ctx.Done():
-			return
+			return nil
 		default:
 		}
 
 		n, err := b.tunFile.Read(buf)
 		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) || b.closed.Load() {
-				return
+			if b.closed.Load() || b.ctx.Err() != nil {
+				return nil
 			}
-			continue
+			if errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) {
+				return err
+			}
+			return err
 		}
 
 		if n <= 0 {
@@ -305,35 +353,7 @@ func (b *TunBridge) handleIPv6(pkt []byte) {
 		b.malformedIP.Add(1)
 		return
 	}
-
-	nextHeader := pkt[6]
-	srcIP, _ := netip.AddrFromSlice(pkt[8:24])
-	dstIP, _ := netip.AddrFromSlice(pkt[24:40])
-
-	switch nextHeader {
-	case 58: // ICMPv6
-		b.handleICMPv6(pkt, 40, srcIP, dstIP)
-	case 6: // TCP
-		b.tcpPackets.Add(1)
-		if len(pkt) >= 44 {
-			dstPort := binary.BigEndian.Uint16(pkt[42:44])
-			if dstPort == 53 {
-				b.dnsQueries.Add(1)
-			}
-		}
-		b.netstack.inject(pkt, true)
-	case 17: // UDP
-		b.udpPackets.Add(1)
-		if len(pkt) >= 44 {
-			dstPort := binary.BigEndian.Uint16(pkt[42:44])
-			if dstPort == 53 {
-				b.dnsQueries.Add(1)
-			}
-		}
-		b.netstack.inject(pkt, true)
-	default:
-		b.netstack.inject(pkt, true)
-	}
+	b.policyRejections.Add(1)
 }
 
 func (b *TunBridge) writeTunPacket(pkt []byte) error {
@@ -419,15 +439,22 @@ func (b *TunBridge) handleICMPv6(pkt []byte, offset int, srcIP, dstIP netip.Addr
 	b.writeTunPacket(reply)
 }
 
-func (b *TunBridge) rateCalcLoop() {
+func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
+	signalReady(ready)
+	if b.onHealth != nil {
+		b.onHealth()
+	}
 
 	for {
 		select {
 		case <-b.ctx.Done():
 			return
 		case t := <-ticker.C:
+			if b.onHealth != nil {
+				b.onHealth()
+			}
 			currentTx := b.txBytes.Load()
 			currentRx := b.rxBytes.Load()
 

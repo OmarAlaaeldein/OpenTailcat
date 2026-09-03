@@ -1,7 +1,6 @@
 package com.tailcat.vpn.service
 
 import com.tailcat.vpn.core.model.NetworkMetrics
-import com.tailcat.vpn.core.model.TransportType
 import org.json.JSONObject
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
@@ -67,7 +66,7 @@ data class EngineCapabilities(
  * protocol capabilities (API v2). Bundling a scaffold, outdated AAR, or incomplete
  * engine can therefore never create a full-device route that nobody pumps.
  */
-class TunnelEngine {
+class TunnelEngine : NativeEngine {
 
     private val engineClass: Class<*>? by lazy {
         ENGINE_CLASS_NAMES.firstNotNullOfOrNull { name ->
@@ -76,15 +75,15 @@ class TunnelEngine {
     }
 
     val capabilities: EngineCapabilities? by lazy { inspectCapabilities() }
-    val availability: EngineAvailability by lazy { inspectAvailability() }
+    override val availability: EngineAvailability by lazy { inspectAvailability() }
 
-    fun prepare(token: String) {
+    override fun prepare(token: String) {
         check(availability.isAvailable) { availability.message }
         require(token.isNotBlank()) { "Connection token is empty" }
         invoke(requireMethod("prepare", parameterCount = 1), token)
     }
 
-    fun attachTun(tunFd: Int) {
+    override fun attachTun(tunFd: Int) {
         check(availability.isAvailable) { availability.message }
         require(tunFd >= 0) { "Invalid TUN file descriptor" }
         val method = requireMethod("attachTun", parameterCount = 1)
@@ -95,7 +94,7 @@ class TunnelEngine {
         invoke(method, fdArgument)
     }
 
-    fun updateNetworkState(networkStateJson: String) {
+    override fun updateNetworkState(networkStateJson: String) {
         val klass = engineClass ?: return
         val method = klass.methods.firstOrNull {
             it.name.equals("updateNetworkState", ignoreCase = true) && it.parameterCount == 1
@@ -103,7 +102,7 @@ class TunnelEngine {
         runCatching { invoke(method, networkStateJson) }
     }
 
-    fun stop() {
+    override fun stop() {
         val klass = engineClass ?: return
         val method = klass.methods.firstOrNull {
             it.name.equals("stop", ignoreCase = true) && it.parameterCount == 0
@@ -111,7 +110,7 @@ class TunnelEngine {
         invoke(method)
     }
 
-    fun getStats(): NetworkMetrics {
+    override fun getStats(): NetworkMetrics {
         check(availability.isAvailable) { availability.message }
         val raw = invoke(requireMethod("getStatsJSON", parameterCount = 0)) as? String
             ?: error("Tunnel engine returned invalid telemetry")

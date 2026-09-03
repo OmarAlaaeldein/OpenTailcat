@@ -27,15 +27,20 @@ establish a default-route VPN.
   gVisor netstack proxy routes UDP datagrams through `Client.DialUDP` without
   direct OS UDP sockets; gateway `CapExitUDP` check and `AllowProxy` filtering
   exist. `udp` remains false until physical acceptance.
-- **Phase 4 (DNS routing)**: PROFILE/FORCED resolver routing and IP validation
-  exist. The engine does not inspect DNS TC bits. `dns` remains false until
-  promotion evidence.
+- **Phase 4 (DNS routing)**: PROFILE/FORCED resolver routing, pending-config, and
+  omit-means-preserve exist. The engine does not inspect DNS TC bits. `dns`
+  remains false until promotion evidence.
+- **Phase 5 (IPv6)**: Native TUN IPv6 is dropped. Android has no `::/0`. `ipv6`
+  remains false.
+- **Phase 6 (Lifecycle)**: Cancellable prepare, readiness barriers, pump-failure
+  `FAILED`, and bounded stop exist. `twoPhaseStart` and `cancelSafeLifecycle`
+  remain false.
 - **Phase 7 (Telemetry)**: Schema version 2 and live WireGuard peer counters exist
-  while a bridge is running. RTT is a prepare-time snapshot; production jitter is
-  always null. `liveStats` remains false until promotion evidence.
-- **Remaining (Phases 5, 6, 8, and 4/7 promotion)**: IPv6 dual-stack / fail-closed,
-  cancellable lifecycle state machine, capability promotion evidence, and physical
-  acceptance / production signing.
+  while a bridge is running. Kotlin rejects v1 and requires live `RUNNING` health.
+  RTT is a prepare-time snapshot; production jitter is always null. `liveStats`
+  remains false until promotion evidence.
+- **Remaining (Phase 8 and capability promotion)**: physical acceptance / production
+  signing, and promotion-table evidence.
 
 ## Native engine API
 
@@ -56,14 +61,13 @@ Current behavior:
 1. `getCapabilitiesJSON` reports API v2 with every unproven capability false, so
    Kotlin refuses to create a default-route VPN.
 2. `prepare` validates an official token, completes a Meow/Meowed handshake, and
-   rejects TCP-only gateways. It holds the engine mutex across network I/O and
-   cannot be cancelled by `stop`.
-3. `attachTun` duplicates the descriptor and returns after the TUN read loop
-   goroutine starts.
-4. `updateNetworkState` accepts Android LinkProperties JSON. Kotlin uses it;
-   `parseToken` is exported for the AAR verifier.
-5. `stop` closes the bridge and client under the same mutex. The Phase 6
-   cancellable state machine is unimplemented.
+   rejects TCP-only gateways. `stop` cancels an in-flight `prepare`.
+3. `attachTun` duplicates the descriptor and returns after required pumps have
+   entered their loops. Pump death reports `FAILED`.
+4. `updateNetworkState` accepts Android LinkProperties JSON. Absent `dnsPolicy`
+   preserves the pending resolver policy.
+5. `stop` is bounded and idempotent. Capability flags stay false, so Android
+   still refuses a default-route VPN.
 
 ## Token compatibility
 

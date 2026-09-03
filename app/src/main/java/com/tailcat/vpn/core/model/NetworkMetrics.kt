@@ -19,6 +19,7 @@ data class NetworkMetrics(
     val version: Int = 2,
     val sessionId: Long = 0,
     val state: String = "",
+    val healthUnixSec: Long = 0,
     val transportType: TransportType = TransportType.UNKNOWN,
     val directEndpoint: String? = null,
     val derpRegionId: Int? = null,
@@ -43,12 +44,18 @@ data class NetworkMetrics(
     val egressAuditTimestampSec: Long = 0,
     val egressAuditError: String? = null
 ) {
+    fun isLiveRunning(nowUnixSec: Long, maxAgeSec: Long = 5): Boolean {
+        if (state != "RUNNING") return false
+        if (healthUnixSec <= 0L) return false
+        return nowUnixSec - healthUnixSec <= maxAgeSec
+    }
+
     companion object {
         fun fromJson(raw: String): NetworkMetrics {
             val json = JSONObject(raw)
 
-            val version = json.optInt("version", 1)
-            if (version !in 1..2) {
+            val version = json.optInt("version", 0)
+            if (version != 2) {
                 error("Unsupported telemetry schema version: $version")
             }
 
@@ -84,10 +91,17 @@ data class NetworkMetrics(
                 return v.ifBlank { null }
             }
 
+            val state = if (!json.has("state") || json.isNull("state")) {
+                ""
+            } else {
+                json.optString("state", "").ifBlank { "" }
+            }
+
             return NetworkMetrics(
                 version = version,
                 sessionId = json.optLong("sessionId", 0L),
-                state = json.optString("state", if (transport != TransportType.UNKNOWN) "RUNNING" else "STOPPED"),
+                state = state,
+                healthUnixSec = json.optLong("healthUnixSec", 0L),
                 transportType = transport,
                 directEndpoint = optNullableString("directEndpoint"),
                 derpRegionId = derpId,

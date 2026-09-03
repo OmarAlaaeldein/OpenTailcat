@@ -109,10 +109,16 @@ class TailcatVpnService : VpnService() {
             // The route becomes active just before this fast attachment call. Any attachment
             // error immediately tears it down.
             app.tunnelEngine.attachTun(established.fd)
-            app.tunnelController.onEngineConnected(app.tunnelEngine.getStats())
+            app.tunnelEngine.updateNetworkState(networkState)
+            val metrics = app.tunnelEngine.getStats()
+            check(EngineHealth.shouldConnect(metrics, TunnelController.unixNow())) {
+                "VPN engine did not become live after attach"
+            }
+            app.tunnelController.onEngineConnected(metrics)
             startMetricsNotificationUpdater(profile)
-        } catch (_: CancellationException) {
-            return
+        } catch (error: CancellationException) {
+            shutdown()
+            throw error
         } catch (error: Exception) {
             app.tunnelController.onVpnStartFailed(
                 error.message ?: "VPN engine failed to start"

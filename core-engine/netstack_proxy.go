@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -167,11 +168,15 @@ func (p *netstackProxy) inject(pkt []byte, ipv6Packet bool) {
 	packet.DecRef()
 }
 
-func (p *netstackProxy) writeLoop() {
+func (p *netstackProxy) writeLoop(ready chan struct{}) error {
+	signalReady(ready)
 	for {
 		packet := p.link.ReadContext(p.bridge.ctx)
 		if packet == nil {
-			return
+			if p.bridge.closed.Load() || p.bridge.ctx.Err() != nil {
+				return nil
+			}
+			return errors.New("gVisor output pump exited")
 		}
 		view := packet.ToView()
 		out := append([]byte(nil), view.AsSlice()...)
@@ -182,7 +187,10 @@ func (p *netstackProxy) writeLoop() {
 		}
 		p.bridge.rxBytes.Add(int64(len(out)))
 		if err := p.bridge.writeTunPacket(out); err != nil {
-			return
+			if p.bridge.closed.Load() || p.bridge.ctx.Err() != nil {
+				return nil
+			}
+			return err
 		}
 	}
 }
@@ -460,9 +468,10 @@ func (p *netstackProxy) runUDPFlow(ctx context.Context, flow *udpFlow) {
 	}
 }
 
-func (p *netstackProxy) cleanupIdleUDPFlows() {
+func (p *netstackProxy) cleanupIdleUDPFlows(ready chan struct{}) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
+	signalReady(ready)
 
 	for {
 		select {

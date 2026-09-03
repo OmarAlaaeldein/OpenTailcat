@@ -457,8 +457,8 @@ func TestPrepareRejectsTCPOnlyGateway(t *testing.T) {
 	if !strings.Contains(err.Error(), "does not support tunneled UDP") {
 		t.Fatalf("Prepare failed before the UDP capability gate: %v", err)
 	}
-	if globalCore.prepared {
-		t.Error("expected globalCore.prepared to remain false")
+	if globalCore.state != StateStopped {
+		t.Errorf("expected engine state STOPPED after TCP-only reject, got %s", globalCore.state)
 	}
 	if !fake.closed {
 		t.Error("expected rejected TCP-only client to be closed")

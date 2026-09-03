@@ -162,6 +162,7 @@ class TunnelEngineTest {
             "version": 2,
             "sessionId": 42,
             "state": "RUNNING",
+            "healthUnixSec": 1725301300,
             "transport": "DIRECT_P2P",
             "directEndpoint": "198.51.100.22:41641",
             "derpRegionId": 302,
@@ -197,6 +198,7 @@ class TunnelEngineTest {
         assertEquals(2, metrics.version)
         assertEquals(42L, metrics.sessionId)
         assertEquals("RUNNING", metrics.state)
+        assertEquals(1725301300L, metrics.healthUnixSec)
         assertEquals(com.tailcat.vpn.core.model.TransportType.DIRECT_P2P, metrics.transportType)
         assertEquals("198.51.100.22:41641", metrics.directEndpoint)
         assertEquals(302, metrics.derpRegionId)
@@ -239,30 +241,94 @@ class TunnelEngineTest {
     }
 
     @Test
-    fun testNetworkMetricsV1BackwardCompatibility() {
-        val legacyV1Json = """{
-            "transport": "DERP_RELAY",
-            "derpRegionId": 2,
-            "derpRegionName": "San Francisco",
-            "tunnelEgressIp": "198.51.100.1",
-            "rttMs": 25,
-            "jitterMs": 0,
-            "txBytes": 1000,
-            "rxBytes": 2000,
-            "txRateKbps": 50,
-            "rxRateKbps": 100
-        }"""
+    fun testNetworkMetricsV1Rejected() {
+        val v1Json = """{"version": 1, "transport": "DERP_RELAY", "state": "RUNNING"}"""
+        try {
+            com.tailcat.vpn.core.model.NetworkMetrics.fromJson(v1Json)
+            fail("Expected unsupported schema version 1 to fail")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message?.contains("Unsupported telemetry schema version") == true)
+        }
+    }
 
-        val metrics = com.tailcat.vpn.core.model.NetworkMetrics.fromJson(legacyV1Json)
-        assertEquals(1, metrics.version)
+    @Test
+    fun testNetworkMetricsMissingVersionRejected() {
+        val missingVersionJson = """{"transport": "DERP_RELAY", "state": "RUNNING"}"""
+        try {
+            com.tailcat.vpn.core.model.NetworkMetrics.fromJson(missingVersionJson)
+            fail("Expected missing telemetry schema version to fail")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message?.contains("Unsupported telemetry schema version") == true)
+        }
+    }
+
+    @Test
+    fun testNetworkMetricsMissingStateIsEmptyNotRunning() {
+        val json = """{
+            "version": 2,
+            "sessionId": 1,
+            "transport": "DERP_RELAY",
+            "derpRegionId": 1,
+            "rttMs": 40
+        }"""
+        val metrics = com.tailcat.vpn.core.model.NetworkMetrics.fromJson(json)
+        assertEquals("", metrics.state)
         assertEquals(com.tailcat.vpn.core.model.TransportType.DERP_RELAY, metrics.transportType)
-        assertEquals(2, metrics.derpRegionId)
-        assertEquals("San Francisco", metrics.derpRegionName)
-        assertEquals("198.51.100.1", metrics.tunnelEgressIp)
-        assertEquals(25L, metrics.rttLatencyMs)
-        assertEquals(0L, metrics.jitterMs)
-        assertEquals(1000L, metrics.txBytes)
-        assertEquals(2000L, metrics.rxBytes)
+    }
+
+    @Test
+    fun testNetworkMetricsHealthUnixSecParsedAndMissingIsZero() {
+        val withHealth = """{
+            "version": 2,
+            "state": "RUNNING",
+            "transport": "DIRECT_P2P",
+            "healthUnixSec": 1725301300
+        }"""
+        val parsed = com.tailcat.vpn.core.model.NetworkMetrics.fromJson(withHealth)
+        assertEquals(1725301300L, parsed.healthUnixSec)
+
+        val missingHealth = """{
+            "version": 2,
+            "state": "RUNNING",
+            "transport": "DIRECT_P2P"
+        }"""
+        val missing = com.tailcat.vpn.core.model.NetworkMetrics.fromJson(missingHealth)
+        assertEquals(0L, missing.healthUnixSec)
+    }
+
+    @Test
+    fun testNetworkMetricsIsLiveRunningRequiresRunningAndFreshHealth() {
+        val live = com.tailcat.vpn.core.model.NetworkMetrics(
+            state = "RUNNING",
+            healthUnixSec = 1000L
+        )
+        assertTrue(live.isLiveRunning(nowUnixSec = 1004L))
+        assertTrue(live.isLiveRunning(nowUnixSec = 1005L))
+        assertFalse(live.isLiveRunning(nowUnixSec = 1006L))
+
+        val stale = com.tailcat.vpn.core.model.NetworkMetrics(
+            state = "RUNNING",
+            healthUnixSec = 1000L
+        )
+        assertFalse(stale.isLiveRunning(nowUnixSec = 2000L))
+
+        val noHealth = com.tailcat.vpn.core.model.NetworkMetrics(
+            state = "RUNNING",
+            healthUnixSec = 0L
+        )
+        assertFalse(noHealth.isLiveRunning(nowUnixSec = 1000L))
+
+        val notRunning = com.tailcat.vpn.core.model.NetworkMetrics(
+            state = "PREPARED",
+            healthUnixSec = 1000L
+        )
+        assertFalse(notRunning.isLiveRunning(nowUnixSec = 1000L))
+
+        val missingState = com.tailcat.vpn.core.model.NetworkMetrics(
+            state = "",
+            healthUnixSec = 1000L
+        )
+        assertFalse(missingState.isLiveRunning(nowUnixSec = 1000L))
     }
 
     @Test
@@ -274,6 +340,32 @@ class TunnelEngineTest {
         } catch (e: IllegalStateException) {
             assertTrue(e.message?.contains("Unsupported telemetry schema version") == true)
         }
+    }
+
+    @Test
+    fun testEngineHealthConnectAndTearDownGates() {
+        val live = com.tailcat.vpn.core.model.NetworkMetrics(
+            state = "RUNNING",
+            healthUnixSec = 1000L,
+            transportType = com.tailcat.vpn.core.model.TransportType.DERP_RELAY
+        )
+        assertTrue(com.tailcat.vpn.service.EngineHealth.shouldConnect(live, 1000L))
+        assertFalse(com.tailcat.vpn.service.EngineHealth.shouldTearDown(live, 1000L))
+
+        val unknownTransport = live.copy(transportType = com.tailcat.vpn.core.model.TransportType.UNKNOWN)
+        assertFalse(com.tailcat.vpn.service.EngineHealth.shouldConnect(unknownTransport, 1000L))
+
+        val failed = live.copy(state = "FAILED")
+        assertFalse(com.tailcat.vpn.service.EngineHealth.shouldConnect(failed, 1000L))
+        assertTrue(com.tailcat.vpn.service.EngineHealth.shouldTearDown(failed, 1000L))
+
+        val stale = live.copy(healthUnixSec = 1L)
+        assertFalse(com.tailcat.vpn.service.EngineHealth.shouldConnect(stale, 1000L))
+        assertTrue(com.tailcat.vpn.service.EngineHealth.shouldTearDown(stale, 1000L))
+
+        val prepared = live.copy(state = "PREPARED")
+        assertFalse(com.tailcat.vpn.service.EngineHealth.shouldConnect(prepared, 1000L))
+        assertTrue(com.tailcat.vpn.service.EngineHealth.shouldTearDown(prepared, 1000L))
     }
 }
 

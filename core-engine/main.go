@@ -3,13 +3,11 @@ package engine
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/tailscale/tailcat"
 	"tailscale.com/ipn/ipnstate"
@@ -95,8 +93,8 @@ type NetworkStatePayload struct {
 	Interfaces  []NetworkInterfaceInfo `json:"interfaces"`
 	Gateways    []string               `json:"gateways,omitempty"`
 	DNSServers  []string               `json:"dnsServers,omitempty"`
-	DNSPolicy   string                 `json:"dnsPolicy,omitempty"`
-	ForcedDNS   string                 `json:"forcedDns,omitempty"`
+	DNSPolicy   *string                `json:"dnsPolicy,omitempty"`
+	ForcedDNS   *string                `json:"forcedDns,omitempty"`
 }
 
 // UpdateNetworkState receives dynamic network changes from Android (LinkProperties, active network type,
@@ -167,27 +165,9 @@ func UpdateNetworkState(networkStateJSON string) error {
 	mon := activeMonitor
 	netStateMu.Unlock()
 
-	// Update active bridge DNS configuration if running
-	globalCore.mu.Lock()
-	if globalCore.bridge != nil {
-		policy := "PROFILE_RESOLVER"
-		if strings.EqualFold(payload.DNSPolicy, "FORCED_RESOLVER") {
-			policy = "FORCED_RESOLVER"
-		}
-		var forcedAP netip.AddrPort
-		if payload.ForcedDNS != "" {
-			if ap, err := netip.ParseAddrPort(payload.ForcedDNS); err == nil {
-				forcedAP = ap
-			} else if ip, err := netip.ParseAddr(payload.ForcedDNS); err == nil {
-				forcedAP = netip.AddrPortFrom(ip, 53)
-			}
-		}
-		globalCore.bridge.SetDNSConfig(DNSConfig{
-			Policy:    policy,
-			ForcedDNS: forcedAP,
-		})
+	if payload.DNSPolicy != nil {
+		applyDNSPolicy(*payload.DNSPolicy, payload.ForcedDNS)
 	}
-	globalCore.mu.Unlock()
 
 	// Notify active netmon monitor to trigger Magicsock path and endpoint re-evaluation
 	if mon != nil {
@@ -195,6 +175,33 @@ func UpdateNetworkState(networkStateJSON string) error {
 	}
 
 	return nil
+}
+
+func applyDNSPolicy(policyName string, forced *string) {
+	policy := "PROFILE_RESOLVER"
+	if strings.EqualFold(policyName, "FORCED_RESOLVER") {
+		policy = "FORCED_RESOLVER"
+	}
+	var forcedAP netip.AddrPort
+	if forced != nil && *forced != "" {
+		if ap, err := netip.ParseAddrPort(*forced); err == nil {
+			forcedAP = ap
+		} else if ip, err := netip.ParseAddr(*forced); err == nil {
+			forcedAP = netip.AddrPortFrom(ip, 53)
+		}
+	}
+	cfg := DNSConfig{Policy: policy, ForcedDNS: forcedAP}
+	globalCore.pendingDNS.Store(&cfg)
+
+	globalCore.mu.Lock()
+	bridge := (*TunBridge)(nil)
+	if globalCore.sess != nil {
+		bridge = globalCore.sess.bridge
+	}
+	globalCore.mu.Unlock()
+	if bridge != nil {
+		bridge.SetDNSConfig(cfg)
+	}
 }
 
 // DropCounters records packet drops and flow rejections by category.
@@ -210,6 +217,7 @@ type EngineStats struct {
 	Version                 int          `json:"version"`
 	SessionID               int64        `json:"sessionId"`
 	State                   string       `json:"state"`
+	HealthUnixSec           int64        `json:"healthUnixSec,omitempty"`
 	Transport               string       `json:"transport"`
 	DirectEndpoint          string       `json:"directEndpoint,omitempty"`
 	DerpRegionID            int          `json:"derpRegionId"`
@@ -234,21 +242,6 @@ type EngineStats struct {
 	EgressAuditTimestampSec int64        `json:"egressAuditTimestampSec,omitempty"`
 	EgressAuditError        string       `json:"egressAuditError,omitempty"`
 }
-
-// TailcatCore orchestrates the two-phase lifecycle (Prepare -> AttachTun -> Stop).
-type TailcatCore struct {
-	mu        sync.Mutex
-	sessionID int64
-	running   bool
-	prepared  bool
-	token     *ParsedToken
-	client    preparedClient
-	bridge    *TunBridge
-	transport string
-	rttMs     int64
-}
-
-var globalCore = &TailcatCore{}
 
 type preparedClient interface {
 	TunnelClient
@@ -303,171 +296,6 @@ func GetCapabilitiesJSON() string {
 	bytes, err := json.Marshal(caps)
 	if err != nil {
 		return `{"apiVersion":2,"dataPlane":false}`
-	}
-	return string(bytes)
-}
-
-// Prepare completes token validation, initializes the client, and verifies the
-// gateway handshake (Meow ping/pong) before Android creates a route.
-func Prepare(tokenStr string) error {
-	globalCore.mu.Lock()
-	defer globalCore.mu.Unlock()
-
-	// If already running, clean up previous session
-	if globalCore.running {
-		if globalCore.bridge != nil {
-			globalCore.bridge.Stop()
-			globalCore.bridge = nil
-		}
-		if globalCore.client != nil {
-			globalCore.client.Close()
-			globalCore.client = nil
-		}
-		globalCore.running = false
-		globalCore.prepared = false
-	}
-
-	pt, err := ParseToken(tokenStr)
-	if err != nil {
-		return fmt.Errorf("token rejected: %w", err)
-	}
-	if !pt.IsConnectable() {
-		return fmt.Errorf("token classification %s cannot be used for connection: %s", pt.Classification, pt.ErrorMessage)
-	}
-
-	// Pass the exact original validated official token bytes directly to upstream Tailcat
-	client := newTailcatClient(tailcat.ConnBlob(pt.RawToken))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	res, err := client.Ping(ctx)
-	if err != nil {
-		client.Close()
-		return fmt.Errorf("gateway handshake failed: %w", err)
-	}
-
-	if res.Latency <= 0 {
-		client.Close()
-		return fmt.Errorf("invalid reachability latency from gateway")
-	}
-
-	if !client.HasServerCap(tailcat.CapExitUDP) {
-		client.Close()
-		return errors.New("gateway does not support tunneled UDP data plane (TCP-only exit node)")
-	}
-
-	transport := "DERP_RELAY"
-	rttMs := res.Latency.Milliseconds()
-	discoCtx, discoCancel := context.WithTimeout(context.Background(), 4*time.Second)
-	if disco, discoErr := client.DiscoPing(discoCtx); discoErr == nil {
-		if disco.Endpoint != "" {
-			transport = "DIRECT_P2P"
-		}
-		if disco.LatencySeconds > 0 {
-			rttMs = int64(disco.LatencySeconds * 1_000)
-		}
-	}
-	discoCancel()
-
-	globalCore.token = pt
-	globalCore.client = client
-	globalCore.transport = transport
-	globalCore.rttMs = rttMs
-	globalCore.sessionID++
-	globalCore.prepared = true
-
-	netStateMu.Lock()
-	if nm := client.NetMon(); nm != nil {
-		activeMonitor = nm
-	}
-	netStateMu.Unlock()
-
-	return nil
-}
-
-// AttachTun connects the Android TUN file descriptor and starts packet pumps.
-func AttachTun(tunFD int) error {
-	globalCore.mu.Lock()
-	defer globalCore.mu.Unlock()
-
-	if !globalCore.prepared || globalCore.client == nil || globalCore.token == nil {
-		return errors.New("cannot attach TUN: engine not prepared")
-	}
-
-	bridge, err := newTunBridge(
-		tunFD,
-		globalCore.client,
-		globalCore.token,
-		globalCore.transport,
-		globalCore.rttMs,
-		globalCore.sessionID,
-	)
-	if err != nil {
-		return fmt.Errorf("create tun bridge: %w", err)
-	}
-
-	if err := bridge.Start(); err != nil {
-		bridge.Stop()
-		return fmt.Errorf("start tun bridge: %w", err)
-	}
-
-	globalCore.bridge = bridge
-	globalCore.running = true
-	return nil
-}
-
-// Stop closes all WireGuard sockets, packet pumps, and releases secrets.
-func Stop() error {
-	globalCore.mu.Lock()
-	defer globalCore.mu.Unlock()
-
-	netStateMu.Lock()
-	activeMonitor = nil
-	netStateMu.Unlock()
-
-	if globalCore.bridge != nil {
-		globalCore.bridge.Stop()
-		globalCore.bridge = nil
-	}
-	if globalCore.client != nil {
-		globalCore.client.Close()
-		globalCore.client = nil
-	}
-
-	globalCore.running = false
-	globalCore.prepared = false
-	globalCore.token = nil
-	globalCore.transport = ""
-	globalCore.rttMs = 0
-	return nil
-}
-
-// GetStatsJSON returns measured active telemetry in JSON format.
-func GetStatsJSON() string {
-	globalCore.mu.Lock()
-	defer globalCore.mu.Unlock()
-
-	if !globalCore.running || globalCore.bridge == nil {
-		sessionID := globalCore.sessionID
-		state := "STOPPED"
-		if globalCore.prepared {
-			state = "PREPARED"
-		}
-		stats := EngineStats{
-			Version:   2,
-			SessionID: sessionID,
-			State:     state,
-			Transport: "DISCONNECTED",
-		}
-		b, _ := json.Marshal(stats)
-		return string(b)
-	}
-
-	stats := globalCore.bridge.GetStats()
-	bytes, err := json.Marshal(stats)
-	if err != nil {
-		return `{"version":2,"state":"ERROR","transport":"UNKNOWN","rttMs":0,"txBytes":0,"rxBytes":0}`
 	}
 	return string(bytes)
 }

@@ -37,10 +37,11 @@ relied on as a production privacy VPN.
 
 - **Capability promotion**: `dns`, `liveStats`, and `twoPhaseStart` stay false
   until the evidence in [handoff.md](handoff.md) exists.
-- **IPv6 dual-stack route**: Android installs no IPv6 VPN address or `::/0`
-  (Phase 5). IPv6 may bypass over the underlying network if a VPN were active.
-- **Cancellable lifecycle state machine**: `prepare` cannot be cancelled by
-  `stop`; pump failures do not tear down the TUN (Phase 6).
+- **IPv6 dual-stack route**: Native TUN IPv6 is dropped. Android still installs
+  no IPv6 VPN address or `::/0` (Phase 5). IPv6 may bypass over the underlying
+  network if a VPN were active.
+- **Lifecycle promotion**: the cancellable machine exists; `twoPhaseStart` and
+  `cancelSafeLifecycle` stay false until promotion evidence (Phase 6).
 - **Live physical-device acceptance**: Uplink packet capture on multi-interface
   devices to verify zero direct destination leaks (Phase 8).
 - **Production release signing**: Signing with a production keystore (Phase 8).

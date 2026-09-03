@@ -6,7 +6,6 @@ import androidx.core.content.ContextCompat
 import com.tailcat.vpn.core.NetworkMonitor
 import com.tailcat.vpn.core.NetworkType
 import com.tailcat.vpn.core.model.NetworkMetrics
-import com.tailcat.vpn.core.model.TransportType
 import com.tailcat.vpn.core.model.TunnelState
 import com.tailcat.vpn.core.token.TokenParser
 import com.tailcat.vpn.core.token.TokenValidationState
@@ -29,7 +28,7 @@ class TunnelController(
     private val context: Context,
     private val profileRepository: ProfileRepository,
     private val networkMonitor: NetworkMonitor,
-    private val tunnelEngine: TunnelEngine
+    private val tunnelEngine: NativeEngine
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -65,9 +64,11 @@ class TunnelController(
                 networkType != NetworkType.NONE && _tunnelState.value == TunnelState.RECONNECTING -> {
                     scope.launch {
                         runCatching { tunnelEngine.getStats() }
-                            .onSuccess {
-                                _networkMetrics.value = it
-                                _tunnelState.value = TunnelState.CONNECTED
+                            .onSuccess { metrics ->
+                                _networkMetrics.value = metrics
+                                if (EngineHealth.shouldConnect(metrics, unixNow())) {
+                                    _tunnelState.value = TunnelState.CONNECTED
+                                }
                             }
                     }
                 }
@@ -130,8 +131,9 @@ class TunnelController(
     }
 
     fun onEngineConnected(initialMetrics: NetworkMetrics) {
-        require(initialMetrics.transportType != TransportType.UNKNOWN) {
-            "VPN engine did not report an active transport"
+        val now = unixNow()
+        require(EngineHealth.shouldConnect(initialMetrics, now)) {
+            "VPN engine is not live running"
         }
         _lastError.value = null
         _networkMetrics.value = initialMetrics
@@ -141,17 +143,19 @@ class TunnelController(
         pollingJob = scope.launch {
             var consecutiveFailures = 0
             while (isActive && _tunnelState.value != TunnelState.DISCONNECTED) {
-                runCatching {
-                    tunnelEngine.getStats().also {
-                        check(it.transportType != TransportType.UNKNOWN) {
-                            "VPN engine no longer reports an active transport"
-                        }
-                    }
-                }
-                    .onSuccess {
+                runCatching { tunnelEngine.getStats() }
+                    .onSuccess { metrics ->
                         consecutiveFailures = 0
-                        _networkMetrics.value = it
-                        if (_tunnelState.value == TunnelState.RECONNECTING && networkMonitor.isOnline) {
+                        _networkMetrics.value = metrics
+                        if (EngineHealth.shouldTearDown(metrics, unixNow())) {
+                            reportError("VPN engine data plane failed")
+                            stopTunnel()
+                            return@launch
+                        }
+                        if (_tunnelState.value == TunnelState.RECONNECTING &&
+                            networkMonitor.isOnline &&
+                            EngineHealth.shouldConnect(metrics, unixNow())
+                        ) {
                             _tunnelState.value = TunnelState.CONNECTED
                         }
                     }
@@ -193,5 +197,7 @@ class TunnelController(
     companion object {
         private const val METRICS_POLL_INTERVAL_MS = 1_000L
         private const val MAX_TELEMETRY_FAILURES = 3
+
+        fun unixNow(): Long = System.currentTimeMillis() / 1000L
     }
 }

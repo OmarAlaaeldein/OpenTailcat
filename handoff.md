@@ -7,22 +7,23 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.1.1 on `main`, after reverting over-promoted
-  capability flags. Every unproven capability is false.
+- Android repository: version 1.1.1 on `main`. Every unproven capability is false.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
 - Phase 1 reproducible-build checkpoint: `76563c9`.
 - Phase 2 unified token contract checkpoint: `dfce360`.
 - Phase 3 tunneled UDP data plane implementation complete; live physical acceptance pending; `udp` remains false.
-- Phase 4 DNS routing and validation code exists; `dns` remains false until promotion evidence.
-- Phase 7 telemetry schema and WireGuard counters exist; `liveStats` remains false until promotion evidence.
+- Phase 4 DNS routing exists with pending-config and omit-means-preserve; `dns` remains false until promotion evidence.
+- Phase 5 native IPv6 TUN packets are dropped (no inject, no ICMPv6 echo); Android still has no `::/0`; `ipv6` remains false.
+- Phase 6 cancellable session context, readiness barriers, pump-failure `FAILED`, and bounded `Stop` exist; `twoPhaseStart` and `cancelSafeLifecycle` remain false.
+- Phase 7 telemetry schema and WireGuard counters exist; Kotlin rejects schema v1 and does not synthesize `RUNNING`; `liveStats` remains false until promotion evidence.
 - Upstream Tailcat base: signed `v0.4.0`, commit
   `ce6fedcabc220bab3b94d470ab330219111eeae8`.
 - Embedded Tailcat source: base plus local commit
   `49c65dace2d79b41d89f536289002816d13e5274` and later UDP, DNS, NetMon, and status extensions.
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.0 and NDK 29.0.14206865. Current SHA-256:
-  `db5d9acdea958a2327cbd4f6fa60408eb18227f6a3f7d8c6b947fd02c7347e31`.
+  `2bdb4f6042a6cc233a155c4c547f4ff42db9b5aadbebb5f07c1047cd6601d661`.
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
@@ -126,9 +127,11 @@ Checkpoint status:
 - Phase 1 — complete: provenance and deterministic native builds verified.
 - Phase 2 — complete: Kotlin and Go share the strict upstream-compatible token contract.
 - Phase 3 — implementation complete: native userspace netstack UDP proxy, gateway CapExitUDP capability check, AllowProxy policy enforcement, and synchronized shutdown; physical-device live acceptance pending; `udp` remains false.
-- Phase 4 — DNS routing code exists: strict IPv4/IPv6 address validation and PROFILE/FORCED resolver routing in native netstack. `GATEWAY_RESOLVER` is unused (treated as PROFILE). The engine does not inspect DNS TC bits. `dns` remains false until promotion evidence.
-- Phase 7 — telemetry code exists: schema version 2, live WireGuard peer Tx/Rx and Magicsock path from `Client.Status()` while a bridge is running. RTT is a prepare-time snapshot; `RecordRTT` is not called in production, so jitter is always null. Jitter math is mean absolute consecutive difference, not RFC 3550. Kotlin still accepts schema v1 and synthesizes missing `state` as `RUNNING`. `liveStats` remains false until promotion evidence.
-- Phases 5, 6, 8 — planned; `twoPhaseStart` and `cancelSafeLifecycle` remain false. Every unproven capability remains false.
+- Phase 4 — DNS routing code exists: pending DNS is stored before attach and applied on `attachTun`. Absent `dnsPolicy` in later `updateNetworkState` does not reset policy. `GATEWAY_RESOLVER` is unused (treated as PROFILE). The engine does not inspect DNS TC bits. `dns` remains false until promotion evidence.
+- Phase 5 — native fail-closed IPv6 drop in `handleIPv6`; no Android `::/0`. `ipv6` remains false.
+- Phase 6 — session context, short mutex, always-Close previous client, readiness barriers, pump-exit `FAILED` + `healthUnixSec`, bounded `Stop`. Android `establish()` still installs `0.0.0.0/0` before `attachTun`. `twoPhaseStart` and `cancelSafeLifecycle` remain false.
+- Phase 7 — telemetry code exists: schema version 2, live WireGuard peer Tx/Rx and Magicsock path from `Client.Status()` while a bridge is running. RTT is a prepare-time snapshot; `RecordRTT` is not called in production, so jitter is always null. Kotlin requires version 2, does not synthesize missing `state` as `RUNNING`, and CONNECTED requires live `RUNNING` + fresh `healthUnixSec`. `liveStats` remains false until promotion evidence.
+- Phase 8 — planned. Every unproven capability remains false.
 
 ### Phase 0: restore fail-closed behavior
 
@@ -322,10 +325,10 @@ Acceptance condition: configured policy and observed resolver destination match,
 
 ### Phase 5: complete or deliberately block IPv6
 
-**Checkpoint status: Unimplemented.** Android installs only `100.64.0.2/32` and
-`0.0.0.0/0`. There is no IPv6 VPN address, no `::/0`, and no fail-closed IPv6
-drop path. Native gVisor already registers IPv6 and can proxy IPv6 TCP/UDP if a
-packet reached TUN; ICMPv6 echo is answered locally. `ipv6` remains false.
+**Checkpoint status: Native drop only; `ipv6` remains false.** Android installs
+only `100.64.0.2/32` and `0.0.0.0/0`. There is no IPv6 VPN address and no `::/0`.
+`handleIPv6` drops all IPv6 TUN packets (no inject, no ICMPv6 echo). Native
+gVisor still registers IPv6 for unpromoted proxy tests that inject directly.
 
 The release definition requires working IPv6, not silent bypass.
 
@@ -345,14 +348,14 @@ connected, and neither family reaches the Internet directly on pump failure.
 
 ### Phase 6: lifecycle, readiness, and roaming
 
-**Checkpoint status: Unimplemented.** Current engine has only `running`/`prepared`
-booleans, holds `globalCore.mu` across Ping/DiscoPing, cannot cancel a blocked
-`prepare`, overwrites a prepared-but-unattached client without `Close()`,
-returns from `attachTun` when `readLoop` starts, and does not promote pump
-errors to FAILED. Android `establish()` installs `0.0.0.0/0` before `attachTun`.
-`CONNECTED` is set after `attachTun` plus `transportType != UNKNOWN`. Extra
-capability JSON keys are ignored. `twoPhaseStart` and `cancelSafeLifecycle`
-remain false.
+**Checkpoint status: Machine exists; `twoPhaseStart` and `cancelSafeLifecycle`
+remain false.** Session context cancels blocked `prepare`. Mutex is not held
+across Ping/DiscoPing. A second `prepare` closes a previous unattached client.
+`attachTun` waits for TUN read, gVisor write, UDP GC, and health loops to enter.
+Required pump exit sets `FAILED` and clears `healthUnixSec`. `Stop` is bounded
+and concurrent-idempotent. Android `establish()` still installs `0.0.0.0/0`
+before `attachTun`. CONNECTED requires native `RUNNING` plus fresh
+`healthUnixSec`. Extra capability JSON keys are ignored.
 
 Refactor the global engine into a synchronized state machine:
 
@@ -410,7 +413,7 @@ Current code reports schema version 2 with:
 - exit-audit IP plus timestamp and error state;
 - DERP names from `client.DERPMap()` when present, else hardcoded `regionNameForID`.
 
-Kotlin `NetworkMetrics.fromJson` accepts schema versions 1 and 2, rejects ≥3, and synthesizes missing `state` as `RUNNING` when transport is known. `onEngineConnected` does not require `state == RUNNING` or a fresh health timestamp.
+Kotlin `NetworkMetrics.fromJson` requires schema version 2, rejects v1 and missing version, and leaves missing `state` empty. `onEngineConnected` requires `RUNNING` plus fresh `healthUnixSec`.
 
 Do not promote `liveStats` until live RTT sampling exists, jitter matches the documented formula, Kotlin rejects incompatible/v1 telemetry, unknown values stay absent, and staleness is enforced when the data plane stops.
 
