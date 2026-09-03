@@ -1,6 +1,6 @@
 # Privacy policy for OpenTailcat
 
-**Last updated:** September 1, 2026
+**Last updated:** September 3, 2026
 
 OpenTailcat is designed without accounts, advertising, analytics SDKs, remote
 crash reporting, or a proprietary coordination service. This policy describes
@@ -11,12 +11,21 @@ the current source tree, including its known development limitations.
 The current build is not a leak-free full-device VPN and must not be relied on
 for privacy-sensitive traffic:
 
-- IPv4 TCP accepted by the native adapter is proxied through gVisor and Tailcat to the selected gateway.
-- IPv4 UDP is proxied through gVisor userspace netstack to Tailcat WireGuard/Magicsock, eliminating direct OS application sockets.
-- UDP destination port 53 is intercepted and routed according to the configured DNS policy (profile resolver destination or forced preset) through Tailcat WireGuard, supporting 4096-byte datagrams and TC=1 TCP fallback.
-- Android currently installs no IPv6 VPN address or default route. IPv6 may use the underlying network unless Android's system lockdown blocks it.
-- The in-app network benchmark uses ordinary app connections. OpenTailcat's own UID bypasses the VPN, so these requests measure the direct device network and are explicitly labeled as physical-network benchmarks in the UI.
-- Fail-closed capability negotiation ensures that default-route VPN establishment is refused while data-plane capabilities remain unproven.
+- Fail-closed capability negotiation refuses default-route VPN establishment
+  while data-plane capabilities remain unproven. Connect does not install a
+  tunnel in this build.
+- If the native adapter were attached, IPv4 TCP would be proxied through gVisor
+  and Tailcat to the selected gateway.
+- IPv4 UDP would be proxied through gVisor userspace netstack via
+  `Client.DialUDP`. That path is unpromoted.
+- UDP destination port 53 would be proxied to the TUN destination
+  (PROFILE_RESOLVER) or a forced resolver (FORCED_RESOLVER). The engine does not
+  inspect DNS TC bits.
+- Android installs no IPv6 VPN address or default route. If a VPN were active,
+  IPv6 may use the underlying network unless Android's system lockdown blocks it.
+- The in-app network benchmark uses ordinary app connections. OpenTailcat's own
+  UID bypasses the VPN, so these requests measure the direct device network and
+  are explicitly labeled as physical-network benchmarks in the UI.
 
 ## Data stored on the device
 
@@ -45,8 +54,8 @@ device-to-device transfer for application data.
 - After TUN attachment, the native engine attempts an exit-IP audit through
   Tailcat. It first requests `api.ipify.org` over HTTP through the gateway and
   falls back to an authenticated TLS request to Cloudflare `1.1.1.1`.
-- Intercepted DNS is routed through the gateway according to the configured DNS
-  policy (profile destination or forced preset).
+- If a TUN were attached, intercepted DNS would be proxied through Tailcat
+  according to PROFILE_RESOLVER or FORCED_RESOLVER. That path is unpromoted.
 
 These providers and the selected gateway receive ordinary connection metadata
 such as source IP, time, TLS information, and request headers under their own
@@ -60,9 +69,10 @@ encrypted transport metadata. The gateway operator can observe decrypted exit
 traffic and connection metadata to the same extent as another VPN provider.
 OpenTailcat cannot make privacy promises on behalf of a user-selected gateway.
 
-Because of the current UDP and IPv6 limitations, destination services may also
-observe the device's direct public IP for bypassed traffic. This is a known
-release blocker, not an intended split-tunnel feature.
+Because this build refuses a default-route VPN, application traffic uses the
+device network. If a future incomplete engine installed IPv4 `0.0.0.0/0` without
+IPv6 `::/0`, destination services could observe the device's direct public IPv6.
+That is a known release blocker, not an intended split-tunnel feature.
 
 Apps explicitly selected in OpenTailcat's split-tunnel settings also bypass the
 VPN. OpenTailcat itself is always excluded so its Magicsock/DERP transport does

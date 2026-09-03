@@ -7,21 +7,22 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: Phase 7 implementation checkpoint on `main` (version 1.1.1).
+- Android repository: version 1.1.1 on `main`, after reverting over-promoted
+  capability flags. Every unproven capability is false.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
 - Phase 1 reproducible-build checkpoint: `76563c9`.
 - Phase 2 unified token contract checkpoint: `dfce360`.
-- Phase 3 tunneled UDP data plane implementation complete; live physical acceptance pending.
-- Phase 4 truthful DNS policy and validation implementation complete; live physical acceptance pending.
-- Phase 7 authoritative WireGuard & Magicsock telemetry implementation complete; live physical acceptance pending.
+- Phase 3 tunneled UDP data plane implementation complete; live physical acceptance pending; `udp` remains false.
+- Phase 4 DNS routing and validation code exists; `dns` remains false until promotion evidence.
+- Phase 7 telemetry schema and WireGuard counters exist; `liveStats` remains false until promotion evidence.
 - Upstream Tailcat base: signed `v0.4.0`, commit
   `ce6fedcabc220bab3b94d470ab330219111eeae8`.
 - Embedded Tailcat source: base plus local commit
-  `49c65dace2d79b41d89f536289002816d13e5274` and Phase 3/4/7 UDP, DNS & status extensions.
+  `49c65dace2d79b41d89f536289002816d13e5274` and later UDP, DNS, NetMon, and status extensions.
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.0 and NDK 29.0.14206865. Current SHA-256:
-  `7cf0d677d6c9309684bb41e82f09a93c3baee7a205daa369f58bf572c7bca972`.
+  `db5d9acdea958a2327cbd4f6fa60408eb18227f6a3f7d8c6b947fd02c7347e31`.
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
@@ -31,21 +32,24 @@ establishes a full Android VPN or proves leak-free traffic.
 
 ## Release status
 
-The current tree is a development prototype with verified token parsing, netstack UDP proxying,
-truthful DNS routing, and authoritative telemetry, but not a production full-device VPN. Do not
-distribute the APK as a privacy or security product.
+The current tree is a development prototype with verified token parsing and a
+userspace netstack UDP proxy. DNS routing and telemetry code exist but are not
+promoted. It is not a production full-device VPN. Do not distribute the APK as a
+privacy or security product.
 
-The remaining data-plane work is IPv6 dual-stack (`::/0`), cancellable lifecycle state machine,
-and physical-device acceptance. Phase 0 prevents incomplete paths from being activated: the
-unproven capabilities (`dataPlane`, `wireGuard`, `magicsock`, `ipv4`, `ipv6`, `tcp`, `udp`)
-remain false and Android refuses to establish a default-route VPN.
+The remaining data-plane work is IPv6 dual-stack (`::/0`), cancellable lifecycle
+state machine, capability promotion evidence, and physical-device acceptance.
+Phase 0 prevents incomplete paths from being activated: every unproven
+capability (`dataPlane`, `wireGuard`, `magicsock`, `twoPhaseStart`, `ipv4`,
+`ipv6`, `tcp`, `udp`, `dns`, `liveStats`, `cancelSafeLifecycle`) remains false
+and Android refuses to establish a default-route VPN.
 
 ## Current data-flow truth table
 
 | Input from Android | Native handling | Actual egress |
 | --- | --- | --- |
 | IPv4 TCP | gVisor terminates TCP and proxies the stream with `Client.DialTCP` | Tailcat WireGuard/Magicsock to gateway |
-| IPv4 UDP destination port 53 | gVisor proxies datagram via `Client.DialUDP` to profile/forced resolver; falls back to `Client.DialTCP` on TC=1 | Tailcat WireGuard/Magicsock to gateway |
+| IPv4 UDP destination port 53 | gVisor proxies datagram via `Client.DialUDP` to TUN dest (PROFILE_RESOLVER) or `ForcedDNS` (FORCED_RESOLVER). Engine does not inspect TC bits; a libc/app TCP/53 retry is a normal TCP proxy | Tailcat WireGuard/Magicsock to gateway |
 | Other IPv4 UDP | gVisor proxies datagrams via `Client.DialUDP` across Tailcat netstack | Tailcat WireGuard/Magicsock to gateway (pending live acceptance) |
 | IPv6 | Android does not add a VPN IPv6 address or `::/0` | Underlying IPv6, or blocked only by Android lockdown |
 | ICMP/ICMPv6 echo | Constructs a local echo reply | No gateway/Internet request is made |
@@ -77,7 +81,8 @@ client code if the selected gateway accepts only TCP.
 
 Official Tailcat `v0.4.0` currently configures `serve exit-node` with
 `OnTCPForward`; its filter admits TCP only. Its client also leaves
-`NetstackDialUDP` as an unreachable panic. Therefore:
+`NetstackDialUDP` as an unreachable panic. This embedded tree already replaces
+that panic, exports `Client.DialUDP`, and adds CLI `OnUDPForward`. Therefore:
 
 - First determine whether the live target gateway (`nullexit` or another
   deployment) already accepts UDP flows over the Tailcat WireGuard peer.
@@ -120,10 +125,10 @@ Checkpoint status:
 - Phase 0 — complete: incomplete native behavior fails closed.
 - Phase 1 — complete: provenance and deterministic native builds verified.
 - Phase 2 — complete: Kotlin and Go share the strict upstream-compatible token contract.
-- Phase 3 — implementation complete: native userspace netstack UDP proxy, gateway CapExitUDP capability check, AllowProxy policy enforcement, and synchronized shutdown; physical-device live acceptance pending.
-- Phase 4 — implementation complete: strict IPv4/IPv6 address validation, profile vs forced resolver routing in native netstack, EDNS0/DNSSEC 4096-byte datagrams with IP reassembly, and TC=1 TCP fallback; physical-device live acceptance pending.
-- Phase 7 — implementation complete: authoritative WireGuard peer Tx/Rx, dynamic direct endpoint vs DERP relay tracking, live DERPMap metadata resolution, RFC 3550 rolling jitter (null when < 3 samples), packet and drop counters, and version 2 telemetry schema; physical-device live acceptance pending.
-- Phases 5, 6, 8 — planned; all unproven capabilities remain false.
+- Phase 3 — implementation complete: native userspace netstack UDP proxy, gateway CapExitUDP capability check, AllowProxy policy enforcement, and synchronized shutdown; physical-device live acceptance pending; `udp` remains false.
+- Phase 4 — DNS routing code exists: strict IPv4/IPv6 address validation and PROFILE/FORCED resolver routing in native netstack. `GATEWAY_RESOLVER` is unused (treated as PROFILE). The engine does not inspect DNS TC bits. `dns` remains false until promotion evidence.
+- Phase 7 — telemetry code exists: schema version 2, live WireGuard peer Tx/Rx and Magicsock path from `Client.Status()` while a bridge is running. RTT is a prepare-time snapshot; `RecordRTT` is not called in production, so jitter is always null. Jitter math is mean absolute consecutive difference, not RFC 3550. Kotlin still accepts schema v1 and synthesizes missing `state` as `RUNNING`. `liveStats` remains false until promotion evidence.
+- Phases 5, 6, 8 — planned; `twoPhaseStart` and `cancelSafeLifecycle` remain false. Every unproven capability remains false.
 
 ### Phase 0: restore fail-closed behavior
 
@@ -161,6 +166,10 @@ currently incomplete engine.
 4. Replace the fabricated `android0`/`10.0.2.15` interface fallback with an
    Android-provided network-state bridge or another upstream-supported monitor.
    A hard-coded emulator address cannot represent Wi-Fi/cellular roaming.
+   **Done in tree:** that fabricated interface is gone. Android supplies
+   LinkProperties via `updateNetworkState`, and `Client.NetMon()` exists.
+   Live Wi-Fi/cellular roaming re-evaluation remains Phase 6. The hard-coded
+   DERP map remains.
 5. Align CI to Go 1.27 and pin Go Mobile/NDK versions. Do not depend on an
    implicit toolchain auto-download from a Go 1.24 CI bootstrap.
 6. Build with supported reproducible-path/`-trimpath` settings so developer
@@ -283,8 +292,7 @@ only Tailcat transport between client and gateway.
 
 ### Phase 4: make DNS policy truthful
 
-**Checkpoint status: Implementation complete; live physical acceptance pending.**
-Truthful DNS resolver routing, strict IP validation, and policy enforcement have been fully implemented across the native Go engine and Android application layers.
+**Checkpoint status: Routing code exists; `dns` remains false until promotion evidence.**
 
 #### Implementation details
 
@@ -293,26 +301,31 @@ Truthful DNS resolver routing, strict IP validation, and policy enforcement have
    - Integrated `resolveDNSDestination` into `netstackProxy` for both `acceptUDP` and `acceptTCP`:
      - Under `PROFILE_RESOLVER` (default), preserves the destination IP from the TUN datagram verbatim and forwards it through `Client.DialUDP` or `Client.DialTCP`.
      - Under `FORCED_RESOLVER`, redirects port 53 queries exclusively to the configured `ForcedDNS` endpoint.
-   - Preserves full datagram boundaries up to 65,535 bytes to prevent truncation of large EDNS0 / DNSSEC responses.
-   - Handled `TC=1` (truncation bit) responses: resolvers falling back to TCP over port 53 are proxied via `Client.DialTCP` to the identical resolver target.
-   - Promoted `dns: true` in `GetCapabilitiesJSON` v2 capabilities while keeping unproven data-plane capabilities `false`.
-   - Rebuilt `app/libs/libtailcat.aar` with reproducible settings and verified 16 KB ELF load alignment.
+     - Any other policy string, including Kotlin `GATEWAY_RESOLVER`, is treated as `PROFILE_RESOLVER`.
+   - Preserves full datagram boundaries up to 65,535 bytes to prevent truncation of large EDNS0 / DNSSEC responses. Bridge MTU is hardcoded 1280 and can still drop larger outbound packets before inject.
+   - The engine does **not** inspect DNS TC bits. `TestDNSTruncationAndTCPRetryFallback` forwards the TC=1 UDP answer, then the test itself calls `DialTCP`. If Android/libc retries over TCP/53, that flow is a normal TCP proxy.
+   - Do not promote `dns` until the evidence in the capability table exists.
 
 2. **Android DNS validation and policy (`app`):**
    - Created `DnsValidator` with strict IPv4 and IPv6 validation. Rejects loopback (`127.0.0.0/8`, `::1`), multicast (`224.0.0.0/4`, `ff00::/8`), broadcast (`255.255.255.255`), unspecified (`0.0.0.0`, `::`), leading-zero octets, hostnames, URLs, and ports.
-   - Added `DnsPolicy` enum (`PROFILE_RESOLVER`, `FORCED_RESOLVER`, `GATEWAY_RESOLVER`) and `DnsPreset` presets (Cloudflare, Quad9, Google).
+   - Added `DnsPolicy` enum (`PROFILE_RESOLVER`, `FORCED_RESOLVER`, `GATEWAY_RESOLVER`) and `DnsPreset` presets (Cloudflare, Quad9, Google). There is no UI policy picker; add-profile defaults to `PROFILE_RESOLVER`. `GATEWAY_RESOLVER` is never selected. `DnsPreset.ALL_PRESETS` is unused.
    - Added `PreferencesStorage` interface and `defaultDns` setting.
    - Integrated DNS validation and policy persistence in `ProfileRepository` (`addOrUpdateFromToken`, `updateProfileDns`) with fallback for corrupt legacy data.
-   - Enforced DNS validation in `TailcatVpnService` before calling `Builder.addDnsServer`, propagating policy to native engine via `updateNetworkState`.
+   - Enforced DNS validation in `TailcatVpnService` before calling `Builder.addDnsServer`, propagating policy to native engine via the first `updateNetworkState`. Later `TunnelController` network-state updates omit `dnsPolicy`/`forcedDns` and can wipe the native policy.
    - Updated UI in `HomeScreen` (Add Profile dialog) and `SettingsScreen` (Defaults card) with real-time validation error feedback.
 
 3. **Automated test coverage:**
    - Go (`core-engine/dns_test.go`): `TestDNSTransactionIDPreservation`, `TestDNSParallelQueries`, `TestDNSEDNS0AndLargeResponses`, `TestDNSTruncationAndTCPRetryFallback`, `TestDNSConfiguredPolicyAndDestinationMatching`, `TestDNSIPv4AndIPv6Resolvers`, `TestDNSTimeoutAndCancellation`, and `TestDNSLeakPrevention`.
    - Android (`app/src/test`): `DnsValidatorTest` (IPv4, IPv6, invalid octets, leading zeroes, loopback, broadcast, multicast, hostnames), `ProfileRepositoryTest` (valid creation, forced policy, rejection of invalid IPs, updating profile DNS, JSON persistence roundtrip, fallback for corrupt entries).
 
-Acceptance condition: configured policy and observed resolver destination match, both UDP and TCP DNS leave through the gateway, and all unit tests pass with zero direct OS socket leaks.
+Acceptance condition: configured policy and observed resolver destination match, both UDP and TCP DNS leave through the gateway, later network-state updates preserve policy, and leak tests pass. Only then may `dns` become true.
 
 ### Phase 5: complete or deliberately block IPv6
+
+**Checkpoint status: Unimplemented.** Android installs only `100.64.0.2/32` and
+`0.0.0.0/0`. There is no IPv6 VPN address, no `::/0`, and no fail-closed IPv6
+drop path. Native gVisor already registers IPv6 and can proxy IPv6 TCP/UDP if a
+packet reached TUN; ICMPv6 echo is answered locally. `ipv6` remains false.
 
 The release definition requires working IPv6, not silent bypass.
 
@@ -331,6 +344,15 @@ Acceptance condition: public IPv4 and IPv6 both change to gateway egress while
 connected, and neither family reaches the Internet directly on pump failure.
 
 ### Phase 6: lifecycle, readiness, and roaming
+
+**Checkpoint status: Unimplemented.** Current engine has only `running`/`prepared`
+booleans, holds `globalCore.mu` across Ping/DiscoPing, cannot cancel a blocked
+`prepare`, overwrites a prepared-but-unattached client without `Close()`,
+returns from `attachTun` when `readLoop` starts, and does not promote pump
+errors to FAILED. Android `establish()` installs `0.0.0.0/0` before `attachTun`.
+`CONNECTED` is set after `attachTun` plus `transportType != UNKNOWN`. Extra
+capability JSON keys are ignored. `twoPhaseStart` and `cancelSafeLifecycle`
+remain false.
 
 Refactor the global engine into a synchronized state machine:
 
@@ -370,25 +392,27 @@ foreground service behind.
 
 ### Phase 7: authoritative telemetry
 
+**Checkpoint status: Schema and WireGuard counters exist; `liveStats` remains false until promotion evidence.**
+
 Add an upstream client status surface based on the live WireGuard engine and
 Magicsock status. Prefer extending `Client` with a read-only status method
 analogous to the existing server `Status()`.
 
-Report:
+Current code reports schema version 2 with:
 
-- explicit engine state and monotonic session ID;
-- current direct endpoint or DERP region from live peer status;
-- last successful WireGuard receive/handshake time;
-- WireGuard peer TX/RX bytes, distinct from TUN accepted/dropped counters;
-- sampled RTT with timestamp and path;
-- jitter only after enough real samples, otherwise `null`;
-- packet/drop/error counters for TCP, UDP, DNS, malformed IP, MTU, and queue
-  exhaustion; and
-- exit-audit IP plus timestamp and error state.
+- engine state `STOPPED` / `PREPARED` / `RUNNING` (no `FAILED`); marshal-failure stub uses `ERROR`;
+- monotonic session ID;
+- WireGuard peer TX/RX, last handshake, CurAddr, and Relay from `client.Status()` while a bridge is running;
+- TUN accepted/dropped counters distinct from WG when WG counters are non-zero; if both WG counters are 0, `txBytes`/`rxBytes` fall back to TUN;
+- prepare-time Ping/DiscoPing RTT snapshot; `RecordRTT` is never called in production;
+- jitter only after ≥3 `RecordRTT` samples, otherwise `null`. Live jitter is therefore always null. The formula is mean absolute consecutive difference, not RFC 3550 `J := J + (|D|-J)/16`;
+- packet/drop counters for TCP, UDP, DNS, malformed IP, MTU, queue exhaustion, and policy rejections;
+- exit-audit IP plus timestamp and error state;
+- DERP names from `client.DERPMap()` when present, else hardcoded `regionNameForID`.
 
-Transport and RTT must update after path changes. Region names come from the
-active DERP metadata, not a hard-coded table. Define a versioned JSON schema and
-reject incompatible telemetry in Kotlin.
+Kotlin `NetworkMetrics.fromJson` accepts schema versions 1 and 2, rejects ≥3, and synthesizes missing `state` as `RUNNING` when transport is known. `onEngineConnected` does not require `state == RUNNING` or a fresh health timestamp.
+
+Do not promote `liveStats` until live RTT sampling exists, jitter matches the documented formula, Kotlin rejects incompatible/v1 telemetry, unknown values stay absent, and staleness is enforced when the data plane stops.
 
 The in-app HTTP speed test runs from the excluded app UID. Label it as a direct
 device-network benchmark, or replace it with a native Tailcat-routed benchmark.

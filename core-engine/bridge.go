@@ -63,7 +63,7 @@ type TunBridge struct {
 	txRateKbps atomic.Int64
 	rxRateKbps atomic.Int64
 
-	// RTT & Jitter tracking (RFC 3550)
+	// RTT snapshot and jitter samples. Production never calls RecordRTT.
 	rttMu      sync.Mutex
 	rttSamples []int64
 
@@ -471,7 +471,7 @@ func (b *TunBridge) currentJitterMs() *int64 {
 	b.rttMu.Lock()
 	defer b.rttMu.Unlock()
 
-	// RFC 3550 / handoff.md: jitter only after enough real samples (>= 3), otherwise null
+	// Jitter is null until >= 3 RecordRTT samples. Production never calls RecordRTT.
 	if len(b.rttSamples) < 3 {
 		return nil
 	}

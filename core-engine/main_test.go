@@ -47,17 +47,17 @@ func TestGetCapabilitiesJSON(t *testing.T) {
 	if caps.UDP {
 		t.Error("Expected udp to be false until Phase 3 physical acceptance tests pass")
 	}
-	if !caps.DNS {
-		t.Error("Expected dns to be true under Phase 4 implementation")
+	if caps.DNS {
+		t.Error("Expected dns to be false until Phase 4 promotion evidence exists")
 	}
-	if !caps.LiveStats {
-		t.Error("Expected liveStats to be true under Phase 7 implementation")
+	if caps.LiveStats {
+		t.Error("Expected liveStats to be false until Phase 7 promotion evidence exists")
 	}
 	if caps.CancelSafeLifecycle {
 		t.Error("Expected cancelSafeLifecycle to be false until Phase 6 refactor")
 	}
-	if !caps.TwoPhaseStart {
-		t.Error("Expected twoPhaseStart to be true")
+	if caps.TwoPhaseStart {
+		t.Error("Expected twoPhaseStart to be false until Phase 6 cancellation and readiness tests pass")
 	}
 }
 

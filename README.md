@@ -12,8 +12,8 @@ from a compact `tc...` token.
 **OpenTailcat 1.1.1 is a development build and must not be distributed or relied
 on as a production privacy VPN.** The Android shell, Go Mobile AAR, Tailcat
 handshake, official token parser, TCP proxy, and userspace netstack UDP proxy are
-integrated. The native capability contract remains fail-closed until physical-device
-acceptance and full release gates pass.
+integrated. Every unproven native capability is false, so Android refuses to
+establish a default-route VPN.
 
 ### Audited status
 
@@ -23,22 +23,19 @@ acceptance and full release gates pass.
   1.27.0, NDK r29 (29.0.14206865), and 16 KB ELF load alignment.
 - **Phase 2 (Token Alignment)**: Implemented. Canonical CBOR token parsing with
   duplicate key rejection, timestamp validation, and legacy token migration handling.
-- **Phase 3 (Tunneled UDP Data Plane)**: Implementation complete. Unified gVisor
-  netstack proxy routes UDP datagrams through `Client.DialUDP` without direct OS
-  UDP sockets; gateway `CapExitUDP` capability check and `AllowProxy` policy filtering
-  implemented. Synchronized shutdown via `udpWg` prevents race conditions.
-- **Phase 3 Live Acceptance**: Pending physical hardware uplink packet capture and
-  live gateway exit verification.
-- **Phase 4 (Truthful DNS Policy & Validation)**: Implemented. Strict IPv4/IPv6 address
-  validation, profile vs forced resolver routing in native netstack, EDNS0/DNSSEC 4096-byte
-  datagram support with IP reassembly, and TC=1 TCP fallback.
-- **Phase 7 (Authoritative Telemetry)**: Implemented. WireGuard peer Tx/Rx distinct
-  from TUN accepted/dropped counters, live Magicsock direct endpoint vs DERP relay
-  tracking, dynamic DERP region metadata resolution from DERPMap, RFC 3550 rolling jitter
-  (null when < 3 samples), drop counters (malformed, MTU, queue exhaustion, policy rejections),
-  version 2 telemetry schema in Go and Kotlin, and direct device-network benchmark labeling.
-- **Remaining Roadmap (Phases 5, 6, 8)**: IPv6 dual-stack / fail-closed, cancellable lifecycle
-  state machine, and physical acceptance / production signing.
+- **Phase 3 (Tunneled UDP Data Plane)**: Implementation complete in code. Unified
+  gVisor netstack proxy routes UDP datagrams through `Client.DialUDP` without
+  direct OS UDP sockets; gateway `CapExitUDP` check and `AllowProxy` filtering
+  exist. `udp` remains false until physical acceptance.
+- **Phase 4 (DNS routing)**: PROFILE/FORCED resolver routing and IP validation
+  exist. The engine does not inspect DNS TC bits. `dns` remains false until
+  promotion evidence.
+- **Phase 7 (Telemetry)**: Schema version 2 and live WireGuard peer counters exist
+  while a bridge is running. RTT is a prepare-time snapshot; production jitter is
+  always null. `liveStats` remains false until promotion evidence.
+- **Remaining (Phases 5, 6, 8, and 4/7 promotion)**: IPv6 dual-stack / fail-closed,
+  cancellable lifecycle state machine, capability promotion evidence, and physical
+  acceptance / production signing.
 
 ## Native engine API
 
@@ -50,20 +47,23 @@ prepare(token: String)
 attachTun(tunFd: Long)
 getStatsJSON() -> String
 stop()
+updateNetworkState(json: String)
+parseToken(token: String)
 ```
 
-The intended lifecycle is:
+Current behavior:
 
-1. `prepare` strictly validates the token, completes an authenticated gateway
-   handshake, and verifies gateway exit UDP capabilities before any route is created.
-2. Android creates the TUN only when a tested native engine advertises every
-   required capability.
-3. `attachTun` duplicates the descriptor and returns only after both packet
-   directions are live.
-4. Android sets `CONNECTED` only after attachment and after authoritative engine
-   state confirms a live data plane.
-5. `stop` cancels preparation and pumps, closes descriptors/sessions exactly
-   once, and is safe to call repeatedly.
+1. `getCapabilitiesJSON` reports API v2 with every unproven capability false, so
+   Kotlin refuses to create a default-route VPN.
+2. `prepare` validates an official token, completes a Meow/Meowed handshake, and
+   rejects TCP-only gateways. It holds the engine mutex across network I/O and
+   cannot be cancelled by `stop`.
+3. `attachTun` duplicates the descriptor and returns after the TUN read loop
+   goroutine starts.
+4. `updateNetworkState` accepts Android LinkProperties JSON. Kotlin uses it;
+   `parseToken` is exported for the AAR verifier.
+5. `stop` closes the bridge and client under the same mutex. The Phase 6
+   cancellable state machine is unimplemented.
 
 ## Token compatibility
 

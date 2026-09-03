@@ -282,21 +282,22 @@ type Capabilities struct {
 }
 
 // GetCapabilitiesJSON returns the capability contract.
-// Under Phase 0 fail-closed semantics, dataPlane and unproven data-plane
-// capabilities (WireGuard, Magicsock, IPv4/IPv6, TCP, UDP) remain false.
+// Under Phase 0 fail-closed semantics, every unproven capability stays false
+// until its promotion-table evidence in handoff.md exists. Implementation
+// present for DNS routing, telemetry, or two-phase start is not promotion.
 func GetCapabilitiesJSON() string {
 	caps := Capabilities{
 		APIVersion:          2,
 		DataPlane:           false,
 		WireGuard:           false,
 		Magicsock:           false,
-		TwoPhaseStart:       true,
+		TwoPhaseStart:       false,
 		IPv4:                false,
 		IPv6:                false,
 		TCP:                 false,
 		UDP:                 false,
-		DNS:                 true,
-		LiveStats:           true,
+		DNS:                 false,
+		LiveStats:           false,
 		CancelSafeLifecycle: false,
 	}
 	bytes, err := json.Marshal(caps)

@@ -184,7 +184,7 @@ func TestJitterNullWhenInsufficientSamples(t *testing.T) {
 		t.Fatalf("expected nil jitter for 1 sample, got %v", *stats.JitterMs)
 	}
 
-	// 2 samples: Jitter must still be nil (< 3 samples per RFC 3550 requirement)
+	// 2 samples: Jitter must still be nil (< 3 samples)
 	bridge.RecordRTT(35)
 	stats = bridge.GetStats()
 	if stats.JitterMs != nil {
