@@ -38,11 +38,7 @@ func init() {
 				}
 			}
 
-			c, err := d.DialContext(ctx, "udp", "8.8.8.8:53")
-			if err == nil {
-				return c, nil
-			}
-			return d.DialContext(ctx, "udp", "1.1.1.1:53")
+			return nil, fmt.Errorf("no Android DNS servers available")
 		},
 	}
 

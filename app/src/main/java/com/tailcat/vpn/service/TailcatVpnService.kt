@@ -29,7 +29,7 @@ class TailcatVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_VPN) {
-            shutdown()
+            serviceScope.launch { shutdown() }
             return START_NOT_STICKY
         }
 
@@ -176,25 +176,33 @@ class TailcatVpnService : VpnService() {
         shuttingDown = true
         startJob?.cancel()
         metricsCollectorJob?.cancel()
+        TailcatApplication.instance.tunnelController.stopPolling()
 
         runCatching { TailcatApplication.instance.tunnelEngine.stop() }
         runCatching { vpnInterface?.close() }
         vpnInterface = null
 
-        TailcatApplication.instance.tunnelController.onVpnStopped()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        val finish = {
+            TailcatApplication.instance.tunnelController.onVpnStopped()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            finish()
+        } else {
+            android.os.Handler(android.os.Looper.getMainLooper()).post(finish)
+        }
     }
 
     override fun onDestroy() {
-        shutdown()
-        serviceScope.cancel()
+        if (!shuttingDown) {
+            shutdown()
+        }
         super.onDestroy()
     }
 
     override fun onRevoke() {
-        shutdown()
-        super.onRevoke()
+        serviceScope.launch { shutdown() }
     }
 
     companion object {

@@ -121,8 +121,12 @@ class TunnelController(
         }
     }
 
-    fun stopTunnel() {
+    fun stopPolling() {
         pollingJob?.cancel()
+    }
+
+    fun stopTunnel() {
+        stopPolling()
         val intent = Intent(context, TailcatVpnService::class.java).apply {
             action = TailcatVpnService.ACTION_STOP_VPN
         }
@@ -138,7 +142,6 @@ class TunnelController(
         _lastError.value = null
         _networkMetrics.value = initialMetrics
         _tunnelState.value = TunnelState.CONNECTED
-        refreshPublicIp()
 
         pollingJob?.cancel()
         pollingJob = scope.launch {

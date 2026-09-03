@@ -356,7 +356,22 @@ func GetStatsJSON() string {
 		bridge = sess.bridge
 	}
 	health := globalCore.healthUnix.Load()
+	stopping := globalCore.stopping
 	globalCore.mu.Unlock()
+
+	if state == StateStopping || stopping {
+		stats := EngineStats{
+			Version:   2,
+			SessionID: sessionID,
+			State:     "STOPPING",
+			Transport: "DISCONNECTED",
+		}
+		b, err := json.Marshal(stats)
+		if err != nil {
+			return `{"version":2,"state":"STOPPED","transport":"DISCONNECTED"}`
+		}
+		return string(b)
+	}
 
 	if state != StateRunning && state != StateFailed {
 		stats := EngineStats{

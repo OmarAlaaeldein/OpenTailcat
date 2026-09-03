@@ -494,7 +494,13 @@ func (b *TunBridge) resolveRegionName(id int) string {
 
 // GetStats returns authoritative telemetry from the live bridge, netstack, and WireGuard engine.
 func (b *TunBridge) GetStats() EngineStats {
-	regionID := int(b.token.RegionID)
+	if b.closed.Load() {
+		return EngineStats{Version: 2, SessionID: b.sessionID, State: "STOPPING", Transport: "DISCONNECTED"}
+	}
+	regionID := 0
+	if b.token != nil {
+		regionID = int(b.token.RegionID)
+	}
 	egressIP, _ := b.egressIP.Load().(string)
 	egressErr, _ := b.egressErr.Load().(string)
 

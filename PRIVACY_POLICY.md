@@ -66,10 +66,9 @@ encrypted transport metadata. The gateway operator can observe decrypted exit
 traffic and connection metadata to the same extent as another VPN provider.
 OpenTailcat cannot make privacy promises on behalf of a user-selected gateway.
 
-Because this build refuses a default-route VPN, application traffic uses the
-device network. If a future incomplete engine installed IPv4 `0.0.0.0/0` without
-IPv6 `::/0`, destination services could observe the device's direct public IPv6.
-That is a known release blocker, not an intended split-tunnel feature.
+This development build may install IPv4 `0.0.0.0/0` and IPv6 `::/0`. IPv6 on
+the TUN is dropped. OpenTailcat's own UID and split-tunnel apps bypass the VPN.
+It is not leak-free.
 
 Apps explicitly selected in OpenTailcat's split-tunnel settings also bypass the
 VPN. OpenTailcat itself is always excluded so its Magicsock/DERP transport does

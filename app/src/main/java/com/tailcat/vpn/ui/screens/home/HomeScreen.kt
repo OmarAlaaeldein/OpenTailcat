@@ -202,7 +202,7 @@ fun HomeScreen(
                             style = MaterialTheme.typography.headlineLarge
                         )
                         Text(
-                            text = "Control-Plane-Free Mesh VPN",
+                            text = "Development test client — not leak-free",
                             style = MaterialTheme.typography.labelMedium
                         )
                     }
