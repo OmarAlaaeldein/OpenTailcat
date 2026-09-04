@@ -37,6 +37,7 @@ const (
 	udpIdleTimeout             = 30 * time.Second
 	maxActiveUDPFlowsTotal     = 1024
 	maxActiveUDPFlowsPerSource = 128
+	tcpMaxEstablished          = 1024
 	maxUDPPacketSize           = 65535
 )
 
@@ -49,6 +50,7 @@ type udpFlowKey struct {
 type udpFlow struct {
 	key          udpFlowKey
 	localConn    *gonet.UDPConn
+	remoteMu     sync.Mutex
 	remoteConn   net.Conn
 	lastActive   atomic.Int64 // unix timestamp in nanoseconds
 	closed       atomic.Bool
@@ -70,8 +72,11 @@ func (f *udpFlow) close() {
 		if f.localConn != nil {
 			_ = f.localConn.Close()
 		}
-		if f.remoteConn != nil {
-			_ = f.remoteConn.Close()
+		f.remoteMu.Lock()
+		rc := f.remoteConn
+		f.remoteMu.Unlock()
+		if rc != nil {
+			_ = rc.Close()
 		}
 	})
 }
@@ -90,6 +95,9 @@ type netstackProxy struct {
 	udpActivePerSource map[netip.Addr]int
 	udpActiveTotal     int
 	udpWg              sync.WaitGroup // pending accepts and active flow pumps
+
+	tcpActive atomic.Int32
+	tcpWg     sync.WaitGroup
 
 	closed atomic.Bool
 }
@@ -182,14 +190,17 @@ func (p *netstackProxy) writeLoop(ready chan struct{}) error {
 			return errors.New("gVisor output pump exited")
 		}
 		view := packet.ToView()
-		out := append([]byte(nil), view.AsSlice()...)
-		view.Release()
-		packet.DecRef()
+		out := view.AsSlice()
 		if len(out) == 0 {
+			view.Release()
+			packet.DecRef()
 			continue
 		}
 		p.bridge.rxBytes.Add(int64(len(out)))
-		if err := p.bridge.writeTunPacket(out); err != nil {
+		err := p.bridge.writeTunPacket(out)
+		view.Release()
+		packet.DecRef()
+		if err != nil {
 			if p.bridge.closed.Load() || p.bridge.ctx.Err() != nil {
 				return nil
 			}
@@ -198,15 +209,18 @@ func (p *netstackProxy) writeLoop(ready chan struct{}) error {
 	}
 }
 
-func (p *netstackProxy) resolveDNSDestination(dstAP netip.AddrPort) netip.AddrPort {
+func (p *netstackProxy) resolveDNSDestination(dstAP netip.AddrPort) (netip.AddrPort, bool) {
 	if dstAP.Port() != 53 || p.bridge == nil {
-		return dstAP
+		return dstAP, true
 	}
 	cfg := p.bridge.GetDNSConfig()
-	if cfg != nil && cfg.Policy == "FORCED_RESOLVER" && cfg.ForcedDNS.IsValid() {
-		return cfg.ForcedDNS
+	if cfg == nil || cfg.Policy != "FORCED_RESOLVER" {
+		return dstAP, true
 	}
-	return dstAP
+	if cfg.ForcedDNS.IsValid() && isSafeDNSAddr(cfg.ForcedDNS.Addr()) {
+		return cfg.ForcedDNS, true
+	}
+	return netip.AddrPort{}, false
 }
 
 func dialTimeoutFor(dst netip.AddrPort, v4Timeout time.Duration) time.Duration {
@@ -221,10 +235,21 @@ func (p *netstackProxy) acceptTCP(request *tcp.ForwarderRequest) {
 		request.Complete(true)
 		return
 	}
-	go p.proxyTCP(request)
+	if p.tcpActive.Load() >= tcpMaxEstablished {
+		request.Complete(true)
+		p.bridge.queueExhaustion.Add(1)
+		return
+	}
+	p.tcpActive.Add(1)
+	p.tcpWg.Add(1)
+	p.proxyTCP(request)
 }
 
 func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest) {
+	defer func() {
+		p.tcpActive.Add(-1)
+		p.tcpWg.Done()
+	}()
 	if p.closed.Load() || p.bridge == nil || p.bridge.client == nil {
 		request.Complete(true)
 		return
@@ -236,7 +261,12 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest) {
 		return
 	}
 	destination := netip.AddrPortFrom(destinationIP.Unmap(), id.LocalPort)
-	resolvedDst := p.resolveDNSDestination(destination)
+	resolvedDst, ok := p.resolveDNSDestination(destination)
+	if !ok {
+		request.Complete(true)
+		p.bridge.policyRejections.Add(1)
+		return
+	}
 
 	type dialResult struct {
 		conn net.Conn
@@ -369,55 +399,23 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 
 	localConn := gonet.NewUDPConn(&wq, ep)
 
-	resolvedDst := p.resolveDNSDestination(dstAP)
-
-	if p.bridge.tcpOnly && resolvedDst.Port() == 53 {
-		ctx, cancel := context.WithCancel(p.bridge.ctx)
-		flow := &udpFlow{
-			key:       flowKey,
-			localConn: localConn,
-			cancel:    cancel,
-		}
-		flow.touch()
-		p.udpMu.Lock()
-		if p.closed.Load() {
-			p.rollbackReservationLocked(srcAP.Addr())
-			p.udpMu.Unlock()
-			flow.close()
-			p.udpWg.Done()
-			return false
-		}
-		p.udpFlows[flowKey] = flow
-		p.udpMu.Unlock()
-		p.track(localConn)
-		go p.runDNSOverTCPFlow(ctx, flow, resolvedDst)
-		return true
-	}
-
-	ctx, cancel := context.WithCancel(p.bridge.ctx)
-	dialCtx, dialCancel := context.WithTimeout(ctx, dialTimeoutFor(resolvedDst, udpDialTimeout))
-	remoteConn, err := p.bridge.client.DialUDP(dialCtx, resolvedDst)
-	dialCancel()
-	if err != nil {
-		if strings.Contains(err.Error(), "proxy destination not permitted") {
-			p.bridge.policyRejections.Add(1)
-		}
+	resolvedDst, dnsOK := p.resolveDNSDestination(dstAP)
+	if !dnsOK {
+		p.bridge.policyRejections.Add(1)
 		localConn.Close()
-		cancel()
 		p.rollbackReservation(srcAP.Addr())
 		p.udpWg.Done()
 		return false
 	}
 
+	ctx, cancel := context.WithCancel(p.bridge.ctx)
 	flow := &udpFlow{
-		key:        flowKey,
-		localConn:  localConn,
-		remoteConn: remoteConn,
-		cancel:     cancel,
+		key:       flowKey,
+		localConn: localConn,
+		cancel:    cancel,
 	}
 	flow.touch()
 
-	// 3. Register active flow or roll back if closed concurrently
 	p.udpMu.Lock()
 	if p.closed.Load() {
 		p.rollbackReservationLocked(srcAP.Addr())
@@ -426,14 +424,54 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 		p.udpWg.Done()
 		return false
 	}
+	if existing, ok := p.udpFlows[flowKey]; ok && existing != nil && !existing.closed.Load() {
+		p.rollbackReservationLocked(srcAP.Addr())
+		p.udpMu.Unlock()
+		flow.close()
+		p.udpWg.Done()
+		return false
+	}
 	p.udpFlows[flowKey] = flow
 	p.udpMu.Unlock()
-
 	p.track(localConn)
-	p.track(remoteConn)
 
-	go p.runUDPFlow(ctx, flow)
+	if p.bridge.tcpOnly && resolvedDst.Port() == 53 {
+		go p.runDNSOverTCPFlow(ctx, flow, resolvedDst)
+		return true
+	}
+
+	go p.dialAndRunUDPFlow(ctx, flow, resolvedDst)
 	return true
+}
+
+func (p *netstackProxy) dialAndRunUDPFlow(ctx context.Context, flow *udpFlow, resolvedDst netip.AddrPort) {
+	dialCtx, dialCancel := context.WithTimeout(ctx, dialTimeoutFor(resolvedDst, udpDialTimeout))
+	remoteConn, err := p.bridge.client.DialUDP(dialCtx, resolvedDst)
+	dialCancel()
+	if err != nil {
+		if strings.Contains(err.Error(), "proxy destination not permitted") {
+			p.bridge.policyRejections.Add(1)
+		}
+		flow.close()
+		p.untrack(flow.localConn)
+		p.unregisterFlow(flow)
+		p.udpWg.Done()
+		return
+	}
+	flow.remoteMu.Lock()
+	flow.remoteConn = remoteConn
+	closed := flow.closed.Load()
+	flow.remoteMu.Unlock()
+	p.track(remoteConn)
+	if closed {
+		_ = remoteConn.Close()
+		p.untrack(flow.localConn)
+		p.untrack(remoteConn)
+		p.unregisterFlow(flow)
+		p.udpWg.Done()
+		return
+	}
+	p.runUDPFlow(ctx, flow, remoteConn)
 }
 
 func (p *netstackProxy) rollbackReservation(srcAddr netip.Addr) {
@@ -490,7 +528,6 @@ func (p *netstackProxy) runDNSOverTCPFlow(ctx context.Context, flow *udpFlow, ds
 			return
 		default:
 		}
-		_ = flow.localConn.SetReadDeadline(time.Now().Add(udpIdleTimeout))
 		n, err := flow.localConn.Read(buf)
 		if err != nil {
 			return
@@ -536,43 +573,37 @@ func (p *netstackProxy) exchangeDNSOverTCP(ctx context.Context, dst netip.AddrPo
 	return err
 }
 
-func (p *netstackProxy) runUDPFlow(ctx context.Context, flow *udpFlow) {
+func (p *netstackProxy) runUDPFlow(ctx context.Context, flow *udpFlow, remoteConn net.Conn) {
 	defer func() {
 		flow.close()
 		p.untrack(flow.localConn)
-		p.untrack(flow.remoteConn)
+		p.untrack(remoteConn)
 		p.unregisterFlow(flow)
 		p.udpWg.Done()
 	}()
 
 	done := make(chan struct{}, 2)
 
-	// Inbound TUN (local endpoint) -> Tunnel exit (remoteConn)
-	// Preserves zero-length datagrams (n >= 0 written directly)
 	go func() {
 		buf := make([]byte, maxUDPPacketSize)
 		for {
-			_ = flow.localConn.SetReadDeadline(time.Now().Add(udpIdleTimeout))
 			n, err := flow.localConn.Read(buf)
 			if err != nil {
 				break
 			}
 			flow.touch()
 			p.bridge.txBytes.Add(int64(n))
-			if _, err := flow.remoteConn.Write(buf[:n]); err != nil {
+			if _, err := remoteConn.Write(buf[:n]); err != nil {
 				break
 			}
 		}
 		done <- struct{}{}
 	}()
 
-	// Tunnel exit reply (remoteConn) -> Inbound TUN (local endpoint)
-	// Preserves zero-length datagrams (n >= 0 written directly)
 	go func() {
 		buf := make([]byte, maxUDPPacketSize)
 		for {
-			_ = flow.remoteConn.SetReadDeadline(time.Now().Add(udpIdleTimeout))
-			n, err := flow.remoteConn.Read(buf)
+			n, err := remoteConn.Read(buf)
 			if err != nil {
 				break
 			}
@@ -656,5 +687,6 @@ func (p *netstackProxy) Close() {
 	})
 
 	p.udpWg.Wait()
+	p.tcpWg.Wait()
 	p.stack.Destroy()
 }

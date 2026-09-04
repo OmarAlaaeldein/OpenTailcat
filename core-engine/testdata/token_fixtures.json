@@ -351,5 +351,31 @@
     "expectedClassification": "INVALID",
     "expectedErrorCode": "ERR_UNKNOWN_FIELD",
     "hasEmbeddedRegion": false
+  },
+  {
+    "name": "official_valid_short_with_psk",
+    "token": "tcpGFpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7YXBYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8YXFYIEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl9g",
+    "description": "Official short token with WireGuard pre-shared key q",
+    "expectedClassification": "VALID_OFFICIAL_SHORT",
+    "expectedNodeKeyHex": "07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c",
+    "expectedDiscoKeyHex": "5869aff450549732cbaaed5e5df9b30a6da31cb0e5742bad5ad4a1a768f1a67b",
+    "expectedRegionId": 302,
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_all_zero_preshared_key",
+    "token": "tcpGFpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7YXBYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8YXFYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "description": "Invalid token with all-zero preshared key q",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_PRESHARED_KEY",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_short_preshared_key",
+    "token": "tcpGFpGQEuYWtYIFhpr_RQVJcyy6rtXl35swptoxyw5XQrrVrUoado8aZ7YXBYIAejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8YXFQQUJDREVGR0hJSktMTU5PUA",
+    "description": "Invalid token with 16-byte preshared key q",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_PRESHARED_KEY",
+    "hasEmbeddedRegion": false
   }
 ]

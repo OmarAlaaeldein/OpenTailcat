@@ -43,8 +43,8 @@ Critical current behavior:
   Kotlin rejects v1 and requires `RUNNING` plus fresh `healthUnixSec` for
   CONNECTED. `liveStats` is test-enabled.
 - Capabilities: API v2 IPv4 test-routing flags true; `ipv6` false. After
-  `prepare`, Android attaches a host-only TUN, then installs `0.0.0.0/0` and
-  `::/0` and reattaches.
+  `prepare`, Android attaches a host-only TUN (no VPN DNS), `detachTun`, then
+  installs `0.0.0.0/0` and `::/0` with VPN DNS and reattaches.
 - Tests: unit, integration, race, lint, and build tests pass; complete live
   physical hardware tunnel test pending.
 
@@ -137,8 +137,9 @@ Current lifecycle:
 - `stop` is concurrent-idempotent and waits with a 3s bound.
 - `detachTun` stops pumps, keeps the prepared client, and returns to `PREPARED`.
 - `disarmPumps` clears pump-failure without stopping the session.
-- After `prepare`, Android establishes a host-only TUN, `attachTun`, `disarmPumps`,
-  then a routed TUN with `0.0.0.0/0` and `::/0` and `attachTun` again. The VPN
+- After `prepare`, Android establishes a host-only TUN (no VPN DNS), `attachTun`,
+  `detachTun`, then a routed TUN with `0.0.0.0/0` and `::/0` plus VPN DNS and
+  `attachTun` again. The VPN
   service is `START_STICKY` with `stopWithTask=false`. Shutdown closes the TUN
   before native `stop`. The UI resyncs CONNECTED from live `getStatsJSON`.
 

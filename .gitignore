@@ -56,3 +56,12 @@ Thumbs.db
 
 # Profiler & Memory Dumps
 *.hprof
+
+# Secrets, captures, and local env
+*.pem
+*.p12
+*.jks
+*.keystore
+*.pcap
+*.token
+.env

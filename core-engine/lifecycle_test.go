@@ -467,3 +467,19 @@ func TestEmptyNetworkStateDoesNotClearDNSPolicy(t *testing.T) {
 		t.Fatalf("empty JSON cleared DNS policy: %+v", pending)
 	}
 }
+
+func TestForcedResolverInvalidDoesNotFailOpen(t *testing.T) {
+	_ = Stop()
+	policy := "FORCED_RESOLVER"
+	loopback := "127.0.0.1"
+	if err := UpdateNetworkState(`{"isOnline":true,"networkType":"WIFI","interfaces":[],"dnsPolicy":"` + policy + `","forcedDns":"` + loopback + `"}`); err != nil {
+		t.Fatal(err)
+	}
+	pending := globalCore.pendingDNS.Load()
+	if pending == nil || pending.Policy != "FORCED_RESOLVER" {
+		t.Fatalf("expected FORCED_RESOLVER pending, got %+v", pending)
+	}
+	if pending.ForcedDNS.IsValid() {
+		t.Fatalf("loopback ForcedDNS must not be stored as valid, got %v", pending.ForcedDNS)
+	}
+}

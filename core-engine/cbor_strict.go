@@ -74,6 +74,7 @@ func (r *strictCborReader) readLength(info byte) (uint64, error) {
 var allowedCanonicalFields = map[string]bool{
 	"p":   true,
 	"k":   true,
+	"q":   true,
 	"i":   true,
 	"r":   true,
 	"exp": true,

@@ -305,6 +305,13 @@ func TestUpdateNetworkStateJSON(t *testing.T) {
 	netStateMu.RUnlock()
 }
 
+func TestUpdateNetworkStateRejectsOversizedJSON(t *testing.T) {
+	payload := strings.Repeat("a", MaxTokenStringLength+1)
+	if err := UpdateNetworkState(payload); err == nil {
+		t.Fatal("expected oversized network state JSON to be rejected")
+	}
+}
+
 func TestLiveMonitorLifecycle(t *testing.T) {
 	// 1. Initially activeMonitor must be nil before prepare/start
 	netStateMu.RLock()

@@ -95,6 +95,9 @@ type NetworkStatePayload struct {
 // interface addresses, and routes) and injects them into Tailscale netmon to trigger path re-evaluation.
 // This method is exported to Java via Go Mobile as: Engine.updateNetworkState(String).
 func UpdateNetworkState(networkStateJSON string) error {
+	if len(networkStateJSON) > MaxTokenStringLength {
+		return fmt.Errorf("network state JSON exceeds maximum size")
+	}
 	if strings.TrimSpace(networkStateJSON) == "" {
 		netStateMu.Lock()
 		customIfs = nil
@@ -173,15 +176,23 @@ func UpdateNetworkState(networkStateJSON string) error {
 
 func applyDNSPolicy(policyName string, forced *string) {
 	policy := "PROFILE_RESOLVER"
-	if strings.EqualFold(policyName, "FORCED_RESOLVER") {
+	switch strings.ToUpper(strings.TrimSpace(policyName)) {
+	case "PROFILE_RESOLVER", "GATEWAY_RESOLVER", "":
+		policy = "PROFILE_RESOLVER"
+	case "FORCED_RESOLVER":
 		policy = "FORCED_RESOLVER"
+	default:
+		return
 	}
 	var forcedAP netip.AddrPort
-	if forced != nil && *forced != "" {
+	if policy == "FORCED_RESOLVER" && forced != nil && *forced != "" {
 		if ap, err := netip.ParseAddrPort(*forced); err == nil {
 			forcedAP = ap
 		} else if ip, err := netip.ParseAddr(*forced); err == nil {
 			forcedAP = netip.AddrPortFrom(ip, 53)
+		}
+		if !forcedAP.IsValid() || !isSafeDNSAddr(forcedAP.Addr()) {
+			forcedAP = netip.AddrPort{}
 		}
 	}
 	cfg := DNSConfig{Policy: policy, ForcedDNS: forcedAP}
@@ -196,6 +207,10 @@ func applyDNSPolicy(policyName string, forced *string) {
 	if bridge != nil {
 		bridge.SetDNSConfig(cfg)
 	}
+}
+
+func isSafeDNSAddr(addr netip.Addr) bool {
+	return addr.IsValid() && (addr.IsGlobalUnicast() || addr.IsPrivate())
 }
 
 // DropCounters records packet drops and flow rejections by category.

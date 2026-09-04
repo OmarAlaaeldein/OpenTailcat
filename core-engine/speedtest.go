@@ -203,11 +203,12 @@ func tunnelHTTPPost(ctx context.Context, client TunnelClient, addr, sni, path st
 	}
 	_, _ = io.WriteString(tlsConn, "0\r\n\r\n")
 	resp, err := http.ReadResponse(bufio.NewReader(tlsConn), &http.Request{Method: http.MethodPost})
-	if err == nil {
-		_ = resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode > 299 {
-			return n, time.Since(start), fmt.Errorf("HTTP %d", resp.StatusCode)
-		}
+	if err != nil {
+		return 0, 0, err
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return n, time.Since(start), fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return n, time.Since(start), nil
 }

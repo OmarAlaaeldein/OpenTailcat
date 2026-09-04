@@ -28,18 +28,20 @@ type mockTunnelClient struct {
 
 func (m *mockTunnelClient) DialUDP(ctx context.Context, dst netip.AddrPort) (net.Conn, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.dialUDPFn != nil {
-		return m.dialUDPFn(ctx, dst)
+	fn := m.dialUDPFn
+	m.mu.Unlock()
+	if fn != nil {
+		return fn(ctx, dst)
 	}
 	return nil, errors.New("mock dialUDP not configured")
 }
 
 func (m *mockTunnelClient) DialTCP(ctx context.Context, dst netip.AddrPort) (net.Conn, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.dialTCPFn != nil {
-		return m.dialTCPFn(ctx, dst)
+	fn := m.dialTCPFn
+	m.mu.Unlock()
+	if fn != nil {
+		return fn(ctx, dst)
 	}
 	return nil, errors.New("mock dialTCP not configured")
 }
@@ -447,8 +449,8 @@ func TestBehavioralFlowLimitsAndBackpressure(t *testing.T) {
 	mockClient := &mockTunnelClient{
 		dialUDPFn: func(ctx context.Context, dst netip.AddrPort) (net.Conn, error) {
 			activeDials.Add(1)
-			c1, _ := newPairedDatagramConns()
-			return c1, nil
+			<-ctx.Done()
+			return nil, ctx.Err()
 		},
 	}
 
@@ -470,7 +472,7 @@ func TestBehavioralFlowLimitsAndBackpressure(t *testing.T) {
 		proxy.inject(pkt, false)
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	waitAtomic32(t, &activeDials, int32(maxActiveUDPFlowsPerSource), 2*time.Second, "per-source DialUDP")
 
 	proxy.udpMu.Lock()
 	activeCount := proxy.udpActivePerSource[srcAddr]
@@ -500,7 +502,7 @@ func TestBehavioralFlowLimitsAndBackpressure(t *testing.T) {
 		}
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	waitAtomic32(t, &activeDials, int32(maxActiveUDPFlowsTotal), 5*time.Second, "global DialUDP")
 
 	proxy.udpMu.Lock()
 	total := proxy.udpActiveTotal
@@ -673,8 +675,10 @@ func TestTunnelClientPathSelection(t *testing.T) {
 	pkt := buildIPv4UDPPacket(srcAP, dstAP, []byte("isolated-tunneled-query"))
 
 	proxy.inject(pkt, false)
-	time.Sleep(50 * time.Millisecond)
-
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && tunneledDialCount.Load() < 1 {
+		time.Sleep(10 * time.Millisecond)
+	}
 	if tunneledDialCount.Load() != 1 {
 		t.Errorf("Expected exactly 1 tunneled DialUDP call, got %d", tunneledDialCount.Load())
 	}
@@ -791,16 +795,14 @@ func TestAcceptCloseRace(t *testing.T) {
 			close(closeDone)
 		}()
 
-		// Close must wait for the already-accounted pending accept.
 		select {
 		case <-closeDone:
-			t.Fatal("Close returned while a reserved UDP accept was still pending")
-		case <-time.After(10 * time.Millisecond):
+		case <-time.After(2 * time.Second):
+			close(releaseDial)
+			t.Fatal("Close did not return after cancelling a pending DialUDP")
 		}
-
 		close(releaseDial)
 		<-injectDone
-		<-closeDone
 		cancel()
 
 		proxy.udpMu.Lock()
@@ -812,6 +814,57 @@ func TestAcceptCloseRace(t *testing.T) {
 			t.Fatalf("shutdown leaked UDP accounting: total=%d flows=%d sources=%d", total, flows, sources)
 		}
 	}
+}
+
+func TestUDPDialDoesNotBlockInject(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var started atomic.Int32
+	release := make(chan struct{})
+	mockClient := &mockTunnelClient{
+		dialUDPFn: func(ctx context.Context, dst netip.AddrPort) (net.Conn, error) {
+			started.Add(1)
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			c1, _ := newPairedDatagramConns()
+			return c1, nil
+		},
+	}
+	bridge := &TunBridge{ctx: ctx, cancel: cancel, client: mockClient, token: &ParsedToken{RegionID: 1}}
+	proxy, err := newNetstackProxy(bridge)
+	if err != nil {
+		t.Fatalf("newNetstackProxy: %v", err)
+	}
+	defer proxy.Close()
+	bridge.netstack = proxy
+
+	query := []byte("udp-block-test")
+	proxy.inject(buildIPv4UDPPacket(netip.MustParseAddrPort("10.0.0.2:40001"), netip.MustParseAddrPort("1.1.1.1:53"), query), false)
+	proxy.inject(buildIPv4UDPPacket(netip.MustParseAddrPort("10.0.0.2:40002"), netip.MustParseAddrPort("1.1.1.1:53"), query), false)
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) && started.Load() < 2 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if started.Load() < 2 {
+		t.Fatalf("second UDP flow blocked behind DialUDP, started=%d", started.Load())
+	}
+	close(release)
+}
+
+func waitAtomic32(t *testing.T, v *atomic.Int32, want int32, timeout time.Duration, what string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if v.Load() >= want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s (got %d, want %d)", what, v.Load(), want)
 }
 
 func TestDialTimeoutForIPv6IsShort(t *testing.T) {

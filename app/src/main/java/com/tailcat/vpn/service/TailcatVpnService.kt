@@ -99,7 +99,7 @@ class TailcatVpnService : VpnService() {
             vpnInterface = warm
             attachLive(app, warm, networkState)
             currentCoroutineContext().ensureActive()
-            app.tunnelEngine.disarmPumps()
+            app.tunnelEngine.detachTun()
 
             val routed = vpnBuilder(profile, dnsValidation.ip, defaultRoutes = true).establish()
                 ?: throw IllegalStateException("Android could not establish the VPN interface")
@@ -146,8 +146,10 @@ class TailcatVpnService : VpnService() {
             .setMtu(profile.mtu)
             .addAddress(VpnInterfaceSpec.IPV4_ADDRESS, VpnInterfaceSpec.IPV4_PREFIX)
             .addAddress(VpnInterfaceSpec.IPV6_ADDRESS, VpnInterfaceSpec.IPV6_PREFIX)
-            .addDnsServer(dnsIp)
             .setBlocking(true)
+        if (defaultRoutes) {
+            builder.addDnsServer(dnsIp)
+        }
         for (route in VpnInterfaceSpec.defaultRoutes(defaultRoutes)) {
             builder.addRoute(route.address, route.prefixLength)
         }

@@ -55,6 +55,7 @@ type session struct {
 	transport string
 	rttMs     int64
 	tcpOnly   bool
+	closeOnce sync.Once
 }
 
 type TailcatCore struct {
@@ -87,13 +88,9 @@ func (c *TailcatCore) markFailed(sess *session, err error) {
 		c.lastErr = err.Error()
 	}
 	c.healthUnix.Store(0)
-	bridge := sess.bridge
 	c.mu.Unlock()
 
-	sess.cancel()
-	if bridge != nil && bridge.tunFile != nil {
-		_ = bridge.tunFile.Close()
-	}
+	go closeSession(sess)
 }
 
 func closeSession(sess *session) {
@@ -101,14 +98,14 @@ func closeSession(sess *session) {
 		return
 	}
 	sess.cancel()
-	if sess.bridge != nil {
-		_ = sess.bridge.Stop()
-		sess.bridge = nil
-	}
-	if sess.client != nil {
-		_ = sess.client.Close()
-		sess.client = nil
-	}
+	sess.closeOnce.Do(func() {
+		if sess.bridge != nil {
+			_ = sess.bridge.Stop()
+		}
+		if sess.client != nil {
+			_ = sess.client.Close()
+		}
+	})
 }
 
 func Prepare(tokenStr string) error {

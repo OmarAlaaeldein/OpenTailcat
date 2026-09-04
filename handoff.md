@@ -16,7 +16,7 @@ unsafe shortcuts already found in the tree.
 - Phase 3 tunneled UDP data plane implementation complete; live physical acceptance pending; IPv4 `udp` is test-enabled.
 - Phase 4 DNS routing exists with pending-config and omit-means-preserve; IPv4 `dns` is test-enabled.
 - Phase 5 IPv6 TCP/UDP is proxied with a 250ms dial timeout; ICMPv6 echo is dropped; oversized IPv6 gets a local Packet Too Big; Android installs `::/0` only after pumps are live; `ipv6` remains false.
-- Phase 6 cancellable session context, readiness barriers, pump-failure `FAILED`, bounded `Stop`, `DetachTun`, and `DisarmPumps` exist. After `prepare`, Android establishes a host-only TUN, attaches pumps, `disarmPumps`, then installs `0.0.0.0/0` and `::/0` and reattaches. The VPN service is `START_STICKY` with `stopWithTask=false`; shutdown closes the TUN before native `stop`. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
+- Phase 6 cancellable session context, readiness barriers, pump-failure `FAILED`, bounded `Stop`, `DetachTun`, and `DisarmPumps` exist. After `prepare`, Android establishes a host-only TUN (no VPN DNS), attaches pumps, `detachTun`, then installs `0.0.0.0/0` and `::/0` with VPN DNS and reattaches. The VPN service is `START_STICKY` with `stopWithTask=false`; shutdown closes the TUN before native `stop`. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
 - Phase 7 telemetry schema and WireGuard counters exist; RTT is sampled from live `DiscoPing` while a bridge is running; Kotlin rejects schema v1 and does not synthesize `RUNNING`; `liveStats` is test-enabled.
 - Upstream Tailcat base: signed `v0.4.0`, commit
   `ce6fedcabc220bab3b94d470ab330219111eeae8`.
@@ -24,7 +24,7 @@ unsafe shortcuts already found in the tree.
   unmodified `0c31395bfd1ae0c0ef2917c0ec20432466087417` (application-layer UDP).
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.1 and NDK 29.0.14206865. Current SHA-256:
-   `0d692f762a3e664e1018ff66f0eb45f9ffdbb8aa73e49e2e7983aadbc2163554`.
+   `2c7dab1b6fc054d4d2eea7db53b99212995a3954bfb9f4ad76f04019c91ec623`.
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
@@ -133,7 +133,7 @@ Checkpoint status:
 - Phase 3 — implementation complete: native userspace netstack UDP proxy using upstream `Client.DialUDP` / `OnUDPForward`; physical-device live acceptance pending; IPv4 `udp` is test-enabled.
 - Phase 4 — DNS routing code exists: pending DNS is stored before attach and applied on `attachTun`. Absent `dnsPolicy` in later `updateNetworkState` does not reset policy. `GATEWAY_RESOLVER` is unused (treated as PROFILE). The engine does not inspect DNS TC bits. IPv4 `dns` is test-enabled.
 - Phase 5 — IPv6 TCP/UDP proxied with a 250ms dial timeout; ICMPv6 echo dropped; oversized IPv6 gets Packet Too Big; Android installs `::/0` after pumps are live. `ipv6` remains false.
-- Phase 6 — session context, short mutex, always-Close previous client, readiness barriers, pump-exit `FAILED` + `healthUnixSec`, bounded `Stop`, `DetachTun`, `DisarmPumps`. After `prepare`, Android establishes a host-only TUN, attaches, `disarmPumps`, then installs `0.0.0.0/0`/`::/0` and reattaches. Sticky VPN service; TUN closed before native `stop`. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
+- Phase 6 — session context, short mutex, always-Close previous client, readiness barriers, pump-exit `FAILED` + `healthUnixSec`, bounded `Stop`, `DetachTun`, `DisarmPumps`. After `prepare`, Android establishes a host-only TUN (no VPN DNS), attaches, `detachTun`, then installs `0.0.0.0/0`/`::/0` with VPN DNS and reattaches. Sticky VPN service; TUN closed before native `stop`. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
 - Phase 7 — telemetry code exists: schema version 2. RTT is sampled from `DiscoPing` about every 5s while a bridge is running; jitter is null until three samples. WireGuard peer Tx/Rx stay 0 because upstream `Client` has no Status API. Kotlin requires version 2, does not synthesize missing `state` as `RUNNING`, and CONNECTED requires live `RUNNING` + fresh `healthUnixSec`. `liveStats` is test-enabled.
 - Phase 8 — planned. IPv4 test-routing flags are true; `ipv6` remains false until dual-stack evidence.
 
@@ -192,7 +192,7 @@ the expected API, dependencies, ABIs, and 16 KB alignment.
 ### Phase 2: unify the token contract
 
 **Checkpoint complete.** The canonical read-only fixture corpus is
-`core-engine/testdata/token_fixtures.json`; it contains 43 deterministic cases.
+`core-engine/testdata/token_fixtures.json`; it contains 46 deterministic cases.
 `go run ./cmd/generate-fixtures` is the only fixture-generation path and uses
 fixed key material. Both parsers reject whitespace and Base64URL padding,
 accept only canonical upstream field names, preserve accepted token bytes, and
@@ -364,8 +364,8 @@ client. `attachTun` waits for TUN read, gVisor output, UDP, and health loops
 to enter. Required pump exit sets `FAILED` and clears `healthUnixSec`. `Stop` is
 bounded and concurrent-idempotent. `DetachTun` stops pumps and returns to
 `PREPARED`. `DisarmPumps` clears pump-failure without stopping the session.
-After `prepare`, Android establishes a host-only TUN, attaches pumps,
-`disarmPumps`, then a routed TUN with `0.0.0.0/0`/`::/0`. The VPN service is
+After `prepare`, Android establishes a host-only TUN (no VPN DNS), attaches pumps,
+`detachTun`, then a routed TUN with `0.0.0.0/0`/`::/0` and VPN DNS. The VPN service is
 `START_STICKY` with `stopWithTask=false`. Shutdown closes the TUN before native
 `stop`. CONNECTED requires native `RUNNING` plus fresh `healthUnixSec`. Unknown
 capability JSON fields fail closed.

@@ -653,10 +653,18 @@ object TokenParser {
     private fun rejectUnsafeDerpEndpoint(label: String, value: String) {
         if (value == "none") return
         val lower = value.lowercase()
-        if (lower == "localhost" || lower.endsWith(".localhost") || lower == "ip6-localhost") {
+        if (lower == "localhost" || lower.endsWith(".localhost") || lower == "ip6-localhost" ||
+            lower == "metadata.google.internal" || lower == "metadata.internal"
+        ) {
             throw IllegalArgumentException("embedded DERP $label is a loopback name")
         }
-        val ip = literalIp(value) ?: return
+        val ip = literalIp(value)
+        if (ip == null) {
+            if (hostnameHasEmbeddedIp(value)) {
+                throw IllegalArgumentException("embedded DERP $label embeds an IP address")
+            }
+            return
+        }
         if (ip.isLoopbackAddress) {
             throw IllegalArgumentException("embedded DERP $label is a loopback address")
         }
@@ -671,13 +679,18 @@ object TokenParser {
         }
     }
 
-    private fun literalIp(value: String): java.net.InetAddress? {
-        if (value.contains(':')) {
-            return runCatching {
-                val addr = java.net.InetAddress.getByName(value)
-                if (addr is java.net.Inet6Address) addr else null
-            }.getOrNull()
+    private fun hostnameHasEmbeddedIp(value: String): Boolean {
+        val host = value.substringBefore('%').lowercase()
+        val labels = host.split('.')
+        if (labels.size < 4) return false
+        for (i in 0..labels.size - 4) {
+            val candidate = labels.subList(i, i + 4).joinToString(".")
+            if (literalIpv4(candidate) != null) return true
         }
+        return false
+    }
+
+    private fun literalIpv4(value: String): java.net.InetAddress? {
         val parts = value.split('.')
         if (parts.size != 4) return null
         val bytes = ByteArray(4)
@@ -687,6 +700,20 @@ object TokenParser {
             bytes[i] = n.toByte()
         }
         return java.net.InetAddress.getByAddress(bytes)
+    }
+
+    private fun literalIp(value: String): java.net.InetAddress? {
+        if (value.contains(':')) {
+            val host = value.substringBefore('%')
+            if (!host.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' || it == ':' || it == '.' }) {
+                return null
+            }
+            return runCatching {
+                val addr = java.net.InetAddress.getByName(host)
+                if (addr is java.net.Inet6Address) addr else null
+            }.getOrNull()
+        }
+        return literalIpv4(value)
     }
 }
 

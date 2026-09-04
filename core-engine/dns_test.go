@@ -767,10 +767,14 @@ func TestDNSLeakPrevention(t *testing.T) {
 		t.Fatalf("Expected all %d targets to be routed through TunnelClient, got %d", len(targets), len(dialedDestinations))
 	}
 
-	for i, target := range targets {
+	got := make(map[netip.AddrPort]int, len(dialedDestinations))
+	for _, d := range dialedDestinations {
+		got[d]++
+	}
+	for _, target := range targets {
 		expected := netip.MustParseAddrPort(target)
-		if dialedDestinations[i] != expected {
-			t.Errorf("Target %d mismatched: got %v, want %v", i, dialedDestinations[i], expected)
+		if got[expected] != 1 {
+			t.Errorf("expected one DialUDP to %v, got %d", expected, got[expected])
 		}
 	}
 }

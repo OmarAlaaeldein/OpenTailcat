@@ -578,11 +578,15 @@ func rejectUnsafeDERPEndpoint(label, value string) error {
 		return nil
 	}
 	lower := strings.ToLower(value)
-	if lower == "localhost" || strings.HasSuffix(lower, ".localhost") || lower == "ip6-localhost" {
+	if lower == "localhost" || strings.HasSuffix(lower, ".localhost") || lower == "ip6-localhost" ||
+		lower == "metadata.google.internal" || lower == "metadata.internal" {
 		return fmt.Errorf("embedded DERP %s is a loopback name", label)
 	}
 	addr, err := netip.ParseAddr(value)
 	if err != nil {
+		if hostnameHasEmbeddedIP(value) {
+			return fmt.Errorf("embedded DERP %s embeds an IP address", label)
+		}
 		return nil
 	}
 	switch {
@@ -596,6 +600,20 @@ func rejectUnsafeDERPEndpoint(label, value string) error {
 		return fmt.Errorf("embedded DERP %s is a multicast address", label)
 	}
 	return nil
+}
+
+func hostnameHasEmbeddedIP(value string) bool {
+	host := value
+	if i := strings.IndexByte(host, '%'); i >= 0 {
+		host = host[:i]
+	}
+	labels := strings.Split(strings.ToLower(host), ".")
+	for i := 0; i+3 < len(labels); i++ {
+		if _, err := netip.ParseAddr(strings.Join(labels[i:i+4], ".")); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 var allowedEmbeddedRegionFields = map[string]bool{
@@ -635,9 +653,13 @@ func parseStructuredDERPRegions(rawList []any) ([]*tailcfg.DERPRegion, error) {
 				rID = int64(v)
 			case int64:
 				rID = v
+			default:
+				return nil, errors.New("embedded region has invalid region ID type")
 			}
-		}
-		if rID == 0 {
+			if rID == 0 {
+				return nil, errors.New("embedded region has invalid region ID: 0")
+			}
+		} else {
 			rID = int64(ri + 1)
 		}
 		if rID < 1 || rID > 65535 {

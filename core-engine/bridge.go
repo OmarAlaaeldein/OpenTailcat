@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tailscale/tailcat"
 	"tailscale.com/ipn/ipnstate"
 )
 
@@ -60,6 +61,7 @@ type TunBridge struct {
 	rttMu       sync.Mutex
 	rttSamples  []int64
 	rttSampling atomic.Bool
+	pingFails   atomic.Int32
 
 	// Egress probe audit results
 	egressIP        atomic.Value // string
@@ -288,11 +290,8 @@ func (b *TunBridge) readLoop(ready chan struct{}) error {
 			continue
 		}
 
-		pkt := make([]byte, n)
-		copy(pkt, buf[:n])
 		b.txBytes.Add(int64(n))
-
-		b.handleOutboundPacket(pkt)
+		b.handleOutboundPacket(buf[:n])
 	}
 }
 
@@ -365,15 +364,19 @@ func (b *TunBridge) handleIPv6(pkt []byte) {
 		b.malformedIP.Add(1)
 		return
 	}
-	nextHeader := pkt[6]
+	nextHeader, l4off, ok := ipv6FinalNextHeader(pkt)
+	if !ok {
+		b.malformedIP.Add(1)
+		return
+	}
 	switch nextHeader {
-	case 58: // ICMPv6
+	case 58:
 		b.policyRejections.Add(1)
 		return
 	case 6:
 		b.tcpPackets.Add(1)
-		if len(pkt) >= 44 {
-			dstPort := binary.BigEndian.Uint16(pkt[42:44])
+		if len(pkt) >= l4off+4 {
+			dstPort := binary.BigEndian.Uint16(pkt[l4off+2 : l4off+4])
 			if dstPort == 53 {
 				b.dnsQueries.Add(1)
 			}
@@ -381,8 +384,8 @@ func (b *TunBridge) handleIPv6(pkt []byte) {
 		b.netstack.inject(pkt, true)
 	case 17:
 		b.udpPackets.Add(1)
-		if len(pkt) >= 44 {
-			dstPort := binary.BigEndian.Uint16(pkt[42:44])
+		if len(pkt) >= l4off+4 {
+			dstPort := binary.BigEndian.Uint16(pkt[l4off+2 : l4off+4])
 			if dstPort == 53 {
 				b.dnsQueries.Add(1)
 			}
@@ -391,6 +394,47 @@ func (b *TunBridge) handleIPv6(pkt []byte) {
 	default:
 		b.netstack.inject(pkt, true)
 	}
+}
+
+func ipv6FinalNextHeader(pkt []byte) (byte, int, bool) {
+	if len(pkt) < 40 {
+		return 0, 0, false
+	}
+	nh := pkt[6]
+	off := 40
+	for i := 0; i < 8; i++ {
+		switch nh {
+		case 0, 43, 60:
+			if len(pkt) < off+2 {
+				return 0, 0, false
+			}
+			hdrLen := int(pkt[off+1]+1) * 8
+			if hdrLen < 8 || len(pkt) < off+hdrLen {
+				return 0, 0, false
+			}
+			nh = pkt[off]
+			off += hdrLen
+		case 44:
+			if len(pkt) < off+8 {
+				return 0, 0, false
+			}
+			nh = pkt[off]
+			off += 8
+		case 51:
+			if len(pkt) < off+2 {
+				return 0, 0, false
+			}
+			hdrLen := int(pkt[off+1]+2) * 4
+			if hdrLen < 8 || len(pkt) < off+hdrLen {
+				return 0, 0, false
+			}
+			nh = pkt[off]
+			off += hdrLen
+		default:
+			return nh, off, true
+		}
+	}
+	return 0, 0, false
 }
 
 func (b *TunBridge) writeICMPv6PacketTooBig(pkt []byte) {
@@ -561,6 +605,7 @@ func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 					lastRTTSample = t
 					go func() {
 						defer b.rttSampling.Store(false)
+						b.sampleGatewayPing()
 						b.sampleLiveRTT()
 					}()
 				}
@@ -583,12 +628,38 @@ func (b *TunBridge) sampleLiveRTT() {
 	if err != nil || res == nil || res.LatencySeconds <= 0 {
 		return
 	}
+	transport := "DERP_RELAY"
 	if res.Endpoint != "" {
-		b.transport = "DIRECT_P2P"
-	} else {
-		b.transport = "DERP_RELAY"
+		transport = "DIRECT_P2P"
 	}
+	b.rttMu.Lock()
+	b.transport = transport
+	b.rttMu.Unlock()
 	b.RecordRTT(int64(res.LatencySeconds * 1000))
+}
+
+type gatewayPinger interface {
+	Ping(context.Context) (tailcat.PingResult, error)
+}
+
+func (b *TunBridge) sampleGatewayPing() {
+	if b.client == nil {
+		return
+	}
+	sampler, ok := b.client.(gatewayPinger)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(b.ctx, rttSampleTimeout)
+	defer cancel()
+	res, err := sampler.Ping(ctx)
+	if err != nil || res.Latency <= 0 {
+		if b.pingFails.Add(1) >= 3 {
+			b.reportPumpDead(errors.New("gateway ping failed"))
+		}
+		return
+	}
+	b.pingFails.Store(0)
 }
 
 // GetStats returns current measured metrics from the live bridge and client.
@@ -643,11 +714,15 @@ func (b *TunBridge) GetStats() EngineStats {
 	egressIP, _ := b.egressIP.Load().(string)
 	egressErr, _ := b.egressErr.Load().(string)
 
+	b.rttMu.Lock()
+	transport := b.transport
+	b.rttMu.Unlock()
+
 	stats := EngineStats{
 		Version:          2,
 		SessionID:        b.sessionID,
 		State:            "RUNNING",
-		Transport:        b.transport,
+		Transport:        transport,
 		DerpRegionID:     regionID,
 		TunnelEgressIP:   egressIP,
 		EgressAuditError: egressErr,

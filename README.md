@@ -75,9 +75,10 @@ Current behavior:
    allows TCP-only gateways (DNS over TCP; other UDP dropped). `stop` cancels an
    in-flight `prepare`.
 3. `attachTun` duplicates the descriptor and returns after required pumps have
-   entered their loops. Pump death reports `FAILED`. `detachTun` stops pumps and
-   keeps the prepared client. `disarmPumps` clears pump-failure so default
-   routes can be installed and the TUN reattached without a `FAILED` race.
+    entered their loops. Pump death reports `FAILED`. `detachTun` stops pumps and
+    keeps the prepared client. Two-phase start uses `detachTun` between the
+    host-only TUN and the routed TUN. `disarmPumps` still clears pump-failure
+    without stopping the session.
 4. `updateNetworkState` accepts Android LinkProperties JSON. Absent `dnsPolicy`
    preserves the pending resolver policy.
 5. `stop` is bounded and idempotent. `ipv6` stays false.
@@ -96,7 +97,7 @@ Current official tokens use:
 }))
 ```
 
-The Kotlin and Go parsers share one deterministic 43-vector corpus generated
+The Kotlin and Go parsers share one deterministic 46-vector corpus generated
 from the pinned upstream version. Official tokens are passed to upstream
 unchanged. Historical numeric-`r` tokens are classified as
 `LEGACY_REISSUE_REQUIRED` and cannot connect; no disco key is invented. Both

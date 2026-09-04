@@ -413,6 +413,37 @@ func main() {
 	unknownFieldCBOR, _ := canonicalEncMode.Marshal(unknownFieldMap)
 	unknownFieldToken := "tc" + base64.RawURLEncoding.EncodeToString(unknownFieldCBOR)
 
+	psk := make([]byte, 32)
+	for i := 0; i < 32; i++ {
+		psk[i] = byte(i + 65)
+	}
+	validPSKMap := map[string]any{
+		"p": nodePubBytes[:],
+		"k": discoPubBytes[:],
+		"i": uint64(302),
+		"q": psk,
+	}
+	validPSKCBOR, _ := canonicalEncMode.Marshal(validPSKMap)
+	validPSKToken := "tc" + base64.RawURLEncoding.EncodeToString(validPSKCBOR)
+
+	zeroPSKMap := map[string]any{
+		"p": nodePubBytes[:],
+		"k": discoPubBytes[:],
+		"i": uint64(302),
+		"q": make([]byte, 32),
+	}
+	zeroPSKCBOR, _ := canonicalEncMode.Marshal(zeroPSKMap)
+	zeroPSKToken := "tc" + base64.RawURLEncoding.EncodeToString(zeroPSKCBOR)
+
+	shortPSKMap := map[string]any{
+		"p": nodePubBytes[:],
+		"k": discoPubBytes[:],
+		"i": uint64(302),
+		"q": psk[:16],
+	}
+	shortPSKCBOR, _ := canonicalEncMode.Marshal(shortPSKMap)
+	shortPSKToken := "tc" + base64.RawURLEncoding.EncodeToString(shortPSKCBOR)
+
 	fixtures := []TokenFixture{
 		{
 			Name:                   "official_valid_short",
@@ -728,6 +759,30 @@ func main() {
 			Description:            "Invalid token containing unknown field",
 			ExpectedClassification: "INVALID",
 			ExpectedErrorCode:      "ERR_UNKNOWN_FIELD",
+		},
+		{
+			Name:                   "official_valid_short_with_psk",
+			Token:                  validPSKToken,
+			Description:            "Official short token with WireGuard pre-shared key q",
+			ExpectedClassification: "VALID_OFFICIAL_SHORT",
+			ExpectedNodeKeyHex:     hex.EncodeToString(nodePubBytes[:]),
+			ExpectedDiscoKeyHex:    hex.EncodeToString(discoPubBytes[:]),
+			ExpectedRegionID:       302,
+			HasEmbeddedRegion:      false,
+		},
+		{
+			Name:                   "invalid_all_zero_preshared_key",
+			Token:                  zeroPSKToken,
+			Description:            "Invalid token with all-zero preshared key q",
+			ExpectedClassification: "INVALID",
+			ExpectedErrorCode:      "ERR_INVALID_PRESHARED_KEY",
+		},
+		{
+			Name:                   "invalid_short_preshared_key",
+			Token:                  shortPSKToken,
+			Description:            "Invalid token with 16-byte preshared key q",
+			ExpectedClassification: "INVALID",
+			ExpectedErrorCode:      "ERR_INVALID_PRESHARED_KEY",
 		},
 	}
 

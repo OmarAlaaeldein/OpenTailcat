@@ -59,7 +59,7 @@ fun PowerToggleRing(
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = if (isConnecting || isConnected) 1.08f else 1f,
+        targetValue = if (isConnecting) 1.08f else 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(1500, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse

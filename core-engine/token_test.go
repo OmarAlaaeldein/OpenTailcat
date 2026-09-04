@@ -206,3 +206,14 @@ func TestParseTokenRejectsLinkLocalDERPEndpoint(t *testing.T) {
 		t.Fatalf("expected link-local in error, got %q", pt.ErrorMessage)
 	}
 }
+
+func TestParseTokenRejectsHostnameEmbeddedIP(t *testing.T) {
+	token := insecureDERPToken(t, "h", "127.0.0.1.nip.io")
+	pt, err := ParseToken(token)
+	if err == nil || pt.IsConnectable() {
+		t.Fatal("token with IP-embedded DERP hostname must not be connectable")
+	}
+	if pt.ErrorCode != ErrInvalidStructuredRegion {
+		t.Fatalf("expected ERR_INVALID_STRUCTURED_REGION, got %s", pt.ErrorCode)
+	}
+}

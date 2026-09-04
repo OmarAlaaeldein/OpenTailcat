@@ -93,6 +93,8 @@ class TunnelEngine : NativeEngine {
         }
     }
 
+    private val methodCache = java.util.concurrent.ConcurrentHashMap<String, Method>()
+
     override val availability: EngineAvailability by lazy { inspectAvailability() }
 
     override fun prepare(token: String) {
@@ -210,10 +212,14 @@ class TunnelEngine : NativeEngine {
     }
 
     private fun requireMethod(name: String, parameterCount: Int): Method {
+        val cacheKey = "$name:$parameterCount"
+        methodCache[cacheKey]?.let { return it }
         val klass = engineClass ?: error("VPN engine is not installed in this build")
-        return klass.methods.firstOrNull {
+        val method = klass.methods.firstOrNull {
             it.name.equals(name, ignoreCase = true) && it.parameterCount == parameterCount
         } ?: error("VPN engine is missing $name")
+        methodCache[cacheKey] = method
+        return method
     }
 
     private fun invoke(method: Method, vararg arguments: Any): Any? {
