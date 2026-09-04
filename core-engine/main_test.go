@@ -387,16 +387,13 @@ func (c *prepareTestClient) Close() error {
 	c.closed = true
 	return nil
 }
-func (c *prepareTestClient) Dial(context.Context, string, string) (net.Conn, error) {
-	return nil, errors.New("unexpected Dial")
-}
 func (c *prepareTestClient) DialTCP(context.Context, netip.AddrPort) (net.Conn, error) {
 	return nil, errors.New("unexpected DialTCP")
 }
 func (c *prepareTestClient) DialUDP(context.Context, netip.AddrPort) (net.Conn, error) {
 	return nil, errors.New("unexpected DialUDP")
 }
-func (c *prepareTestClient) Status() *ipnstate.Status       { return nil }
+func (c *prepareTestClient) Status() *ipnstate.Status      { return nil }
 func (c *prepareTestClient) ServerNodeKey() key.NodePublic { return key.NodePublic{} }
 func (c *prepareTestClient) DERPMap() *tailcfg.DERPMap     { return nil }
 

@@ -7,8 +7,6 @@ import com.tailcat.vpn.core.NetworkType
 import com.tailcat.vpn.core.model.GatewayProfile
 import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TunnelState
-import com.tailcat.vpn.core.token.TokenParser
-import com.tailcat.vpn.core.token.TokenValidationState
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,14 +40,8 @@ class HomeViewModel : ViewModel() {
         }
     }
 
-    fun isOnline(): Boolean = networkMonitor.isOnline
-
-    fun validateTokenInput(token: String): TokenValidationState {
-        return TokenParser.validate(token)
-    }
-
     fun refreshIp() {
-        if (!isOnline()) {
+        if (!networkMonitor.isOnline) {
             viewModelScope.launch {
                 _uiEvent.emit("Cannot refresh IP: Device is offline")
             }

@@ -244,13 +244,13 @@ func AttachTun(tunFD int) error {
 	}
 
 	if parentCtx.Err() != nil {
-		abandonAttach(sess, nil)
+		abandonAttach(sess)
 		return parentCtx.Err()
 	}
 
 	bridge, err := newTunBridge(tunFD, client, token, transport, rttMs, sessionID, parentCtx)
 	if err != nil {
-		abandonAttach(sess, nil)
+		abandonAttach(sess)
 		return fmt.Errorf("create tun bridge: %w", err)
 	}
 	bridge.tcpOnly = tcpOnly
@@ -271,7 +271,7 @@ func AttachTun(tunFD int) error {
 
 	if err := bridge.Start(); err != nil {
 		_ = bridge.Stop()
-		abandonAttach(sess, nil)
+		abandonAttach(sess)
 		return fmt.Errorf("start tun bridge: %w", err)
 	}
 
@@ -323,10 +323,7 @@ func DetachTun() error {
 	return nil
 }
 
-func abandonAttach(sess *session, bridge *TunBridge) {
-	if bridge != nil {
-		_ = bridge.Stop()
-	}
+func abandonAttach(sess *session) {
 	globalCore.mu.Lock()
 	if globalCore.sess == sess && (globalCore.state == StateAttaching || globalCore.state == StatePrepared) {
 		globalCore.state = StatePrepared

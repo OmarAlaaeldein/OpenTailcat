@@ -22,8 +22,7 @@ class IpAuditor {
         val result = fetchCloudflareTrace() ?: fetchIpify()
         _egressInfo.value = result ?: EgressInfo(
             ip = "Unavailable",
-            isChecking = false,
-            lastUpdated = System.currentTimeMillis()
+            isChecking = false
         )
     }
 
@@ -40,8 +39,7 @@ class IpAuditor {
             EgressInfo(
                 ip = ip,
                 country = fields["loc"]?.takeIf { it.isNotBlank() },
-                isChecking = false,
-                lastUpdated = System.currentTimeMillis()
+                isChecking = false
             )
         }
     }.getOrNull()
@@ -52,8 +50,7 @@ class IpAuditor {
             ?: error("ipify response did not contain an IP")
         EgressInfo(
             ip = ip,
-            isChecking = false,
-            lastUpdated = System.currentTimeMillis()
+            isChecking = false
         )
     }.getOrNull()
 
@@ -72,10 +69,6 @@ class IpAuditor {
         } finally {
             connection.disconnect()
         }
-    }
-
-    fun reset() {
-        _egressInfo.value = EgressInfo()
     }
 
     companion object {

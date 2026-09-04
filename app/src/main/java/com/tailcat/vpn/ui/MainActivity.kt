@@ -16,6 +16,7 @@ import com.tailcat.vpn.ui.theme.TailcatTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.tailcat.vpn.TailcatApplication.instance.tunnelController.resyncFromEngine()
         enableEdgeToEdge()
 
         setContent {
@@ -40,5 +41,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        com.tailcat.vpn.TailcatApplication.instance.tunnelController.resyncFromEngine()
     }
 }

@@ -41,9 +41,9 @@ privacy VPN.
   Native proxies IPv6 TCP/UDP with a 250ms dial timeout; ICMPv6 echo is dropped;
   oversized IPv6 gets a local Packet Too Big. Live IPv6 internet depends on the
   gateway. `ipv6` stays false.
-- **Lifecycle / telemetry promotion**: two-phase warm TUN plus live `DiscoPing`
-  RTT exist in code; `twoPhaseStart`, `cancelSafeLifecycle`, and `liveStats`
-  are test-enabled until Phase 8 evidence.
+- **Lifecycle / telemetry promotion**: one routed TUN after `prepare`, sticky VPN
+  service, TUN closed before native stop, plus live `DiscoPing` RTT. `twoPhaseStart`,
+  `cancelSafeLifecycle`, and `liveStats` are test-enabled until Phase 8 evidence.
 - **Live physical-device acceptance**: Uplink packet capture on multi-interface
   devices to verify zero direct destination leaks (Phase 8).
 - **Production release signing**: Signing with a production keystore (Phase 8).

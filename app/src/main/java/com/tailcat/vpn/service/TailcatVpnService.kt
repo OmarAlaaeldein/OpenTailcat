@@ -3,7 +3,9 @@ package com.tailcat.vpn.service
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.VpnService
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.core.model.GatewayProfile
@@ -44,21 +46,27 @@ class TailcatVpnService : VpnService() {
             return START_NOT_STICKY
         }
 
-        if (startJob?.isActive == true || vpnInterface != null) return START_NOT_STICKY
+        if (startJob?.isActive == true || vpnInterface != null) return START_STICKY
 
         shuttingDown = false
         app.tunnelController.setTunnelState(TunnelState.CONNECTING)
-        startForeground(
-            VpnNotificationManager.NOTIFICATION_ID,
-            app.notificationManager.buildNotification(
-                state = TunnelState.CONNECTING,
-                profileName = profile.name,
-                metrics = app.tunnelController.networkMetrics.value
-            )
+        val notification = app.notificationManager.buildNotification(
+            state = TunnelState.CONNECTING,
+            profileName = profile.name,
+            metrics = app.tunnelController.networkMetrics.value
         )
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(
+                VpnNotificationManager.NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
+            )
+        } else {
+            startForeground(VpnNotificationManager.NOTIFICATION_ID, notification)
+        }
 
         startJob = serviceScope.launch { establishAndStartEngine(profile) }
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     private suspend fun establishAndStartEngine(profile: GatewayProfile) {
@@ -159,6 +167,9 @@ class TailcatVpnService : VpnService() {
         }
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+    }
+
     private fun shutdown() {
         if (shuttingDown) return
         shuttingDown = true
@@ -166,9 +177,10 @@ class TailcatVpnService : VpnService() {
         metricsCollectorJob?.cancel()
         TailcatApplication.instance.tunnelController.stopPolling()
 
-        runCatching { TailcatApplication.instance.tunnelEngine.stop() }
-        runCatching { vpnInterface?.close() }
+        val tun = vpnInterface
         vpnInterface = null
+        runCatching { tun?.close() }
+        runCatching { TailcatApplication.instance.tunnelEngine.stop() }
 
         val finish = {
             TailcatApplication.instance.tunnelController.onVpnStopped()

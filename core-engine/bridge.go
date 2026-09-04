@@ -21,7 +21,6 @@ import (
 
 // TunnelClient abstracts the native WireGuard / Magicsock client for injection in testing.
 type TunnelClient interface {
-	Dial(ctx context.Context, network, address string) (net.Conn, error)
 	DialTCP(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
 	DialUDP(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
 	Close() error
@@ -34,7 +33,6 @@ type TunnelClient interface {
 // and the Tailcat data plane / exit node using a unified gVisor proxy stack.
 type TunBridge struct {
 	sessionID int64
-	tunFD     int
 	tunFile   *os.File
 	client    TunnelClient
 	token     *ParsedToken
@@ -134,7 +132,6 @@ func newTunBridge(
 
 	b := &TunBridge{
 		sessionID: sessionID,
-		tunFD:     dupFD,
 		tunFile:   tunFile,
 		client:    client,
 		token:     token,
@@ -635,22 +632,6 @@ func (b *TunBridge) currentJitterMs() *int64 {
 	return &jitter
 }
 
-func (b *TunBridge) resolveRegionName(id int) string {
-	if b.client == nil {
-		return ""
-	}
-	dm := b.client.DERPMap()
-	if dm == nil || len(dm.Regions) == 0 {
-		return ""
-	}
-	reg, ok := dm.Regions[tailcfg.DERPRegionID(id)]
-	if !ok || reg == nil {
-		return ""
-	}
-	return reg.RegionName
-}
-
-// GetStats returns authoritative telemetry from the live bridge, netstack, and WireGuard engine.
 func (b *TunBridge) GetStats() EngineStats {
 	if b.closed.Load() {
 		return EngineStats{Version: 2, SessionID: b.sessionID, State: "STOPPING", Transport: "DISCONNECTED"}
@@ -668,7 +649,6 @@ func (b *TunBridge) GetStats() EngineStats {
 		State:            "RUNNING",
 		Transport:        b.transport,
 		DerpRegionID:     regionID,
-		DerpRegionName:   b.resolveRegionName(regionID),
 		TunnelEgressIP:   egressIP,
 		EgressAuditError: egressErr,
 		TunTxBytes:       b.txBytes.Load(),

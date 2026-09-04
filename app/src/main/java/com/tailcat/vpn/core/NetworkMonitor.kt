@@ -34,7 +34,6 @@ class NetworkMonitor(context: Context) {
     val isOnline: Boolean
         get() = _activeNetworkType.value != NetworkType.NONE
 
-    private var onNetworkChangedListener: ((NetworkType) -> Unit)? = null
     private var onNetworkStateChangedListener: ((NetworkType, String) -> Unit)? = null
     private var lastNetworkStateJson: String = ""
 
@@ -71,21 +70,15 @@ class NetworkMonitor(context: Context) {
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
         runCatching { connectivityManager.registerNetworkCallback(request, networkCallback) }
-    }
-
-    fun setOnNetworkChangedListener(listener: (NetworkType) -> Unit) {
-        onNetworkChangedListener = listener
+        for (network in connectivityManager.allNetworks) {
+            connectivityManager.getNetworkCapabilities(network)?.let { capabilitiesByNetwork[network] = it }
+            connectivityManager.getLinkProperties(network)?.let { linkPropertiesByNetwork[network] = it }
+        }
+        updateNetworkStatus()
     }
 
     fun setOnNetworkStateChangedListener(listener: (NetworkType, String) -> Unit) {
         onNetworkStateChangedListener = listener
-    }
-
-    fun checkConnectivityNow(): NetworkType {
-        val current = getCurrentNetworkType()
-        _activeNetworkType.value = current
-        lastNetworkStateJson = getNetworkStateJSON()
-        return current
     }
 
     fun getNetworkStateJSON(): String {
@@ -152,7 +145,6 @@ class NetworkMonitor(context: Context) {
         if (typeChanged || stateChanged) {
             _activeNetworkType.value = currentType
             lastNetworkStateJson = currentStateJson
-            onNetworkChangedListener?.invoke(currentType)
             onNetworkStateChangedListener?.invoke(currentType, currentStateJson)
         }
     }

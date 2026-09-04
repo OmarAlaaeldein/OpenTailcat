@@ -49,13 +49,10 @@ data class ParsedToken(
     val errorCode: TokenErrorCode = TokenErrorCode.ERR_NONE,
     val errorMessage: String? = null,
     val serverPublicKeyHex: String = "",
-    val serverPublicKeyBytes: ByteArray? = null,
     val serverDiscoKeyHex: String? = null,
-    val serverDiscoKeyBytes: ByteArray? = null,
     val derpRegionId: Int? = null,
     val hasEmbeddedRegion: Boolean = false,
-    val expiresAtUnixSec: Long? = null,
-    val issuedAtUnixSec: Long? = null
+    val expiresAtUnixSec: Long? = null
 ) {
     val isExpired: Boolean
         get() = expiresAtUnixSec != null && (System.currentTimeMillis() / 1000L >= expiresAtUnixSec)
@@ -506,13 +503,10 @@ object TokenParser {
             errorCode = TokenErrorCode.ERR_NONE,
             errorMessage = null,
             serverPublicKeyHex = hexPubKey,
-            serverPublicKeyBytes = pubKeyBytes,
             serverDiscoKeyHex = hexDiscoKey,
-            serverDiscoKeyBytes = discoKeyBytes,
             derpRegionId = effectiveRegionId,
             hasEmbeddedRegion = hasStructuredR,
-            expiresAtUnixSec = expSec,
-            issuedAtUnixSec = iatSec
+            expiresAtUnixSec = expSec
         )
 
         // 1. Check expiration

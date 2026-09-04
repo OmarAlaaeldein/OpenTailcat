@@ -37,6 +37,7 @@
             android:description="@string/vpn_service_desc"
             android:exported="false"
             android:foregroundServiceType="systemExempted"
+            android:stopWithTask="false"
             android:permission="android.permission.BIND_VPN_SERVICE"
             tools:ignore="ForegroundServicePermission">
             <intent-filter>

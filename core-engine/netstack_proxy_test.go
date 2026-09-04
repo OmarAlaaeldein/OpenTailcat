@@ -32,10 +32,6 @@ type mockTunnelClient struct {
 	closed      bool
 }
 
-func (m *mockTunnelClient) Dial(ctx context.Context, network, address string) (net.Conn, error) {
-	return nil, errors.New("mock dial not configured")
-}
-
 func (m *mockTunnelClient) DialUDP(ctx context.Context, dst netip.AddrPort) (net.Conn, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -93,7 +93,6 @@ class TunnelEngine : NativeEngine {
         }
     }
 
-    val capabilities: EngineCapabilities? by lazy { inspectCapabilities() }
     override val availability: EngineAvailability by lazy { inspectAvailability() }
 
     override fun prepare(token: String) {
@@ -168,17 +167,6 @@ class TunnelEngine : NativeEngine {
         check(availability.isAvailable) { availability.message }
         val value = invoke(requireMethod("measureTunnelUploadMbps", parameterCount = 0))
         return (value as? Number)?.toDouble() ?: error("Tunnel upload returned invalid data")
-    }
-
-    private fun inspectCapabilities(): EngineCapabilities? {
-        val klass = engineClass ?: return null
-        return runCatching {
-            val capabilitiesMethod = klass.methods.firstOrNull {
-                it.name.equals("getCapabilitiesJSON", ignoreCase = true) && it.parameterCount == 0
-            } ?: return null
-            val raw = invoke(capabilitiesMethod) as? String ?: return null
-            EngineCapabilities.fromJson(raw)
-        }.getOrNull()
     }
 
     private fun inspectAvailability(): EngineAvailability {

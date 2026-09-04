@@ -36,9 +36,9 @@ are live. This is not a production privacy VPN.
   oversized IPv6 gets a local Packet Too Big. `ipv6` remains false until live
   dual-stack evidence.
 - **Phase 6 (Lifecycle)**: Cancellable prepare, readiness barriers, pump-failure
-  `FAILED`, bounded stop, `detachTun`, and `disarmPumps` exist. Android warms
-  the TUN without default routes, disarms pump-failure, then installs
-  `0.0.0.0/0`/`::/0` and reattaches.
+  `FAILED`, bounded stop, `detachTun`, and `disarmPumps` exist. After `prepare`,
+  Android establishes one TUN with `0.0.0.0/0`/`::/0` then attaches pumps.
+  The VPN service is sticky and is not stopped when the UI task is dismissed.
   `twoPhaseStart` and `cancelSafeLifecycle` are test-enabled.
 - **Phase 7 (Telemetry)**: Schema version 2 and live WireGuard peer counters exist
   while a bridge is running. Kotlin rejects v1 and requires live `RUNNING` health.
@@ -60,6 +60,9 @@ getStatsJSON() -> String
 stop()
 updateNetworkState(json: String)
 parseToken(token: String)
+measureTunnelPingMS()
+measureTunnelDownloadMbps()
+measureTunnelUploadMbps()
 ```
 
 Current behavior:

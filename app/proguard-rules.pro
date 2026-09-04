@@ -19,9 +19,7 @@
     volatile <fields>;
 }
 
-# 3. CBOR & Jackson Serialization
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
--dontwarn com.fasterxml.jackson.**
 
 # 4. Strip release debug logging
 -assumenosideeffects class android.util.Log {

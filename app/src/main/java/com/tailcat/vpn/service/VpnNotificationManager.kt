@@ -88,6 +88,7 @@ class VpnNotificationManager(private val context: Context) {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
         if (isActive) {
             builder.addAction(R.drawable.ic_vpn_status, "Disconnect", stopPendingIntent)
         }

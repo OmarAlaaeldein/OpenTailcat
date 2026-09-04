@@ -1,6 +1,5 @@
 package com.tailcat.vpn.core.dns
 
-import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 
@@ -15,10 +14,6 @@ sealed class DnsValidationResult {
  * native tunnel engines are valid unicast IP addresses.
  */
 object DnsValidator {
-
-    private val IPV4_PATTERN = Regex(
-        "^((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?\\b){4}$"
-    )
 
     fun isValid(ip: String?): Boolean {
         return validate(ip) is DnsValidationResult.Valid

@@ -100,6 +100,20 @@ class TunnelController(
         }
     }
 
+    fun resyncFromEngine() {
+        if (_tunnelState.value == TunnelState.CONNECTED) return
+        scope.launch {
+            runCatching { tunnelEngine.getStats() }
+                .onSuccess { metrics ->
+                    if (EngineHealth.shouldConnect(metrics, unixNow()) &&
+                        _tunnelState.value != TunnelState.CONNECTED
+                    ) {
+                        onEngineConnected(metrics)
+                    }
+                }
+        }
+    }
+
     fun startTunnel(): Boolean {
         val error = validateStartRequest()
         if (error != null) {
@@ -189,10 +203,6 @@ class TunnelController(
         _networkMetrics.value = NetworkMetrics()
         refreshPublicIp()
         reportError(message)
-    }
-
-    fun clearError() {
-        _lastError.value = null
     }
 
     private fun reportError(message: String) {

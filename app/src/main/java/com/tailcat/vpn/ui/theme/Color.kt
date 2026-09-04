@@ -8,7 +8,6 @@ val SurfaceElevated = Color(0xFF1B2433)
 val BorderSubtle = Color(0xFF263345)
 
 val AccentCyan = Color(0xFF00E5FF)
-val AccentCyanGlow = Color(0x3300E5FF)
 
 val EmeraldConnected = Color(0xFF00E676)
 val EmeraldGlow = Color(0x3300E676)
