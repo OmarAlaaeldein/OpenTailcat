@@ -15,8 +15,6 @@ import (
 	"time"
 
 	"tailscale.com/ipn/ipnstate"
-	"tailscale.com/tailcfg"
-	"tailscale.com/types/key"
 )
 
 // TunnelClient abstracts the native WireGuard / Magicsock client for injection in testing.
@@ -24,9 +22,6 @@ type TunnelClient interface {
 	DialTCP(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
 	DialUDP(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
 	Close() error
-	Status() *ipnstate.Status
-	ServerNodeKey() key.NodePublic
-	DERPMap() *tailcfg.DERPMap
 }
 
 // TunBridge manages bidirectional packet pumping between the Android TUN descriptor
@@ -588,6 +583,11 @@ func (b *TunBridge) sampleLiveRTT() {
 	if err != nil || res == nil || res.LatencySeconds <= 0 {
 		return
 	}
+	if res.Endpoint != "" {
+		b.transport = "DIRECT_P2P"
+	} else {
+		b.transport = "DERP_RELAY"
+	}
 	b.RecordRTT(int64(res.LatencySeconds * 1000))
 }
 
@@ -670,30 +670,12 @@ func (b *TunBridge) GetStats() EngineStats {
 		stats.EgressAuditTimestampSec = b.egressTimestamp.Load()
 	}
 
-	// Authoritative WireGuard / Magicsock metrics from client status
-	if b.client != nil {
-		if st := b.client.Status(); st != nil {
-			nodeKey := b.client.ServerNodeKey()
-			if peer, ok := st.Peer[nodeKey]; ok && peer != nil {
-				stats.WireguardTxBytes = peer.TxBytes
-				stats.WireguardRxBytes = peer.RxBytes
-				if !peer.LastHandshake.IsZero() {
-					stats.LastHandshakeSec = peer.LastHandshake.Unix()
-				}
-				if peer.CurAddr != "" {
-					stats.Transport = "DIRECT_P2P"
-					stats.DirectEndpoint = peer.CurAddr
-				} else if peer.Relay != "" {
-					stats.Transport = "DERP_RELAY"
-					stats.DerpRegionCode = peer.Relay
-				}
-			}
-		}
-
-		if dm := b.client.DERPMap(); dm != nil && len(dm.Regions) > 0 {
-			if reg, ok := dm.Regions[tailcfg.DERPRegionID(regionID)]; ok && reg != nil {
+	if b.token != nil {
+		for _, reg := range b.token.Region {
+			if reg != nil && int(reg.RegionID) == regionID {
 				stats.DerpRegionName = reg.RegionName
 				stats.DerpRegionCode = reg.RegionCode
+				break
 			}
 		}
 	}

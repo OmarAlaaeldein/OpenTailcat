@@ -20,12 +20,11 @@ unsafe shortcuts already found in the tree.
 - Phase 7 telemetry schema and WireGuard counters exist; RTT is sampled from live `DiscoPing` while a bridge is running; Kotlin rejects schema v1 and does not synthesize `RUNNING`; `liveStats` is test-enabled.
 - Upstream Tailcat base: signed `v0.4.0`, commit
   `ce6fedcabc220bab3b94d470ab330219111eeae8`.
-- Tailcat source: git submodule `OmarAlaaeldein/tailcat` at
-  `f56854491e2c6519ab060722e14d4097c701889b` (upstream `0c31395` with
-  application-layer UDP, plus Android netmon/DERP/`Client.Status` patches).
+- Tailcat source: git submodule of `github.com/tailscale/tailcat` at
+  unmodified `0c31395bfd1ae0c0ef2917c0ec20432466087417` (application-layer UDP).
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.1 and NDK 29.0.14206865. Current SHA-256:
-   `bbad77dd598afc3fc615f8a36e0e4cc3684258e6af152812ca968778bcc6fc9d`.
+   `0d692f762a3e664e1018ff66f0eb45f9ffdbb8aa73e49e2e7983aadbc2163554`.
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
@@ -135,7 +134,7 @@ Checkpoint status:
 - Phase 4 — DNS routing code exists: pending DNS is stored before attach and applied on `attachTun`. Absent `dnsPolicy` in later `updateNetworkState` does not reset policy. `GATEWAY_RESOLVER` is unused (treated as PROFILE). The engine does not inspect DNS TC bits. IPv4 `dns` is test-enabled.
 - Phase 5 — IPv6 TCP/UDP proxied with a 250ms dial timeout; ICMPv6 echo dropped; oversized IPv6 gets Packet Too Big; Android installs `::/0` after pumps are live. `ipv6` remains false.
 - Phase 6 — session context, short mutex, always-Close previous client, readiness barriers, pump-exit `FAILED` + `healthUnixSec`, bounded `Stop`, `DetachTun`, `DisarmPumps`. After `prepare`, Android establishes a host-only TUN, attaches, `disarmPumps`, then installs `0.0.0.0/0`/`::/0` and reattaches. Sticky VPN service; TUN closed before native `stop`. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
-- Phase 7 — telemetry code exists: schema version 2, live WireGuard peer Tx/Rx and Magicsock path from `Client.Status()` while a bridge is running. RTT is sampled from `DiscoPing` about every 5s while a bridge is running; jitter is null until three samples. Kotlin requires version 2, does not synthesize missing `state` as `RUNNING`, and CONNECTED requires live `RUNNING` + fresh `healthUnixSec`. `liveStats` is test-enabled.
+- Phase 7 — telemetry code exists: schema version 2. RTT is sampled from `DiscoPing` about every 5s while a bridge is running; jitter is null until three samples. WireGuard peer Tx/Rx stay 0 because upstream `Client` has no Status API. Kotlin requires version 2, does not synthesize missing `state` as `RUNNING`, and CONNECTED requires live `RUNNING` + fresh `healthUnixSec`. `liveStats` is test-enabled.
 - Phase 8 — planned. IPv4 test-routing flags are true; `ipv6` remains false until dual-stack evidence.
 
 ### Phase 0: restore fail-closed behavior
@@ -419,13 +418,13 @@ Current code reports schema version 2 with:
 
 - engine state includes `STOPPED` / `PREPARING` / `PREPARED` / `ATTACHING` / `RUNNING` / `STOPPING` / `FAILED`; marshal-failure stub uses `ERROR`;
 - monotonic session ID;
-- WireGuard peer TX/RX, last handshake, CurAddr, and Relay from `client.Status()` while a bridge is running;
-- TUN accepted/dropped counters distinct from WG. `txBytes`/`rxBytes` are WireGuard peer counters only (0 when WG has no traffic; never a TUN fallback);
-- live `DiscoPing` RTT about every 5s while a bridge is running; failed pings are skipped;
+- WireGuard peer TX/RX stay 0: upstream `Client` has no Status API. Do not invent counters;
+- TUN accepted/dropped counters distinct from WG. `txBytes`/`rxBytes` are WireGuard peer counters only (never a TUN fallback);
+- live `DiscoPing` RTT about every 5s while a bridge is running; failed pings are skipped; Endpoint set => DIRECT_P2P else DERP_RELAY;
 - jitter only after ≥3 `RecordRTT` samples, otherwise `null`. The formula is mean absolute consecutive difference, not RFC 3550 `J := J + (|D|-J)/16`;
 - packet/drop counters for TCP, UDP, DNS, malformed IP, MTU, queue exhaustion, and policy rejections;
 - exit-audit IP plus timestamp and error state;
-- DERP names from `client.DERPMap()` when present; otherwise empty (not invented).
+- DERP names from the token's embedded region when present; otherwise empty (not invented).
 
 Kotlin `NetworkMetrics.fromJson` requires schema version 2, rejects v1 and missing version, and leaves missing `state` empty. `onEngineConnected` requires `RUNNING` plus fresh `healthUnixSec`.
 

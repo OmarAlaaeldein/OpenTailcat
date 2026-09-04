@@ -188,12 +188,6 @@ func Prepare(tokenStr string) error {
 	globalCore.state = StatePrepared
 	globalCore.mu.Unlock()
 
-	netStateMu.Lock()
-	if nm := client.NetMon(); nm != nil {
-		activeMonitor = nm
-	}
-	netStateMu.Unlock()
-
 	return nil
 }
 

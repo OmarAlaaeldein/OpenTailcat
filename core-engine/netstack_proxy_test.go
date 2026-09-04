@@ -15,8 +15,6 @@ import (
 	"time"
 
 	"tailscale.com/ipn/ipnstate"
-	"tailscale.com/tailcfg"
-	"tailscale.com/types/key"
 )
 
 // mockTunnelClient implements TunnelClient for test injection
@@ -25,10 +23,6 @@ type mockTunnelClient struct {
 	dialUDPFn   func(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
 	dialTCPFn   func(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
 	discoPingFn func(ctx context.Context) (*ipnstate.PingResult, error)
-	statusFn    func() *ipnstate.Status
-	nodeKey     key.NodePublic
-	derpMap     *tailcfg.DERPMap
-	serverCaps  uint8
 	closed      bool
 }
 
@@ -55,27 +49,6 @@ func (m *mockTunnelClient) Close() error {
 	defer m.mu.Unlock()
 	m.closed = true
 	return nil
-}
-
-func (m *mockTunnelClient) Status() *ipnstate.Status {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.statusFn != nil {
-		return m.statusFn()
-	}
-	return nil
-}
-
-func (m *mockTunnelClient) ServerNodeKey() key.NodePublic {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.nodeKey
-}
-
-func (m *mockTunnelClient) DERPMap() *tailcfg.DERPMap {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.derpMap
 }
 
 func (m *mockTunnelClient) DiscoPing(ctx context.Context) (*ipnstate.PingResult, error) {

@@ -12,8 +12,6 @@ import (
 	"github.com/tailscale/tailcat"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/net/netmon"
-	"tailscale.com/tailcfg"
-	"tailscale.com/types/key"
 )
 
 func init() {
@@ -243,10 +241,6 @@ type preparedClient interface {
 	TunnelClient
 	Ping(context.Context) (tailcat.PingResult, error)
 	DiscoPing(context.Context) (*ipnstate.PingResult, error)
-	NetMon() *netmon.Monitor
-	Status() *ipnstate.Status
-	ServerNodeKey() key.NodePublic
-	DERPMap() *tailcfg.DERPMap
 }
 
 type engineClient struct {

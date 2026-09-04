@@ -17,11 +17,10 @@ Exact versions are defined in `gradle/libs.versions.toml` and the resolved Gradl
 
 The native development engine (`core-engine` and `libtailcat.aar`) incorporates:
 
-- **Tailcat / Tailscale**: `github.com/tailscale/tailcat`, git submodule of
-  `OmarAlaaeldein/tailcat` at `f56854491e2c6519ab060722e14d4097c701889b`
-  (upstream `0c31395` including application-layer UDP, plus Android netmon/DERP
-  patches). Licensed under the BSD 3-Clause License. The submodule is not the
-  untouched signed `v0.4.0` tag. See `third_party/PROVENANCE.md`.
+- **Tailcat / Tailscale**: `github.com/tailscale/tailcat` git submodule pinned
+  to unmodified `0c31395bfd1ae0c0ef2917c0ec20432466087417` (application-layer
+  UDP). Licensed under the BSD 3-Clause License. Not the signed `v0.4.0` tag.
+  See `third_party/PROVENANCE.md`.
 - **Google gVisor Netstack**: `gvisor.dev/gvisor/pkg/tcpip`, licensed under the Apache License 2.0.
 - **Go Mobile**: `golang.org/x/mobile`, licensed under the BSD 3-Clause License.
 - **CBOR Go**: `github.com/fxamacker/cbor/v2`, licensed under the MIT License.

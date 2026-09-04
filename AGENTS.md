@@ -36,11 +36,12 @@ Critical current behavior:
 - Speed test: when CONNECTED, ping/download/upload use `Client.DialTCP` through
   the gateway (`speed.cloudflare.com` is resolved with DNS-over-TCP via
   `Client.DialTCP` to `1.1.1.1:53`); otherwise the app-UID physical path.
-- Telemetry: schema version 2. WireGuard peer Tx/Rx and Magicsock path come from
-  live `Client.Status()` when a bridge is running. RTT is sampled from
-  `DiscoPing` about every 5s while a bridge is running; jitter is null until
-  three samples. Kotlin rejects v1 and requires `RUNNING` plus fresh
-  `healthUnixSec` for CONNECTED. `liveStats` is test-enabled.
+- Telemetry: schema version 2. RTT is sampled from `DiscoPing` about every 5s
+  while a bridge is running; jitter is null until three samples. Transport
+  follows the last successful `DiscoPing` (Endpoint set => DIRECT_P2P).
+  WireGuard peer Tx/Rx stay 0 because upstream `Client` has no Status API.
+  Kotlin rejects v1 and requires `RUNNING` plus fresh `healthUnixSec` for
+  CONNECTED. `liveStats` is test-enabled.
 - Capabilities: API v2 IPv4 test-routing flags true; `ipv6` false. After
   `prepare`, Android attaches a host-only TUN, then installs `0.0.0.0/0` and
   `::/0` and reattaches.
@@ -80,14 +81,11 @@ client-only direct socket is never an acceptable substitute.
 ## Upstream provenance
 
 `third_party/tailcat` is a git submodule of
-`https://github.com/OmarAlaaeldein/tailcat`, pinned to
-`f56854491e2c6519ab060722e14d4097c701889b`. That commit is upstream
-`tailscale/tailcat` `0c31395` (application-layer UDP) plus Android netmon/DERP
-fallback and `Client.NetMon`/`Status` APIs. Do not claim it is the untouched
-signed `v0.4.0` tag. See `third_party/PROVENANCE.md`. The fabricated
-`android0`/`10.0.2.15` interface is gone; Android now supplies LinkProperties
-via `updateNetworkState`. The hard-coded DERP map remains. Roaming still
-belongs to Phase 6.
+`https://github.com/tailscale/tailcat`, pinned to unmodified
+`0c31395bfd1ae0c0ef2917c0ec20432466087417` (application-layer UDP). Do not
+claim it is the signed `v0.4.0` tag. See `third_party/PROVENANCE.md`. Do not
+add OpenTailcat patches in the submodule. Android supplies LinkProperties via
+`updateNetworkState`. Roaming still belongs to Phase 6.
 
 ## Required implementation order
 

@@ -41,10 +41,10 @@ are live. This is not a production privacy VPN.
   `0.0.0.0/0`/`::/0` and reattaches. The VPN service is sticky and is not stopped
   when the UI task is dismissed. `twoPhaseStart` and `cancelSafeLifecycle` are
   test-enabled.
-- **Phase 7 (Telemetry)**: Schema version 2 and live WireGuard peer counters exist
-  while a bridge is running. Kotlin rejects v1 and requires live `RUNNING` health.
-  RTT is sampled from `DiscoPing` while a bridge is running; jitter is null
-  until three samples. `liveStats` is test-enabled.
+- **Phase 7 (Telemetry)**: Schema version 2. Kotlin rejects v1 and requires live
+  `RUNNING` health. RTT is sampled from `DiscoPing` while a bridge is running;
+  jitter is null until three samples. WireGuard peer counters stay 0 (upstream
+  `Client` has no Status API). `liveStats` is test-enabled.
 - **Remaining**: live IPv6 egress evidence, Phase 8 physical leak capture, production signing.
 
 ## Native engine API
@@ -132,7 +132,7 @@ or native build flags change:
 ```text
 app/                         Android application and bundled AAR
 core-engine/                 Go Mobile adapter and TUN proxy
-third_party/tailcat/         git submodule of OmarAlaaeldein/tailcat (upstream UDP + Android patches)
+third_party/tailcat/         git submodule of github.com/tailscale/tailcat
 handoff.md                   audited remediation plan and release gates
 PRIVACY_POLICY.md            current network and data disclosure
 SECURITY.md                  current controls and known limitations

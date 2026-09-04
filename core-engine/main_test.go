@@ -16,7 +16,6 @@ import (
 	"go4.org/mem"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/net/netmon"
-	"tailscale.com/tailcfg"
 	"tailscale.com/types/key"
 )
 
@@ -355,7 +354,6 @@ func (c *prepareTestClient) DiscoPing(context.Context) (*ipnstate.PingResult, er
 	return nil, errors.New("direct path unavailable in test")
 }
 
-func (c *prepareTestClient) NetMon() *netmon.Monitor { return nil }
 func (c *prepareTestClient) Close() error {
 	c.closed = true
 	return nil
@@ -366,9 +364,6 @@ func (c *prepareTestClient) DialTCP(context.Context, netip.AddrPort) (net.Conn, 
 func (c *prepareTestClient) DialUDP(context.Context, netip.AddrPort) (net.Conn, error) {
 	return nil, errors.New("unexpected DialUDP")
 }
-func (c *prepareTestClient) Status() *ipnstate.Status      { return nil }
-func (c *prepareTestClient) ServerNodeKey() key.NodePublic { return key.NodePublic{} }
-func (c *prepareTestClient) DERPMap() *tailcfg.DERPMap     { return nil }
 
 func TestPrepareUsesUpstreamUDPDial(t *testing.T) {
 	if err := Stop(); err != nil {
