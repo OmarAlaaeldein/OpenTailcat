@@ -88,7 +88,7 @@ class HomeViewModel : ViewModel() {
     fun addProfileFromToken(
         name: String,
         token: String,
-        customDns: String = "1.1.1.1",
+        customDns: String = app.preferencesStore.defaultDns,
         dnsPolicy: com.tailcat.vpn.core.model.DnsPolicy = com.tailcat.vpn.core.model.DnsPolicy.PROFILE_RESOLVER
     ): Result<GatewayProfile> {
         return profileRepository.addOrUpdateFromToken(name, token, customDns, dnsPolicy)

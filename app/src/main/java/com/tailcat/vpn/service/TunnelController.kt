@@ -9,6 +9,7 @@ import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TunnelState
 import com.tailcat.vpn.core.token.TokenParser
 import com.tailcat.vpn.core.token.TokenValidationState
+import com.tailcat.vpn.data.PreferencesStorage
 import com.tailcat.vpn.data.ProfileRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +29,8 @@ class TunnelController(
     private val context: Context,
     private val profileRepository: ProfileRepository,
     private val networkMonitor: NetworkMonitor,
-    private val tunnelEngine: NativeEngine
+    private val tunnelEngine: NativeEngine,
+    private val preferences: PreferencesStorage
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -109,9 +111,24 @@ class TunnelController(
                         _tunnelState.value != TunnelState.CONNECTED
                     ) {
                         onEngineConnected(metrics)
+                    } else {
+                        restoreIfWanted()
                     }
                 }
+                .onFailure { restoreIfWanted() }
         }
+    }
+
+    fun restoreIfWanted(): Boolean {
+        if (!VpnRestore.shouldRestore(
+                vpnWanted = preferences.vpnWanted,
+                state = _tunnelState.value,
+                validationError = validateStartRequest()
+            )
+        ) {
+            return false
+        }
+        return startTunnel()
     }
 
     fun startTunnel(): Boolean {
@@ -121,6 +138,7 @@ class TunnelController(
             return false
         }
 
+        preferences.vpnWanted = true
         _lastError.value = null
         _tunnelState.value = TunnelState.CONNECTING
         val intent = Intent(context, TailcatVpnService::class.java).apply {
@@ -140,6 +158,7 @@ class TunnelController(
     }
 
     fun stopTunnel() {
+        preferences.vpnWanted = false
         stopPolling()
         val intent = Intent(context, TailcatVpnService::class.java).apply {
             action = TailcatVpnService.ACTION_STOP_VPN

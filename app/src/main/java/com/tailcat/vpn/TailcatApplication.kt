@@ -37,9 +37,16 @@ class TailcatApplication : Application() {
         notificationManager = VpnNotificationManager(this)
         networkMonitor = NetworkMonitor(this)
         tunnelEngine = TunnelEngine()
-        tunnelController = TunnelController(this, profileRepository, networkMonitor, tunnelEngine)
+        tunnelController = TunnelController(
+            this,
+            profileRepository,
+            networkMonitor,
+            tunnelEngine,
+            preferencesStore
+        )
 
         notificationManager.createNotificationChannels()
+        tunnelController.restoreIfWanted()
     }
 
     companion object {

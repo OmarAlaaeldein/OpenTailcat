@@ -12,6 +12,24 @@ import (
 	"time"
 )
 
+func TestIPv4TCPPort80UsesDialTCP(t *testing.T) {
+	bridge, dialTCP, dialUDP, cleanup := newIPv6DropTestBridge(t)
+	defer cleanup()
+
+	pkt := buildIPv4TCPSyn(
+		netip.MustParseAddrPort("100.64.0.2:54321"),
+		netip.MustParseAddrPort("1.1.1.1:80"),
+	)
+	bridge.handleOutboundPacket(pkt)
+	if bridge.tcpPackets.Load() != 1 {
+		t.Fatalf("expected 1 tcpPacket for :80, got %d", bridge.tcpPackets.Load())
+	}
+	waitAtomic(t, dialTCP, 1, 2*time.Second, "DialTCP for IPv4 TCP/80")
+	if dialUDP.Load() != 0 {
+		t.Fatalf("TCP/80 must not DialUDP, got %d", dialUDP.Load())
+	}
+}
+
 func TestIPv6TCPDialUsesShortDeadline(t *testing.T) {
 	var deadline time.Duration
 	bridge, dialTCP, _, cleanup := newIPv6DropTestBridge(t)
@@ -246,6 +264,23 @@ func TestIPv4MTUExceededWritesFragNeeded(t *testing.T) {
 	gotMTU := binary.BigEndian.Uint16(buf[ihl+6 : ihl+8])
 	if gotMTU != 1280 {
 		t.Fatalf("expected next-hop MTU 1280, got %d", gotMTU)
+	}
+}
+
+func TestIPv6FragmentHeaderNotPolicyRejected(t *testing.T) {
+	bridge, dialTCP, dialUDP, cleanup := newIPv6DropTestBridge(t)
+	defer cleanup()
+
+	pkt := buildIPv6FragmentHeader(
+		netip.MustParseAddr("fd7a:115c:a1e0::2"),
+		netip.MustParseAddr("2606:4700:4700::1111"),
+	)
+	bridge.handleOutboundPacket(pkt)
+	if bridge.policyRejections.Load() != 0 {
+		t.Fatalf("expected 0 policyRejections for IPv6 fragment header, got %d", bridge.policyRejections.Load())
+	}
+	if dialTCP.Load() != 0 || dialUDP.Load() != 0 {
+		t.Fatalf("fragment header must not dial, tcp=%d udp=%d", dialTCP.Load(), dialUDP.Load())
 	}
 }
 
@@ -524,6 +559,20 @@ func buildIPv4ICMPEcho(src, dst netip.Addr, payload []byte) []byte {
 	copy(pkt[28:], payload)
 	chk := checksum(pkt[20:])
 	binary.BigEndian.PutUint16(pkt[22:24], chk)
+	return pkt
+}
+
+func buildIPv6FragmentHeader(src, dst netip.Addr) []byte {
+	pkt := make([]byte, 48)
+	pkt[0] = 0x60
+	binary.BigEndian.PutUint16(pkt[4:6], 8)
+	pkt[6] = 44
+	pkt[7] = 64
+	srcB := src.As16()
+	dstB := dst.As16()
+	copy(pkt[8:24], srcB[:])
+	copy(pkt[24:40], dstB[:])
+	pkt[40] = 59
 	return pkt
 }
 

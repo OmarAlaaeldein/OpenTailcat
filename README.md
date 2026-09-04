@@ -9,7 +9,7 @@ from a compact `tc...` token.
 
 ## Safety status
 
-**OpenTailcat 1.2.1 is a development build and must not be distributed or relied
+**OpenTailcat 1.2.2 is a development build and must not be distributed or relied
 on as a production privacy VPN.** The Android shell, Go Mobile AAR, Tailcat
 handshake, official token parser, TCP proxy, and userspace netstack UDP proxy are
 integrated. IPv4 test-routing capabilities are true so Connect can run with a
@@ -39,8 +39,8 @@ are live. This is not a production privacy VPN.
   `FAILED`, bounded stop, `detachTun`, and `disarmPumps` exist. After `prepare`,
   Android establishes a host-only TUN, attaches pumps, then installs
   `0.0.0.0/0`/`::/0` and reattaches. The VPN service is sticky and is not stopped
-  when the UI task is dismissed. `twoPhaseStart` and `cancelSafeLifecycle` are
-  test-enabled.
+  when the UI task is dismissed. A wanted-session flag restarts the tunnel after
+  process death. `twoPhaseStart` and `cancelSafeLifecycle` are test-enabled.
 - **Phase 7 (Telemetry)**: Schema version 2. Kotlin rejects v1 and requires live
   `RUNNING` health. RTT is sampled from `DiscoPing` while a bridge is running;
   jitter is null until three samples. WireGuard peer counters stay 0 (upstream

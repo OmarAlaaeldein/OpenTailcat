@@ -479,7 +479,9 @@ fun HomeScreen(
     if (showAddDialog) {
         var tokenInput by remember { mutableStateOf("") }
         var nameInput by remember { mutableStateOf("") }
-        var dnsInput by remember { mutableStateOf("1.1.1.1") }
+        var dnsInput by remember {
+            mutableStateOf(com.tailcat.vpn.TailcatApplication.instance.preferencesStore.defaultDns)
+        }
         var errorMessage by remember { mutableStateOf<String?>(null) }
 
         val validationState = remember(tokenInput) {

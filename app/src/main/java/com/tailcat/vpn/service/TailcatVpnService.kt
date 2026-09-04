@@ -31,6 +31,7 @@ class TailcatVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_VPN) {
+            TailcatApplication.instance.preferencesStore.vpnWanted = false
             serviceScope.launch { shutdown() }
             return START_NOT_STICKY
         }
@@ -212,6 +213,7 @@ class TailcatVpnService : VpnService() {
     }
 
     override fun onRevoke() {
+        TailcatApplication.instance.preferencesStore.vpnWanted = false
         serviceScope.launch { shutdown() }
     }
 

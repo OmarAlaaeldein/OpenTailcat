@@ -13,6 +13,7 @@ interface PreferencesStorage {
     var defaultDns: String
     var splitTunnelExcludedApps: Set<String>
     var savedProfilesJson: String?
+    var vpnWanted: Boolean
 }
 
 class PreferencesStore(context: Context) : PreferencesStorage {
@@ -42,6 +43,10 @@ class PreferencesStore(context: Context) : PreferencesStorage {
     override var savedProfilesJson: String?
         get() = prefs.getString(KEY_SAVED_PROFILES, null)
         set(value) = prefs.edit { putString(KEY_SAVED_PROFILES, value) }
+
+    override var vpnWanted: Boolean
+        get() = prefs.getBoolean(KEY_VPN_WANTED, false)
+        set(value) = prefs.edit { putBoolean(KEY_VPN_WANTED, value) }
 
     @SuppressLint("UseKtx") // A direct Editor lets us verify commit before deleting plaintext.
     private fun migrateLegacyPreferences(context: Context) {
@@ -85,6 +90,7 @@ class PreferencesStore(context: Context) : PreferencesStorage {
         private const val KEY_DEFAULT_DNS = "key_default_dns"
         private const val KEY_SPLIT_TUNNEL_EXCLUDED = "key_split_tunnel_excluded"
         private const val KEY_SAVED_PROFILES = "key_saved_profiles"
+        private const val KEY_VPN_WANTED = "key_vpn_wanted"
 
         private const val MIN_MTU = 1_280
         private const val MAX_MTU = 1_500
