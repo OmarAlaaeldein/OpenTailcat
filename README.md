@@ -21,13 +21,13 @@ are live. This is not a production privacy VPN.
 - **Phase 0 (Fail-Closed Negotiation)**: Implemented. API v2 capability contract
   fails closed when native capabilities are incomplete.
 - **Phase 1 (Reproducible Builds)**: Implemented. Deterministic AAR builds with Go
-  1.27.0, NDK r29 (29.0.14206865), and 16 KB ELF load alignment.
+  1.27.1, NDK r29 (29.0.14206865), and 16 KB ELF load alignment.
 - **Phase 2 (Token Alignment)**: Implemented. Canonical CBOR token parsing with
   duplicate key rejection, timestamp validation, and legacy token migration handling.
 - **Phase 3 (Tunneled UDP Data Plane)**: Implementation complete in code. Unified
   gVisor netstack proxy routes UDP datagrams through `Client.DialUDP` without
-  direct OS UDP sockets; gateway `CapExitUDP` check and `AllowProxy` filtering
-  exist. IPv4 `udp` is test-enabled; physical leak acceptance is still pending.
+  direct OS UDP sockets; upstream `Client.DialUDP` / `OnUDPForward` exist.
+  IPv4 `udp` is test-enabled; physical leak acceptance is still pending.
 - **Phase 4 (DNS routing)**: PROFILE/FORCED resolver routing, pending-config, and
   omit-means-preserve exist. The engine does not inspect DNS TC bits. IPv4 `dns`
   is test-enabled.
@@ -90,6 +90,7 @@ Current official tokens use:
 "tc" + Base64URL(CBOR({
   "p": 32-byte server node public key,
   "k": 32-byte server disco public key,
+  "q"?: 32-byte WireGuard pre-shared key,
   "i"?: positive DERP region ID,
   "r"?: non-empty array of embedded DERP region metadata
 }))
@@ -108,7 +109,7 @@ link-local, unspecified, or multicast `h`/`4`/`6` values are rejected.
 ## Build and verification
 
 Requirements for the current tree are JDK 21, Android SDK 35, Android NDK
-29.0.14206865 (r29), and Go 1.27.0.
+29.0.14206865 (r29), and Go 1.27.1.
 
 ```bash
 cd core-engine
@@ -131,7 +132,7 @@ or native build flags change:
 ```text
 app/                         Android application and bundled AAR
 core-engine/                 Go Mobile adapter and TUN proxy
-third_party/tailcat/         embedded v0.4.0-derived Tailcat source plus local patch
+third_party/tailcat/         git submodule of OmarAlaaeldein/tailcat (upstream UDP + Android patches)
 handoff.md                   audited remediation plan and release gates
 PRIVACY_POLICY.md            current network and data disclosure
 SECURITY.md                  current controls and known limitations
@@ -142,6 +143,6 @@ THIRD_PARTY_NOTICES.md       dependency and provenance notices
 
 Copyright (c) 2026 Omar Alaaeldein.
 
-OpenTailcat is licensed under the Apache License 2.0. The embedded Tailcat code
+OpenTailcat is licensed under the Apache License 2.0. The Tailcat submodule
 retains its BSD 3-Clause license and attribution. See [LICENSE](LICENSE) and
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

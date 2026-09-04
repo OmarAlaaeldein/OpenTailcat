@@ -3,7 +3,7 @@
 > Project root: `/Users/omar/Developer/OpenTailcat`  
 > Android: min API 26, compile/target API 35  
 > Android toolchain: Kotlin 2.2.10, AGP 9.3.0, Gradle 9.5.0, JDK 21  
-> Native toolchain in `core-engine/go.mod`: Go 1.27.0
+> Native toolchain in `core-engine/go.mod`: Go 1.27.1
 
 Read this file and `handoff.md` completely before changing code.
 `handoff.md` is the authoritative, detailed implementation and test plan.
@@ -14,7 +14,7 @@ The repository is **not production-ready**. IPv4 test-routing capabilities are
 true so a live token can Connect. `ipv6` stays false. Phase 8 physical leak
 acceptance is unimplemented.
 
-The checked-in AAR is built reproducibly with Go 1.27.0, NDK r29 (29.0.14206865),
+The checked-in AAR is built reproducibly with Go 1.27.1, NDK r29 (29.0.14206865),
 16 KB ELF load alignment, and verified Java signatures.
 
 Audit snapshot: version 1.2.0 on `main`. IPv4 Connect is test-enabled. `ipv6` is false.
@@ -71,30 +71,23 @@ WARP/Tor selection, or filtering policy. Do not build a gateway listener into
 the Android app.
 
 Data-plane interoperability still requires a compatible gateway. Official
-Tailcat v0.4.0 `serve exit-node` is TCP-only: it configures `OnTCPForward`, its
-filter admits TCP, and the client-side `NetstackDialUDP` is an unreachable
-panic. This embedded tree already replaces that panic, exports `Client.DialUDP`,
-and adds CLI `OnUDPForward`. If the live `nullexit` gateway already supports
-native tunneled UDP, prove and version that capability. Otherwise a matching
-gateway-side Tailcat UDP extension/deployment is required. A client-only direct
-socket is never an acceptable substitute.
+Tailcat v0.4.0 `serve exit-node` is TCP-only. Current upstream (this submodule
+pin) exports `Client.DialUDP` and `Server.OnUDPForward`. If the live `nullexit`
+gateway already supports native tunneled UDP, prove and version that capability.
+Otherwise a matching gateway-side Tailcat UDP deployment is required. A
+client-only direct socket is never an acceptable substitute.
 
 ## Upstream provenance
 
-`third_party/tailcat` is an embedded tree derived from:
-
-- signed upstream `v0.4.0`:
-  `ce6fedcabc220bab3b94d470ab330219111eeae8`; plus
-- local commit:
-  `49c65dace2d79b41d89f536289002816d13e5274`.
-
-The local commit adds a static netmon fallback, embedded DERP-map fallback, and
-region aliases. Later audited work adds UDP dial/forward, capability bits, DERP
-fallback warnings, and `Client.NetMon()`. Preserve and document that delta
-explicitly. Do not claim the embedded source is the untouched signed tag. The
-fabricated `android0`/`10.0.2.15` interface is gone; Android now supplies
-LinkProperties via `updateNetworkState`. The hard-coded DERP map remains.
-Roaming still belongs to Phase 6.
+`third_party/tailcat` is a git submodule of
+`https://github.com/OmarAlaaeldein/tailcat`, pinned to
+`f56854491e2c6519ab060722e14d4097c701889b`. That commit is upstream
+`tailscale/tailcat` `0c31395` (application-layer UDP) plus Android netmon/DERP
+fallback and `Client.NetMon`/`Status` APIs. Do not claim it is the untouched
+signed `v0.4.0` tag. See `third_party/PROVENANCE.md`. The fabricated
+`android0`/`10.0.2.15` interface is gone; Android now supplies LinkProperties
+via `updateNetworkState`. The hard-coded DERP map remains. Roaming still
+belongs to Phase 6.
 
 ## Required implementation order
 
@@ -159,6 +152,7 @@ Official connectable tokens require:
 "tc" + Base64URL(CBOR({
   "p": 32-byte server node public key,
   "k": 32-byte server disco public key,
+  "q"?: 32-byte WireGuard pre-shared key,
   "i"?: positive DERP region ID,
   "r"?: non-empty array of DERP region metadata
 }))

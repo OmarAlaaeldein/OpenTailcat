@@ -343,33 +343,7 @@ func TestLiveMonitorLifecycle(t *testing.T) {
 	_ = UpdateNetworkState("")
 }
 
-func TestCapabilityEncodingAndParsing(t *testing.T) {
-	// 1. Legacy 5-byte meowed (without capability byte)
-	legacyMeowed := []byte{'m', 'e', 'o', 'w', 0x02}
-	if caps := tailcat.ParseMeowedCaps(legacyMeowed); caps != 0 {
-		t.Errorf("Expected legacy meowed caps = 0, got %02x", caps)
-	}
-
-	// 2. Modern meowed with CapExitUDP
-	modernMeowed := tailcat.EncodeMeowedWithCaps(tailcat.CapExitUDP | tailcat.CapExitTCP)
-	if caps := tailcat.ParseMeowedCaps(modernMeowed); caps != (tailcat.CapExitUDP | tailcat.CapExitTCP) {
-		t.Errorf("Expected caps = %02x, got %02x", tailcat.CapExitUDP|tailcat.CapExitTCP, caps)
-	}
-
-	// 3. Meowed with unknown future capability bits (0xff)
-	futureMeowed := tailcat.EncodeMeowedWithCaps(0xff)
-	if caps := tailcat.ParseMeowedCaps(futureMeowed); caps != 0xff {
-		t.Errorf("Expected caps = 0xff, got %02x", caps)
-	}
-
-	// 4. Invalid packet
-	if caps := tailcat.ParseMeowedCaps([]byte("invalid")); caps != 0 {
-		t.Errorf("Expected invalid packet caps = 0, got %02x", caps)
-	}
-}
-
 type prepareTestClient struct {
-	caps   uint8
 	closed bool
 }
 
@@ -381,8 +355,7 @@ func (c *prepareTestClient) DiscoPing(context.Context) (*ipnstate.PingResult, er
 	return nil, errors.New("direct path unavailable in test")
 }
 
-func (c *prepareTestClient) HasServerCap(cap uint8) bool { return c.caps&cap != 0 }
-func (c *prepareTestClient) NetMon() *netmon.Monitor     { return nil }
+func (c *prepareTestClient) NetMon() *netmon.Monitor { return nil }
 func (c *prepareTestClient) Close() error {
 	c.closed = true
 	return nil
@@ -397,7 +370,7 @@ func (c *prepareTestClient) Status() *ipnstate.Status      { return nil }
 func (c *prepareTestClient) ServerNodeKey() key.NodePublic { return key.NodePublic{} }
 func (c *prepareTestClient) DERPMap() *tailcfg.DERPMap     { return nil }
 
-func TestPrepareAcceptsTCPOnlyGateway(t *testing.T) {
+func TestPrepareUsesUpstreamUDPDial(t *testing.T) {
 	if err := Stop(); err != nil {
 		t.Fatalf("reset engine: %v", err)
 	}
@@ -418,7 +391,7 @@ func TestPrepareAcceptsTCPOnlyGateway(t *testing.T) {
 	cborBytes, _ := cbor.Marshal(wireMap)
 	tokenStr := "tc" + base64.RawURLEncoding.EncodeToString(cborBytes)
 
-	fake := &prepareTestClient{caps: tailcat.CapExitTCP}
+	fake := &prepareTestClient{}
 	originalFactory := newTailcatClient
 	newTailcatClient = func(tailcat.ConnBlob) preparedClient { return fake }
 	defer func() {
@@ -427,12 +400,12 @@ func TestPrepareAcceptsTCPOnlyGateway(t *testing.T) {
 	}()
 
 	if err := Prepare(tokenStr); err != nil {
-		t.Fatalf("expected Prepare to accept TCP-only gateway: %v", err)
+		t.Fatalf("Prepare: %v", err)
 	}
 	if globalCore.state != StatePrepared {
 		t.Errorf("expected PREPARED, got %s", globalCore.state)
 	}
-	if globalCore.sess == nil || !globalCore.sess.tcpOnly {
-		t.Fatal("expected tcpOnly session for CapExitTCP without CapExitUDP")
+	if globalCore.sess == nil || globalCore.sess.tcpOnly {
+		t.Fatal("expected UDP DialUDP path (tcpOnly=false) after upstream application UDP")
 	}
 }

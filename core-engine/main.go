@@ -243,15 +243,22 @@ type preparedClient interface {
 	TunnelClient
 	Ping(context.Context) (tailcat.PingResult, error)
 	DiscoPing(context.Context) (*ipnstate.PingResult, error)
-	HasServerCap(uint8) bool
 	NetMon() *netmon.Monitor
 	Status() *ipnstate.Status
 	ServerNodeKey() key.NodePublic
 	DERPMap() *tailcfg.DERPMap
 }
 
+type engineClient struct {
+	*tailcat.Client
+}
+
+func (c *engineClient) DialUDP(ctx context.Context, ap netip.AddrPort) (net.Conn, error) {
+	return c.Client.DialUDP(ctx, ap)
+}
+
 var newTailcatClient = func(blob tailcat.ConnBlob) preparedClient {
-	return tailcat.NewClient(blob)
+	return &engineClient{Client: tailcat.NewClient(blob)}
 }
 
 // Capabilities represents the native data-plane capability contract (API v2).

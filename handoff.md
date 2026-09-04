@@ -20,11 +20,12 @@ unsafe shortcuts already found in the tree.
 - Phase 7 telemetry schema and WireGuard counters exist; RTT is sampled from live `DiscoPing` while a bridge is running; Kotlin rejects schema v1 and does not synthesize `RUNNING`; `liveStats` is test-enabled.
 - Upstream Tailcat base: signed `v0.4.0`, commit
   `ce6fedcabc220bab3b94d470ab330219111eeae8`.
-- Embedded Tailcat source: base plus local commit
-  `49c65dace2d79b41d89f536289002816d13e5274` and later UDP, DNS, NetMon, and status extensions.
+- Tailcat source: git submodule `OmarAlaaeldein/tailcat` at
+  `f56854491e2c6519ab060722e14d4097c701889b` (upstream `0c31395` with
+  application-layer UDP, plus Android netmon/DERP/`Client.Status` patches).
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
-  reproducibly with Go 1.27.0 and NDK 29.0.14206865. Current SHA-256:
-   `0837570f91eaa09cff6a2918596189db4b635afecab8dc7941cf97df7e99cbe9`.
+  reproducibly with Go 1.27.1 and NDK 29.0.14206865. Current SHA-256:
+   `bbad77dd598afc3fc615f8a36e0e4cc3684258e6af152812ca968778bcc6fc9d`.
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
@@ -85,10 +86,9 @@ OpenTailcat is an initiating client. It does not own gateway NAT, WARP/Tor
 policy, or DNS filtering. However, an arbitrary UDP VPN cannot be completed by
 client code if the selected gateway accepts only TCP.
 
-Official Tailcat `v0.4.0` currently configures `serve exit-node` with
-`OnTCPForward`; its filter admits TCP only. Its client also leaves
-`NetstackDialUDP` as an unreachable panic. This embedded tree already replaces
-that panic, exports `Client.DialUDP`, and adds CLI `OnUDPForward`. Therefore:
+Official Tailcat `v0.4.0` configures `serve exit-node` with `OnTCPForward` and
+admits TCP only. Current upstream (this submodule pin) exports `Client.DialUDP`
+and `Server.OnUDPForward`. Therefore:
 
 - First determine whether the live target gateway (`nullexit` or another
   deployment) already accepts UDP flows over the Tailcat WireGuard peer.
@@ -131,7 +131,7 @@ Checkpoint status:
 - Phase 0 — complete: incomplete native behavior fails closed.
 - Phase 1 — complete: provenance and deterministic native builds verified.
 - Phase 2 — complete: Kotlin and Go share the strict upstream-compatible token contract.
-- Phase 3 — implementation complete: native userspace netstack UDP proxy, gateway CapExitUDP capability check, AllowProxy policy enforcement, and synchronized shutdown; physical-device live acceptance pending; IPv4 `udp` is test-enabled.
+- Phase 3 — implementation complete: native userspace netstack UDP proxy using upstream `Client.DialUDP` / `OnUDPForward`; physical-device live acceptance pending; IPv4 `udp` is test-enabled.
 - Phase 4 — DNS routing code exists: pending DNS is stored before attach and applied on `attachTun`. Absent `dnsPolicy` in later `updateNetworkState` does not reset policy. `GATEWAY_RESOLVER` is unused (treated as PROFILE). The engine does not inspect DNS TC bits. IPv4 `dns` is test-enabled.
 - Phase 5 — IPv6 TCP/UDP proxied with a 250ms dial timeout; ICMPv6 echo dropped; oversized IPv6 gets Packet Too Big; Android installs `::/0` after pumps are live. `ipv6` remains false.
 - Phase 6 — session context, short mutex, always-Close previous client, readiness barriers, pump-exit `FAILED` + `healthUnixSec`, bounded `Stop`, `DetachTun`, `DisarmPumps`. After `prepare`, Android establishes a host-only TUN, attaches, `disarmPumps`, then installs `0.0.0.0/0`/`::/0` and reattaches. Sticky VPN service; TUN closed before native `stop`. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
@@ -234,7 +234,7 @@ without synthetic key material.
 ### Phase 3: implement tunneled UDP end to end
 
 **Checkpoint status: Implementation complete; live physical acceptance pending.**
-All native proxy components, `Client.DialUDP`, gateway `OnUDPForward`, `CapExitUDP` negotiation,
+All native proxy components, upstream `Client.DialUDP`, gateway `OnUDPForward`,
 `AllowProxy` policy filtering, zero-length preservation, and `udpWg` shutdown synchronization have
 been implemented and unit/integration tested. Physical device uplink packet-capture and live gateway
 audit remain the required live acceptance gate.

@@ -39,8 +39,9 @@ enum class TokenErrorCode {
     ERR_INVALID_STRUCTURED_REGION,
     ERR_INVALID_EXPIRATION,
     ERR_INVALID_ISSUED_AT,
-    ERR_EXP_BEFORE_IAT,
-    ERR_UNKNOWN_FIELD
+        ERR_EXP_BEFORE_IAT,
+        ERR_UNKNOWN_FIELD,
+        ERR_INVALID_PRESHARED_KEY
 }
 
 data class ParsedToken(
@@ -124,7 +125,7 @@ object TokenParser {
     private const val MAX_UNIX_TIMESTAMP_SEC = 253_402_300_799L
     private const val PUBLIC_KEY_SIZE_BYTES = 32
 
-    private val ALLOWED_CANONICAL_FIELDS = setOf("p", "k", "i", "r", "exp", "iat")
+    private val ALLOWED_CANONICAL_FIELDS = setOf("p", "k", "q", "i", "r", "exp", "iat")
 
     /**
      * Validates a token string and returns structured validation state for UI presentation.
@@ -347,6 +348,24 @@ object TokenParser {
                         )
                     }
                     discoKeyBytes = v
+                }
+                "q" -> {
+                    if (v !is ByteArray || v.size != PUBLIC_KEY_SIZE_BYTES) {
+                        return ParsedToken(
+                            rawToken = input,
+                            classification = TokenClassification.INVALID,
+                            errorCode = TokenErrorCode.ERR_INVALID_PRESHARED_KEY,
+                            errorMessage = "preshared key 'q' must be exactly $PUBLIC_KEY_SIZE_BYTES bytes"
+                        )
+                    }
+                    if (v.all { it == 0.toByte() }) {
+                        return ParsedToken(
+                            rawToken = input,
+                            classification = TokenClassification.INVALID,
+                            errorCode = TokenErrorCode.ERR_INVALID_PRESHARED_KEY,
+                            errorMessage = "preshared key cannot be all zero bytes"
+                        )
+                    }
                 }
                 "i" -> {
                     val num = when (v) {

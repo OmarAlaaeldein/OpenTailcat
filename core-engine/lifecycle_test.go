@@ -58,7 +58,7 @@ func statsState(t *testing.T) (EngineStats, EngineState) {
 
 func TestLifecycleHappyPathPrepareAttachStop(t *testing.T) {
 	_ = Stop()
-	fake := &prepareTestClient{caps: tailcat.CapExitTCP | tailcat.CapExitUDP}
+	fake := &prepareTestClient{}
 	installClient(t, fake)
 
 	if err := Prepare(officialTestToken(t)); err != nil {
@@ -121,13 +121,13 @@ func TestLifecycleHappyPathPrepareAttachStop(t *testing.T) {
 
 func TestSecondPrepareClosesUnattachedClient(t *testing.T) {
 	_ = Stop()
-	first := &prepareTestClient{caps: tailcat.CapExitTCP | tailcat.CapExitUDP}
+	first := &prepareTestClient{}
 	installClient(t, first)
 	if err := Prepare(officialTestToken(t)); err != nil {
 		t.Fatalf("first Prepare: %v", err)
 	}
 
-	second := &prepareTestClient{caps: tailcat.CapExitTCP | tailcat.CapExitUDP}
+	second := &prepareTestClient{}
 	newTailcatClient = func(tailcat.ConnBlob) preparedClient { return second }
 	if err := Prepare(officialTestToken(t)); err != nil {
 		t.Fatalf("second Prepare: %v", err)
@@ -144,7 +144,7 @@ func TestPrepareCancelViaStop(t *testing.T) {
 	_ = Stop()
 	entered := make(chan struct{})
 	fake := &blockingPingClient{
-		prepareTestClient: prepareTestClient{caps: tailcat.CapExitTCP | tailcat.CapExitUDP},
+		prepareTestClient: prepareTestClient{},
 		entered:           entered,
 	}
 	installClient(t, fake)
@@ -178,7 +178,7 @@ func TestGetStatsDuringBlockedPrepare(t *testing.T) {
 	_ = Stop()
 	entered := make(chan struct{})
 	fake := &blockingPingClient{
-		prepareTestClient: prepareTestClient{caps: tailcat.CapExitTCP | tailcat.CapExitUDP},
+		prepareTestClient: prepareTestClient{},
 		entered:           entered,
 	}
 	installClient(t, fake)
@@ -205,7 +205,7 @@ func TestGetStatsDuringBlockedPrepare(t *testing.T) {
 
 func TestDetachTunKeepsPreparedClient(t *testing.T) {
 	_ = Stop()
-	fake := &prepareTestClient{caps: tailcat.CapExitTCP | tailcat.CapExitUDP}
+	fake := &prepareTestClient{}
 	installClient(t, fake)
 	if err := Prepare(officialTestToken(t)); err != nil {
 		t.Fatalf("Prepare: %v", err)
@@ -256,7 +256,7 @@ func TestDetachTunKeepsPreparedClient(t *testing.T) {
 
 func TestDisarmPumpsPreventsFailedOnTunClose(t *testing.T) {
 	_ = Stop()
-	fake := &prepareTestClient{caps: tailcat.CapExitTCP | tailcat.CapExitUDP}
+	fake := &prepareTestClient{}
 	installClient(t, fake)
 	if err := Prepare(officialTestToken(t)); err != nil {
 		t.Fatalf("Prepare: %v", err)
@@ -316,7 +316,7 @@ func TestAttachTunBeforePrepare(t *testing.T) {
 
 func TestPumpDeathFailsEngine(t *testing.T) {
 	_ = Stop()
-	fake := &prepareTestClient{caps: tailcat.CapExitTCP | tailcat.CapExitUDP}
+	fake := &prepareTestClient{}
 	installClient(t, fake)
 	if err := Prepare(officialTestToken(t)); err != nil {
 		t.Fatalf("Prepare: %v", err)
@@ -351,7 +351,7 @@ func TestPumpDeathFailsEngine(t *testing.T) {
 
 func TestConcurrentStopIdempotent(t *testing.T) {
 	_ = Stop()
-	fake := &prepareTestClient{caps: tailcat.CapExitTCP | tailcat.CapExitUDP}
+	fake := &prepareTestClient{}
 	installClient(t, fake)
 	if err := Prepare(officialTestToken(t)); err != nil {
 		t.Fatalf("Prepare: %v", err)
@@ -400,7 +400,7 @@ func (c *blockingPingClient) Close() error {
 
 func TestDNSPolicyPendingAppliedOnAttachAndPreservedOnRoam(t *testing.T) {
 	_ = Stop()
-	fake := &prepareTestClient{caps: tailcat.CapExitTCP | tailcat.CapExitUDP}
+	fake := &prepareTestClient{}
 	installClient(t, fake)
 
 	forced := "8.8.8.8"

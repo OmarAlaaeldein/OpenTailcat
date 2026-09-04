@@ -61,6 +61,7 @@ const (
 	ErrInvalidIssuedAt         TokenErrorCode = "ERR_INVALID_ISSUED_AT"
 	ErrExpBeforeIat            TokenErrorCode = "ERR_EXP_BEFORE_IAT"
 	ErrUnknownField            TokenErrorCode = "ERR_UNKNOWN_FIELD"
+	ErrInvalidPresharedKey     TokenErrorCode = "ERR_INVALID_PRESHARED_KEY"
 )
 
 // ParsedToken represents a validated Tailcat token with verified classification.
@@ -249,6 +250,25 @@ func ParseToken(raw string) (*ParsedToken, error) {
 				}, errors.New("disco public key cannot be all zero")
 			}
 			discoKeyBytes = b
+
+		case "q":
+			b, ok := v.([]byte)
+			if !ok || len(b) != PublicKeySizeBytes {
+				return &ParsedToken{
+					RawToken:       raw,
+					Classification: ClassificationInvalid,
+					ErrorCode:      ErrInvalidPresharedKey,
+					ErrorMessage:   fmt.Sprintf("preshared key 'q' must be exactly %d bytes", PublicKeySizeBytes),
+				}, errors.New("invalid preshared key")
+			}
+			if isAllZero(b) {
+				return &ParsedToken{
+					RawToken:       raw,
+					Classification: ClassificationInvalid,
+					ErrorCode:      ErrInvalidPresharedKey,
+					ErrorMessage:   "preshared key cannot be all zero bytes",
+				}, errors.New("preshared key cannot be all zero")
+			}
 
 		case "i":
 			switch num := v.(type) {

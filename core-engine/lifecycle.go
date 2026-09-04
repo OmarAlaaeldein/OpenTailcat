@@ -155,8 +155,6 @@ func Prepare(tokenStr string) error {
 		abandonPrepare(sess)
 		return errors.New("invalid reachability latency from gateway")
 	}
-	tcpOnly := !client.HasServerCap(tailcat.CapExitUDP)
-
 	transport := "DERP_RELAY"
 	rttMs := res.Latency.Milliseconds()
 	discoCtx, discoCancel := context.WithTimeout(sess.ctx, 4*time.Second)
@@ -187,7 +185,6 @@ func Prepare(tokenStr string) error {
 	sess.client = client
 	sess.transport = transport
 	sess.rttMs = rttMs
-	sess.tcpOnly = tcpOnly
 	globalCore.state = StatePrepared
 	globalCore.mu.Unlock()
 

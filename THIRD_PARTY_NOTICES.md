@@ -17,19 +17,18 @@ Exact versions are defined in `gradle/libs.versions.toml` and the resolved Gradl
 
 The native development engine (`core-engine` and `libtailcat.aar`) incorporates:
 
-- **Tailcat / Tailscale**: `github.com/tailscale/tailcat`, based on signed release
-  `v0.4.0` (`ce6fedcabc220bab3b94d470ab330219111eeae8`) plus local commit
-  `49c65dace2d79b41d89f536289002816d13e5274`, embedded in
-  `third_party/tailcat`, licensed under the BSD 3-Clause License. The local
-  commit changes network-monitor fallback and DERP-map resolution behavior; the
-  embedded tree is not the untouched signed tag.
+- **Tailcat / Tailscale**: `github.com/tailscale/tailcat`, git submodule of
+  `OmarAlaaeldein/tailcat` at `f56854491e2c6519ab060722e14d4097c701889b`
+  (upstream `0c31395` including application-layer UDP, plus Android netmon/DERP
+  patches). Licensed under the BSD 3-Clause License. The submodule is not the
+  untouched signed `v0.4.0` tag. See `third_party/PROVENANCE.md`.
 - **Google gVisor Netstack**: `gvisor.dev/gvisor/pkg/tcpip`, licensed under the Apache License 2.0.
 - **Go Mobile**: `golang.org/x/mobile`, licensed under the BSD 3-Clause License.
 - **CBOR Go**: `github.com/fxamacker/cbor/v2`, licensed under the MIT License.
 - **Mem**: `go4.org/mem`, licensed under the Apache License 2.0.
 
 The list above is not a complete SBOM. The checked-in AAR also links transitive
-Go dependencies recorded by `go version -m`, and the embedded Tailcat tree has
+Go dependencies recorded by `go version -m`, and the Tailcat submodule has
 its own module graph. Generate, archive, and manually review a complete
 Android/Go dependency and license report before any release.
 
