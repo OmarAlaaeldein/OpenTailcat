@@ -24,7 +24,7 @@ unsafe shortcuts already found in the tree.
   unmodified `0c31395bfd1ae0c0ef2917c0ec20432466087417` (application-layer UDP).
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.1 and NDK 29.0.14206865. Current SHA-256:
-   `2c7dab1b6fc054d4d2eea7db53b99212995a3954bfb9f4ad76f04019c91ec623`.
+   `188ee38c4708a05a398aab8e05f278ed3903d692eee304028a1eff83ae2fa084`.
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
@@ -135,7 +135,7 @@ Checkpoint status:
 - Phase 5 — IPv6 TCP/UDP proxied with a 250ms dial timeout; ICMPv6 echo dropped; oversized IPv6 gets Packet Too Big; Android installs `::/0` after pumps are live. `ipv6` remains false.
 - Phase 6 — session context, short mutex, always-Close previous client, readiness barriers, pump-exit `FAILED` + `healthUnixSec`, bounded `Stop`, `DetachTun`, `DisarmPumps`. After `prepare`, Android establishes a host-only TUN (no VPN DNS), attaches, `detachTun`, then installs `0.0.0.0/0`/`::/0` with VPN DNS and reattaches. Sticky VPN service; TUN closed before native `stop`. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
 - Phase 7 — telemetry code exists: schema version 2. RTT is sampled from `DiscoPing` about every 5s while a bridge is running; jitter is null until three samples. WireGuard peer Tx/Rx stay 0 because upstream `Client` has no Status API. Kotlin requires version 2, does not synthesize missing `state` as `RUNNING`, and CONNECTED requires live `RUNNING` + fresh `healthUnixSec`. `liveStats` is test-enabled.
-- Phase 8 — planned. IPv4 test-routing flags are true; `ipv6` remains false until dual-stack evidence.
+- Phase 8 — host gates and Wireshark/tshark pcap analyzer exist (`scripts/phase8`, `cmd/phase8-analyze`). Physical dual-capture on ARM64 and production signing remain. `ipv6` remains false.
 
 ### Phase 0: restore fail-closed behavior
 
@@ -483,11 +483,31 @@ Test API 26 and current Android on at least one physical ARM64 device:
 - Always-on VPN and Block connections without VPN; and
 - MTUs 1280 through 1500, including large transfers.
 
-For leak tests, capture simultaneously on the Android uplink and gateway. With
-the VPN connected, destination TCP/UDP/DNS/IPv6 packets must appear only at the
-gateway; the client uplink may contain only encrypted Tailcat transport and
-explicitly excluded-app traffic. Force each native pump to fail and confirm
-routes are removed or Android lockdown blocks traffic.
+For leak tests, capture simultaneously on the Android uplink and gateway with
+Wireshark/tshark (classic pcap, not pcapng). PCAPdroid cannot be the tap: it
+is a second VPN. Capture the phone’s Wi-Fi hop on the AP/next hop, or
+`tcpdump`/`tshark` on a rooted `wlan0`. On macOS, `tshark -D` lists
+interfaces; empty capture lists need `brew install --cask wireshark-chmodbpf`.
+
+```bash
+# Host automated gates (not a leak pass)
+scripts/phase8/run-host-gates.sh
+
+# Phone connected + Always-on lockdown. Start both captures, then generate
+# traffic from a second UID to probe IPs (example 1.1.1.1, 8.8.8.8).
+CAPTURE_IFACE=en0 scripts/phase8/capture-uplink.sh captures/uplink.pcap
+CAPTURE_IFACE=eth0 scripts/phase8/capture-gateway.sh captures/gateway.pcap
+scripts/phase8/analyze-uplink.sh captures/uplink.pcap 1.1.1.1,8.8.8.8 captures/gateway.pcap
+```
+
+Pass: probe destinations are absent on the uplink pcap and present on the
+gateway pcap. Uplink may contain only Tailcat/WireGuard/DERP (and Magicsock
+sockets protected via `VpnService.protect`). Force each native pump to fail
+and confirm routes are removed or Android lockdown blocks traffic.
+
+Do not commit pcaps or live tokens. `ipv6` stays false until this dual
+capture includes public IPv6. Host analyzer unit tests are not Phase 8
+acceptance.
 
 #### Release artifacts
 

@@ -393,6 +393,7 @@ class TunnelEngineTest {
 
         val unknownTransport = live.copy(transportType = com.tailcat.vpn.core.model.TransportType.UNKNOWN)
         assertFalse(com.tailcat.vpn.service.EngineHealth.shouldConnect(unknownTransport, 1000L))
+        assertTrue(com.tailcat.vpn.service.EngineHealth.shouldTearDown(unknownTransport, 1000L))
 
         val failed = live.copy(state = "FAILED")
         assertFalse(com.tailcat.vpn.service.EngineHealth.shouldConnect(failed, 1000L))

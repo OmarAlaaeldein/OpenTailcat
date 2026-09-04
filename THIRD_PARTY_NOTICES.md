@@ -33,7 +33,7 @@ Android/Go dependency and license report before any release.
 
 ## External services
 
-Cloudflare and ipify are network services, not bundled libraries. Their use is disclosed in `PRIVACY_POLICY.md`.
+Cloudflare is a network service, not a bundled library. Its use is disclosed in `PRIVACY_POLICY.md`.
 
 ## Trademarks
 

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"net/netip"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/tailscale/tailcat"
 	"tailscale.com/ipn/ipnstate"
@@ -15,12 +17,26 @@ import (
 )
 
 func init() {
+	if _, ok := http.DefaultTransport.(*derpFilterTransport); !ok {
+		http.DefaultTransport = &derpFilterTransport{base: http.DefaultTransport}
+	}
+
 	// On Android, /etc/resolv.conf does not exist, causing Go's pure Go resolver to query [::1]:53 or 127.0.0.1:53.
 	// We configure a default DNS resolver fallback to 8.8.8.8 / 1.1.1.1 so outbound HTTP/DNS lookups succeed.
 	net.DefaultResolver = &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			var d net.Dialer
+			d := net.Dialer{
+				Control: func(_, _ string, c syscall.RawConn) error {
+					var pErr error
+					if err := c.Control(func(fd uintptr) {
+						pErr = protectFD(int(fd))
+					}); err != nil {
+						return err
+					}
+					return pErr
+				},
+			}
 			netStateMu.RLock()
 			dnsList := append([]string(nil), customDNSList...)
 			netStateMu.RUnlock()
@@ -264,6 +280,32 @@ type engineClient struct {
 
 func (c *engineClient) DialUDP(ctx context.Context, ap netip.AddrPort) (net.Conn, error) {
 	return c.Client.DialUDP(ctx, ap)
+}
+
+type udpCapability interface {
+	SupportsUDP(ctx context.Context) bool
+}
+
+func (c *engineClient) SupportsUDP(ctx context.Context) bool {
+	dst := netip.MustParseAddrPort("1.1.1.1:53")
+	conn, err := c.DialUDP(ctx, dst)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
+	query := []byte{
+		0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x01, 'a', 0x00, 0x00, 0x01, 0x00, 0x01,
+	}
+	if _, err := conn.Write(query); err != nil {
+		return false
+	}
+	buf := make([]byte, 512)
+	n, err := conn.Read(buf)
+	return err == nil && n >= 12
 }
 
 var newTailcatClient = func(blob tailcat.ConnBlob) preparedClient {

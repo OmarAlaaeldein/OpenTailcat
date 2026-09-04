@@ -11,6 +11,7 @@ object EngineHealth {
 
     fun shouldTearDown(metrics: NetworkMetrics, nowUnixSec: Long): Boolean {
         if (metrics.state == "FAILED") return true
+        if (metrics.state == "RUNNING" && metrics.transportType == TransportType.UNKNOWN) return true
         return !metrics.isLiveRunning(nowUnixSec)
     }
 }

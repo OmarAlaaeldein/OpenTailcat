@@ -42,9 +42,8 @@ device-to-device transfer for application data.
 ## Network requests made by the app
 
 - On startup and manual refresh, the app requests Cloudflare
-  `https://1.1.1.1/cdn-cgi/trace` to display the app process' public IP and
-  country code. If that fails, it requests
-  `https://api.ipify.org?format=json` for the IP only.
+  `https://1.1.1.1/cdn-cgi/trace` (TLS-pinned) to display the app process'
+  public IP and country code.
 - When the user starts a benchmark while CONNECTED, ping/download/upload use
   `Client.DialTCP` through the gateway; `speed.cloudflare.com` is resolved with
   DNS-over-TCP via `Client.DialTCP` to `1.1.1.1:53`. When not CONNECTED, the same
@@ -54,7 +53,7 @@ device-to-device transfer for application data.
 - After TUN attachment, the native engine attempts an exit-IP audit through
   Tailcat: authenticated TLS `GET /cdn-cgi/trace` to Cloudflare `1.1.1.1`
   via `Client.DialTCP`. The in-app public-IP display uses Cloudflare then
-  ipify from the excluded app UID, not the tunnel audit.
+  Cloudflare from the excluded app UID, not the tunnel audit.
 - After TUN attachment, intercepted DNS is proxied through Tailcat according to
   PROFILE_RESOLVER or FORCED_RESOLVER. IPv4 `dns` is test-enabled; Phase 8 leak
   capture is still pending.

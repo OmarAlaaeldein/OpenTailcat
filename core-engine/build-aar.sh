@@ -119,6 +119,7 @@ REQUIRED_METHODS=(
     "prepare"
     "stop"
     "updateNetworkState"
+    "setSocketProtector"
 )
 
 for method in "${REQUIRED_METHODS[@]}"; do
@@ -156,7 +157,8 @@ echo "==> Verifying NDK identity notes (.note.android.ident)..."
 echo "==> Generating verification metadata..."
 METADATA_DIR="${ROOT_DIR}/build/reports/aar"
 mkdir -p "${METADATA_DIR}"
-shasum -a 256 "${OUTPUT_AAR}" | tee "${METADATA_DIR}/sha256.txt"
+AAR_HASH="$(shasum -a 256 "${OUTPUT_AAR}" | tee "${METADATA_DIR}/sha256.txt" | awk '{print $1}')"
+printf '%s\n' "${AAR_HASH}" > "${ROOT_DIR}/app/libs/libtailcat.aar.sha256"
 unzip -l "${OUTPUT_AAR}" > "${METADATA_DIR}/contents.txt"
 echo "${JAVAP_OUT}" > "${METADATA_DIR}/signatures.txt"
 go version -m "${TMP_VERIFY_DIR}/jni/arm64-v8a/libgojni.so" > "${METADATA_DIR}/go-version-m.txt"

@@ -582,7 +582,7 @@ func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 		case <-b.ctx.Done():
 			return
 		case t := <-ticker.C:
-			if b.onHealth != nil {
+			if b.onHealth != nil && b.pingFails.Load() == 0 {
 				b.onHealth()
 			}
 			currentTx := b.txBytes.Load()

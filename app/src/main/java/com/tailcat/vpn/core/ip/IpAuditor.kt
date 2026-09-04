@@ -6,9 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
+import com.tailcat.vpn.core.tls.PinnedHttps
 
 /** Resolves the app process' public IP. Tailcat currently excludes its own UID from the TUN. */
 class IpAuditor {
@@ -19,7 +17,7 @@ class IpAuditor {
     suspend fun fetchCurrentEgress() = withContext(Dispatchers.IO) {
         _egressInfo.value = _egressInfo.value.copy(isChecking = true)
 
-        val result = fetchCloudflareTrace() ?: fetchIpify()
+        val result = fetchCloudflareTrace()
         _egressInfo.value = result ?: EgressInfo(
             ip = "Unavailable",
             isChecking = false
@@ -44,18 +42,8 @@ class IpAuditor {
         }
     }.getOrNull()
 
-    private fun fetchIpify(): EgressInfo? = runCatching {
-        val json = JSONObject(request("https://api.ipify.org?format=json"))
-        val ip = json.optString("ip").takeIf { it.isNotBlank() }
-            ?: error("ipify response did not contain an IP")
-        EgressInfo(
-            ip = ip,
-            isChecking = false
-        )
-    }.getOrNull()
-
     private fun request(endpoint: String): String {
-        val connection = URL(endpoint).openConnection() as HttpURLConnection
+        val connection = PinnedHttps.open(endpoint)
         return try {
             connection.connectTimeout = REQUEST_TIMEOUT_MS
             connection.readTimeout = REQUEST_TIMEOUT_MS

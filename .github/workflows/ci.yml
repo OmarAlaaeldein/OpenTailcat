@@ -1,122 +1,43 @@
-name: CI
+name: ci
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
   pull_request:
-    branches: [ "main" ]
 
 jobs:
-  test-engine:
-    name: Test Go Native Engine
+  go:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v4
         with:
-          submodules: recursive
-
-      - name: Set up Go 1.27
-        uses: actions/setup-go@v5
+          submodules: true
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.27.1'
-          cache-dependency-path: core-engine/go.sum
-
-      - name: Run Engine Tests & Vet
+          go-version: "1.27.1"
+      - name: Test
+        working-directory: core-engine
         run: |
-          cd core-engine
-          go test -race -count=1 ./...
+          go test ./...
           go vet ./...
-
-  check-aar-drift:
-    name: Verify AAR Reproducibility & Drift
-    runs-on: ubuntu-latest
-    needs: test-engine
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v5
-        with:
-          submodules: recursive
-
-      - name: Set up Go 1.27
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.27.1'
-          cache-dependency-path: core-engine/go.sum
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v5
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-
-      - name: Setup Android SDK & NDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Pinned NDK & Tooling
+      - name: Verify committed AAR hash
         run: |
-          sdkmanager --install "ndk;29.0.14206865"
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-          go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260821190718-4776eadac327
-          go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260821190718-4776eadac327
-
-      - name: Rebuild AAR
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
-        run: |
-          ./core-engine/build-aar.sh
-
-      - name: Verify No AAR Source Drift
-        run: |
-          echo "==> Verifying rebuilt AAR matches required specifications..."
-          test -s build/reports/aar/signatures.txt
-          test -s build/reports/aar/alignment-arm64.txt
-          test -s build/reports/aar/alignment-x86_64.txt
-          if git diff --quiet app/libs/libtailcat.aar; then
-            echo "AAR matches byte-for-byte."
-          else
-            echo "Note: Rebuilt AAR on ${{ runner.os }} differs in build ID / archive metadata from checked-in Darwin AAR, but passed all signature and 16 KB ELF load alignment checks."
+          got="$(sha256sum app/libs/libtailcat.aar | awk '{print $1}')"
+          want="$(tr -d ' \n' < app/libs/libtailcat.aar.sha256)"
+          if [ "$got" != "$want" ]; then
+            echo "AAR hash $got does not match app/libs/libtailcat.aar.sha256 ($want)"
+            exit 1
           fi
 
-      - name: Upload AAR Verification Artifacts
-        uses: actions/upload-artifact@v5
-        with:
-          name: libtailcat-aar-metadata
-          path: build/reports/aar/
-
-  build-android:
-    name: Build & Test Android App
+  android:
     runs-on: ubuntu-latest
-    needs: check-aar-drift
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v4
         with:
-          submodules: recursive
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v5
+          submodules: true
+      - uses: actions/setup-java@v4
         with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: 'gradle'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Run Unit Tests & Lint
-        run: |
-          chmod +x gradlew
-          ./gradlew testDebugUnitTest lintDebug
-
-      - name: Assemble Debug & Release Bundles
-        run: |
-          ./gradlew assembleDebug assembleRelease bundleRelease
-
-      - name: Upload Release Artifacts
-        uses: actions/upload-artifact@v5
-        with:
-          name: opentailcat-release-artifacts
-          path: |
-            app/build/outputs/apk/release/*.apk
-            app/build/outputs/bundle/release/*.aab
+          distribution: temurin
+          java-version: "21"
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest lintDebug

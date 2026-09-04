@@ -9,10 +9,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import com.tailcat.vpn.core.tls.PinnedHttps
 import java.io.InputStream
 import java.io.OutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import kotlin.math.abs
 import kotlin.math.round
 
@@ -122,8 +121,7 @@ class SpeedTestEngine {
     private fun measureSinglePing(): Long {
         return try {
             val startTime = System.nanoTime()
-            val url = URL("https://1.1.1.1/cdn-cgi/trace")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
+            val conn = PinnedHttps.open("https://1.1.1.1/cdn-cgi/trace").apply {
                 connectTimeout = 2500
                 readTimeout = 2500
                 requestMethod = "GET"
@@ -151,8 +149,7 @@ class SpeedTestEngine {
         var lastReportedSpeed = 0.0
 
         try {
-            val url = URL("https://speed.cloudflare.com/__down?bytes=25000000")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
+            val conn = PinnedHttps.open("https://speed.cloudflare.com/__down?bytes=25000000").apply {
                 connectTimeout = 4000
                 readTimeout = 4000
                 requestMethod = "GET"
@@ -196,8 +193,7 @@ class SpeedTestEngine {
         var lastReportedSpeed = 0.0
 
         try {
-            val url = URL("https://speed.cloudflare.com/__up")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
+            val conn = PinnedHttps.open("https://speed.cloudflare.com/__up").apply {
                 connectTimeout = 4000
                 readTimeout = 4000
                 requestMethod = "POST"

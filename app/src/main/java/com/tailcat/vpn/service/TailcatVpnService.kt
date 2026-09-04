@@ -88,6 +88,14 @@ class TailcatVpnService : VpnService() {
                 }
             }.toString()
             app.tunnelEngine.updateNetworkState(networkState)
+            app.tunnelEngine.setSocketProtector { fd -> protect(fd) }
+
+            val lockdownEnabled = if (Build.VERSION.SDK_INT >= 29) isLockdownEnabled else true
+            LeakGuard.refusalReason(
+                sdkInt = Build.VERSION.SDK_INT,
+                lockdownEnabled = lockdownEnabled,
+                splitTunnelEmpty = app.preferencesStore.splitTunnelExcludedApps.isEmpty()
+            )?.let { throw IllegalStateException(it) }
 
             // Complete the cryptographic gateway and transport handshake before installing any
             // full-device route. A failed or cancelled prepare phase cannot affect device traffic.
@@ -147,17 +155,15 @@ class TailcatVpnService : VpnService() {
             .addAddress(VpnInterfaceSpec.IPV4_ADDRESS, VpnInterfaceSpec.IPV4_PREFIX)
             .addAddress(VpnInterfaceSpec.IPV6_ADDRESS, VpnInterfaceSpec.IPV6_PREFIX)
             .setBlocking(true)
+        if (Build.VERSION.SDK_INT >= 29) {
+            builder.setMetered(false)
+        }
         if (defaultRoutes) {
             builder.addDnsServer(dnsIp)
         }
         for (route in VpnInterfaceSpec.defaultRoutes(defaultRoutes)) {
             builder.addRoute(route.address, route.prefixLength)
         }
-        val app = TailcatApplication.instance
-        for (excluded in app.preferencesStore.splitTunnelExcludedApps) {
-            runCatching { builder.addDisallowedApplication(excluded) }
-        }
-        builder.addDisallowedApplication(packageName)
         return builder
     }
 

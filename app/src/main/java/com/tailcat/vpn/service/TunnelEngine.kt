@@ -130,6 +130,28 @@ class TunnelEngine : NativeEngine {
         invoke(method)
     }
 
+    override fun setSocketProtector(protect: (Int) -> Boolean) {
+        val klass = engineClass ?: return
+        val setter = klass.methods.firstOrNull {
+            it.name.equals("setSocketProtector", ignoreCase = true) && it.parameterCount == 1
+        } ?: return
+        val iface = setter.parameterTypes.firstOrNull() ?: return
+        val proxy = java.lang.reflect.Proxy.newProxyInstance(
+            iface.classLoader,
+            arrayOf(iface)
+        ) { self, method, args ->
+            when {
+                method.name.equals("protect", ignoreCase = true) && !args.isNullOrEmpty() ->
+                    protect((args[0] as Number).toInt())
+                method.name == "toString" -> "SocketProtector"
+                method.name == "hashCode" -> System.identityHashCode(self)
+                method.name == "equals" -> self === args.getOrNull(0)
+                else -> null
+            }
+        }
+        invoke(setter, proxy)
+    }
+
     override fun updateNetworkState(networkStateJson: String) {
         val klass = engineClass ?: return
         val method = klass.methods.firstOrNull {

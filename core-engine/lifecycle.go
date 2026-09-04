@@ -165,6 +165,13 @@ func Prepare(tokenStr string) error {
 	}
 	discoCancel()
 
+	tcpOnly := false
+	if prober, ok := client.(udpCapability); ok {
+		udpCtx, udpCancel := context.WithTimeout(sess.ctx, time.Second)
+		tcpOnly = !prober.SupportsUDP(udpCtx)
+		udpCancel()
+	}
+
 	if sess.ctx.Err() != nil {
 		_ = client.Close()
 		abandonPrepare(sess)
@@ -182,6 +189,7 @@ func Prepare(tokenStr string) error {
 	sess.client = client
 	sess.transport = transport
 	sess.rttMs = rttMs
+	sess.tcpOnly = tcpOnly
 	globalCore.state = StatePrepared
 	globalCore.mu.Unlock()
 

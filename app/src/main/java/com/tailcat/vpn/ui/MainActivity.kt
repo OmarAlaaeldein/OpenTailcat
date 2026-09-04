@@ -1,6 +1,7 @@
 package com.tailcat.vpn.ui
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -16,6 +17,7 @@ import com.tailcat.vpn.ui.theme.TailcatTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         com.tailcat.vpn.TailcatApplication.instance.tunnelController.resyncFromEngine()
         enableEdgeToEdge()
 

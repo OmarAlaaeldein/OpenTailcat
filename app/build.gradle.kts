@@ -26,11 +26,25 @@ android {
         }
     }
 
+    val releaseStoreFile = System.getenv("OPENTAILCAT_RELEASE_STORE_FILE")
+    if (!releaseStoreFile.isNullOrBlank()) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storePassword = System.getenv("OPENTAILCAT_RELEASE_STORE_PASSWORD") ?: ""
+                keyAlias = System.getenv("OPENTAILCAT_RELEASE_KEY_ALIAS") ?: ""
+                keyPassword = System.getenv("OPENTAILCAT_RELEASE_KEY_PASSWORD") ?: ""
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("debug")
+            if (!releaseStoreFile.isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

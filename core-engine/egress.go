@@ -28,10 +28,7 @@ func (b *TunBridge) probeTunnelEgressIP(ctx context.Context) (netip.Addr, error)
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
 	}
-	tlsConn := tls.Client(conn, &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		ServerName: "1.1.1.1",
-	})
+	tlsConn := tls.Client(conn, pinnedTLSConfig("1.1.1.1"))
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		return netip.Addr{}, fmt.Errorf("authenticate egress probe: %w", err)
 	}

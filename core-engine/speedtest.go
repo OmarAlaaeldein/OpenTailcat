@@ -107,7 +107,7 @@ func tunnelDialTLS(ctx context.Context, client TunnelClient, addr, sni string) (
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
 	}
-	tlsConn := tls.Client(conn, &tls.Config{MinVersion: tls.VersionTLS12, ServerName: sni})
+	tlsConn := tls.Client(conn, pinnedTLSConfig(sni))
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("tls handshake: %w", err)
