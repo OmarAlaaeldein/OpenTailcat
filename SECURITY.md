@@ -2,7 +2,7 @@
 
 ## Release status
 
-OpenTailcat 1.1.9 in the current source tree is a development build. It has an
+OpenTailcat 1.2.0 in the current source tree is a development build. It has an
 integrated Go Mobile Tailcat engine with Phase 0 fail-closed capability gates,
 Phase 1 reproducible builds, Phase 2 official token validation, and Phase 3
 tunneled UDP userspace netstack code. IPv4 test-routing capabilities are true so
@@ -24,8 +24,10 @@ privacy VPN.
   rejects legacy/synthetic disco keys, rejects duplicate CBOR keys, and rejects
   expired tokens. Embedded DERP maps allow only region fields `i`/`c`/`m`/`N` and
   node fields `n`/`i`/`h`/`t`/`4`/`6`/`s`/`d`. Node `x` (`InsecureForTests`) is
-  rejected so a pasted token cannot disable DERP TLS. Pairing UI labels embedded
-  maps as "Embedded DERP Map", not an official city name.
+  rejected so a pasted token cannot disable DERP TLS. Loopback, unspecified,
+  link-local, and multicast `h`/`4`/`6` values are rejected. Pairing UI labels
+  embedded maps as "Embedded DERP Map", not an official city name, and sets
+  `FLAG_SECURE` while the token paste dialog is open.
 - Tunneled UDP uses a single gVisor netstack proxy routing datagrams exclusively
   through Tailcat WireGuard/Magicsock via `Client.DialUDP` without direct OS UDP
   sockets in `core-engine`. IPv4 `udp` is test-enabled; Phase 8 leak capture is
@@ -40,13 +42,14 @@ privacy VPN.
 ### Remaining release blockers & pending gates
 
 - **IPv4 flags are test-enabled, not Phase 8 accepted**: leak capture still pending.
-- **IPv6 dual-stack egress**: After `prepare`, Android installs `::/0` on the
-  same TUN as IPv4 default routes, then `attachTun`. Native proxies IPv6 TCP/UDP
-  with a 250ms dial timeout; ICMPv6 echo is dropped; oversized IPv6 gets a local
-  Packet Too Big. Live IPv6 internet depends on the gateway. `ipv6` stays false.
-- **Lifecycle / telemetry promotion**: one routed TUN after `prepare`, sticky VPN
-  service, TUN closed before native stop, plus live `DiscoPing` RTT. `twoPhaseStart`,
-  `cancelSafeLifecycle`, and `liveStats` are test-enabled until Phase 8 evidence.
+- **IPv6 dual-stack egress**: Android installs `::/0` after pumps are live.
+  Native proxies IPv6 TCP/UDP with a 250ms dial timeout; ICMPv6 echo is dropped;
+  oversized IPv6 gets a local Packet Too Big. Live IPv6 internet depends on the
+  gateway. `ipv6` stays false.
+- **Lifecycle / telemetry promotion**: two-phase start (host-only TUN, then
+  default routes after pumps), sticky VPN service, TUN closed before native stop,
+  plus live `DiscoPing` RTT. `twoPhaseStart`, `cancelSafeLifecycle`, and
+  `liveStats` are test-enabled until Phase 8 evidence.
 - **Live physical-device acceptance**: Uplink packet capture on multi-interface
   devices to verify zero direct destination leaks (Phase 8).
 - **Production release signing**: Signing with a production keystore (Phase 8).

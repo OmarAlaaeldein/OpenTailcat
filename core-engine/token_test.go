@@ -126,7 +126,7 @@ func insecureDERPToken(t *testing.T, extraNodeField string, extraVal any) string
 		p[i] = byte(i + 1)
 		k[i] = byte(i + 33)
 	}
-	node := map[string]any{"h": "127.0.0.1"}
+	node := map[string]any{"h": "derp.example"}
 	if extraNodeField != "" {
 		node[extraNodeField] = extraVal
 	}
@@ -179,5 +179,30 @@ func TestParseTokenRejectsUnknownEmbeddedNodeField(t *testing.T) {
 	}
 	if pt.ErrorCode != ErrInvalidStructuredRegion {
 		t.Fatalf("expected ERR_INVALID_STRUCTURED_REGION, got %s", pt.ErrorCode)
+	}
+}
+
+func TestParseTokenRejectsLoopbackDERPEndpoint(t *testing.T) {
+	token := insecureDERPToken(t, "4", "127.0.0.1")
+	pt, err := ParseToken(token)
+	if err == nil || pt.IsConnectable() {
+		t.Fatal("token with loopback DERP IPv4 must not be connectable")
+	}
+	if pt.ErrorCode != ErrInvalidStructuredRegion {
+		t.Fatalf("expected ERR_INVALID_STRUCTURED_REGION, got %s", pt.ErrorCode)
+	}
+	if !strings.Contains(pt.ErrorMessage, "loopback") {
+		t.Fatalf("expected loopback in error, got %q", pt.ErrorMessage)
+	}
+}
+
+func TestParseTokenRejectsLinkLocalDERPEndpoint(t *testing.T) {
+	token := insecureDERPToken(t, "4", "169.254.169.254")
+	pt, err := ParseToken(token)
+	if err == nil || pt.IsConnectable() {
+		t.Fatal("token with link-local DERP IPv4 must not be connectable")
+	}
+	if !strings.Contains(pt.ErrorMessage, "link-local") {
+		t.Fatalf("expected link-local in error, got %q", pt.ErrorMessage)
 	}
 }

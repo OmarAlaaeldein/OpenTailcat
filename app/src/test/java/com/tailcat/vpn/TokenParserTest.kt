@@ -141,11 +141,33 @@ class TokenParserTest {
         assertFalse(parsed.isConnectable)
     }
 
+    @Test
+    fun testRejectsLoopbackDerpEndpoint() {
+        val parsed = TokenParser.parse(LOOPBACK_DERP_TOKEN)
+        assertEquals(TokenClassification.INVALID, parsed.classification)
+        assertTrue(parsed.errorMessage!!.contains("loopback"))
+        assertFalse(parsed.isConnectable)
+    }
+
+    @Test
+    fun testRejectsLinkLocalDerpEndpoint() {
+        val parsed = TokenParser.parse(LINK_LOCAL_DERP_TOKEN)
+        assertEquals(TokenClassification.INVALID, parsed.classification)
+        assertTrue(parsed.errorMessage!!.contains("link-local"))
+        assertFalse(parsed.isConnectable)
+    }
+
     companion object {
         private const val INSECURE_FOR_TESTS_TOKEN =
-            "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWhpMTI3LjAuMC4xYXj1YWkB"
+            "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWhsZGVycC5leGFtcGxlYXj1YWkB"
 
         private const val UNKNOWN_NODE_FIELD_TOKEN =
-            "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWhpMTI3LjAuMC4xYXpkc3NyZmFpAQ"
+            "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWhsZGVycC5leGFtcGxlYXpkc3NyZmFpAQ"
+
+        private const val LOOPBACK_DERP_TOKEN =
+            "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYTRpMTI3LjAuMC4xYWhsZGVycC5leGFtcGxlYWkB"
+
+        private const val LINK_LOCAL_DERP_TOKEN =
+            "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYTRvMTY5LjI1NC4xNjkuMjU0YWhsZGVycC5leGFtcGxlYWkB"
     }
 }

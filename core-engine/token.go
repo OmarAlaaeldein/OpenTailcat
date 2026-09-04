@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -516,7 +517,7 @@ func ParseToken(raw string) (*ParsedToken, error) {
 		pt.ErrorMessage = fmt.Sprintf("upstream tailcat parser rejected token: %v", err)
 		return pt, fmt.Errorf("upstream tailcat parser rejected token: %w", err)
 	}
-	if err := rejectInsecureDERPNodes(ci.Region); err != nil {
+	if err := rejectUnsafeDERPNodes(ci.Region); err != nil {
 		pt.Classification = ClassificationInvalid
 		pt.ErrorCode = ErrInvalidStructuredRegion
 		pt.ErrorMessage = err.Error()
@@ -526,16 +527,53 @@ func ParseToken(raw string) (*ParsedToken, error) {
 	return pt, nil
 }
 
-func rejectInsecureDERPNodes(regions []*tailcfg.DERPRegion) error {
+func rejectUnsafeDERPNodes(regions []*tailcfg.DERPRegion) error {
 	for _, r := range regions {
 		if r == nil {
 			continue
 		}
 		for _, n := range r.Nodes {
-			if n != nil && n.InsecureForTests {
+			if n == nil {
+				continue
+			}
+			if n.InsecureForTests {
 				return errors.New("embedded DERP node InsecureForTests is forbidden")
 			}
+			if err := rejectUnsafeDERPEndpoint("hostname", n.HostName); err != nil {
+				return err
+			}
+			if err := rejectUnsafeDERPEndpoint("IPv4", n.IPv4); err != nil {
+				return err
+			}
+			if err := rejectUnsafeDERPEndpoint("IPv6", n.IPv6); err != nil {
+				return err
+			}
 		}
+	}
+	return nil
+}
+
+func rejectUnsafeDERPEndpoint(label, value string) error {
+	if value == "" || value == "none" {
+		return nil
+	}
+	lower := strings.ToLower(value)
+	if lower == "localhost" || strings.HasSuffix(lower, ".localhost") || lower == "ip6-localhost" {
+		return fmt.Errorf("embedded DERP %s is a loopback name", label)
+	}
+	addr, err := netip.ParseAddr(value)
+	if err != nil {
+		return nil
+	}
+	switch {
+	case addr.IsLoopback():
+		return fmt.Errorf("embedded DERP %s is a loopback address", label)
+	case !addr.IsValid() || addr.IsUnspecified():
+		return fmt.Errorf("embedded DERP %s is unspecified", label)
+	case addr.IsLinkLocalUnicast(), addr.IsLinkLocalMulticast():
+		return fmt.Errorf("embedded DERP %s is a link-local address", label)
+	case addr.IsMulticast():
+		return fmt.Errorf("embedded DERP %s is a multicast address", label)
 	}
 	return nil
 }
@@ -634,14 +672,23 @@ func parseStructuredDERPRegions(rawList []any) ([]*tailcfg.DERPRegion, error) {
 					if node.HostName == "" {
 						return nil, errors.New("embedded DERP node missing required HostName 'h'")
 					}
+					if err := rejectUnsafeDERPEndpoint("hostname", node.HostName); err != nil {
+						return nil, err
+					}
 					if node.Name == "" {
 						node.Name = node.HostName
 					}
 					if n4, ok := nM["4"].(string); ok {
 						node.IPv4 = n4
 					}
+					if err := rejectUnsafeDERPEndpoint("IPv4", node.IPv4); err != nil {
+						return nil, err
+					}
 					if n6, ok := nM["6"].(string); ok {
 						node.IPv6 = n6
+					}
+					if err := rejectUnsafeDERPEndpoint("IPv6", node.IPv6); err != nil {
+						return nil, err
 					}
 					reg.Nodes = append(reg.Nodes, node)
 				}

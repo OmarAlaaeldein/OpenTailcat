@@ -5,6 +5,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
+import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -57,6 +58,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -116,6 +118,16 @@ fun HomeScreen(
 
     var showAddDialog by remember { mutableStateOf(false) }
     var showProfileDropdown by remember { mutableStateOf(false) }
+
+    DisposableEffect(showAddDialog) {
+        val window = (context as? Activity)?.window
+        if (showAddDialog) {
+            window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
 
     val isDeviceOffline = networkType == NetworkType.NONE
 

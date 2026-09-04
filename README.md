@@ -9,12 +9,12 @@ from a compact `tc...` token.
 
 ## Safety status
 
-**OpenTailcat 1.1.9 is a development build and must not be distributed or relied
+**OpenTailcat 1.2.0 is a development build and must not be distributed or relied
 on as a production privacy VPN.** The Android shell, Go Mobile AAR, Tailcat
 handshake, official token parser, TCP proxy, and userspace netstack UDP proxy are
 integrated. IPv4 test-routing capabilities are true so Connect can run with a
-live token. `ipv6` is false. After `prepare`, Android installs `0.0.0.0/0` and
-`::/0`, then `attachTun`. This is not a production privacy VPN.
+live token. `ipv6` is false. Android installs `0.0.0.0/0` and `::/0` after pumps
+are live. This is not a production privacy VPN.
 
 ### Audited status
 
@@ -31,15 +31,16 @@ live token. `ipv6` is false. After `prepare`, Android installs `0.0.0.0/0` and
 - **Phase 4 (DNS routing)**: PROFILE/FORCED resolver routing, pending-config, and
   omit-means-preserve exist. The engine does not inspect DNS TC bits. IPv4 `dns`
   is test-enabled.
-- **Phase 5 (IPv6)**: After `prepare`, Android installs `::/0` on the same TUN
-  as IPv4 default routes, then `attachTun`. Native proxies IPv6 TCP/UDP with a
-  250ms dial timeout; ICMPv6 echo is dropped; oversized IPv6 gets a local
-  Packet Too Big. `ipv6` remains false until live dual-stack evidence.
+- **Phase 5 (IPv6)**: Android installs `::/0` after pumps are live. Native
+  proxies IPv6 TCP/UDP with a 250ms dial timeout; ICMPv6 echo is dropped;
+  oversized IPv6 gets a local Packet Too Big. `ipv6` remains false until live
+  dual-stack evidence.
 - **Phase 6 (Lifecycle)**: Cancellable prepare, readiness barriers, pump-failure
   `FAILED`, bounded stop, `detachTun`, and `disarmPumps` exist. After `prepare`,
-  Android establishes one TUN with `0.0.0.0/0`/`::/0` then attaches pumps.
-  The VPN service is sticky and is not stopped when the UI task is dismissed.
-  `twoPhaseStart` and `cancelSafeLifecycle` are test-enabled.
+  Android establishes a host-only TUN, attaches pumps, then installs
+  `0.0.0.0/0`/`::/0` and reattaches. The VPN service is sticky and is not stopped
+  when the UI task is dismissed. `twoPhaseStart` and `cancelSafeLifecycle` are
+  test-enabled.
 - **Phase 7 (Telemetry)**: Schema version 2 and live WireGuard peer counters exist
   while a bridge is running. Kotlin rejects v1 and requires live `RUNNING` health.
   RTT is sampled from `DiscoPing` while a bridge is running; jitter is null
@@ -68,8 +69,8 @@ measureTunnelUploadMbps()
 Current behavior:
 
 1. `getCapabilitiesJSON` reports API v2 with IPv4 test-routing capabilities true
-   (`ipv6` false). After `prepare`, Kotlin installs `0.0.0.0/0` and `::/0`, then
-   `attachTun`. This is not leak-free.
+   (`ipv6` false). Kotlin may install `0.0.0.0/0` and `::/0` after pumps are live.
+   This is not leak-free.
 2. `prepare` validates an official token, completes a Meow/Meowed handshake, and
    allows TCP-only gateways (DNS over TCP; other UDP dropped). `stop` cancels an
    in-flight `prepare`.
@@ -101,7 +102,8 @@ unchanged. Historical numeric-`r` tokens are classified as
 parsers reject aliases, unknown or duplicate fields, padded/non-URL Base64,
 surrounding whitespace, malformed/oversized CBOR, invalid key lengths, invalid
 timestamps, and expired tokens. Embedded DERP nodes cannot set `x`
-(`InsecureForTests`); unknown nested region/node fields are rejected.
+(`InsecureForTests`); unknown nested region/node fields and loopback,
+link-local, unspecified, or multicast `h`/`4`/`6` values are rejected.
 
 ## Build and verification
 

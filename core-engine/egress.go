@@ -36,7 +36,7 @@ func (b *TunBridge) probeTunnelEgressIP(ctx context.Context) (netip.Addr, error)
 		return netip.Addr{}, fmt.Errorf("authenticate egress probe: %w", err)
 	}
 	if _, err := io.WriteString(tlsConn,
-		"GET /cdn-cgi/trace HTTP/1.1\r\nHost: 1.1.1.1\r\nUser-Agent: OpenTailcat-Android/1.0\r\nConnection: close\r\n\r\n",
+		"GET /cdn-cgi/trace HTTP/1.1\r\nHost: 1.1.1.1\r\nUser-Agent: "+androidUserAgent+"\r\nConnection: close\r\n\r\n",
 	); err != nil {
 		return netip.Addr{}, fmt.Errorf("write egress probe: %w", err)
 	}

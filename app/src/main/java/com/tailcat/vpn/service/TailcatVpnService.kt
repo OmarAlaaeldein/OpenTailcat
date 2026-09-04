@@ -93,8 +93,18 @@ class TailcatVpnService : VpnService() {
             app.tunnelEngine.prepare(profile.token)
             currentCoroutineContext().ensureActive()
 
+            val warm = vpnBuilder(profile, dnsValidation.ip, defaultRoutes = false).establish()
+                ?: throw IllegalStateException("Android could not establish the VPN interface")
+            vpnInterface = warm
+            attachLive(app, warm, networkState)
+            currentCoroutineContext().ensureActive()
+            app.tunnelEngine.disarmPumps()
+
             val routed = vpnBuilder(profile, dnsValidation.ip, defaultRoutes = true).establish()
                 ?: throw IllegalStateException("Android could not establish the VPN interface")
+            if (routed.fd != warm.fd) {
+                runCatching { warm.close() }
+            }
             vpnInterface = routed
             val metrics = attachLive(app, routed, networkState)
             app.tunnelController.onEngineConnected(metrics)

@@ -45,7 +45,7 @@ func MeasureTunnelDownloadMbps() (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	host, err := lookupSpeedHost()
+	host, err := lookupSpeedHost(client)
 	if err != nil {
 		return 0, err
 	}
@@ -66,7 +66,7 @@ func MeasureTunnelUploadMbps() (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	host, err := lookupSpeedHost()
+	host, err := lookupSpeedHost(client)
 	if err != nil {
 		return 0, err
 	}
@@ -82,17 +82,17 @@ func MeasureTunnelUploadMbps() (float64, error) {
 	return float64(n) * 8 / elapsed.Seconds() / 1_000_000, nil
 }
 
-func lookupSpeedHost() (string, error) {
-	ips, err := net.LookupIP("speed.cloudflare.com")
+func lookupSpeedHost(client TunnelClient) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	ip, err := tunnelLookupA(ctx, client, "speed.cloudflare.com")
 	if err != nil {
-		return "", fmt.Errorf("resolve speed.cloudflare.com: %w", err)
+		return "", fmt.Errorf("resolve speed.cloudflare.com through tunnel: %w", err)
 	}
-	for _, ip := range ips {
-		if v4 := ip.To4(); v4 != nil {
-			return v4.String(), nil
-		}
+	if !ip.Is4() {
+		return "", errors.New("no IPv4 for speed.cloudflare.com")
 	}
-	return "", errors.New("no IPv4 for speed.cloudflare.com")
+	return ip.String(), nil
 }
 
 func tunnelDialTLS(ctx context.Context, client TunnelClient, addr, sni string) (*tls.Conn, error) {
@@ -121,7 +121,7 @@ func tunnelHTTPGet(ctx context.Context, client TunnelClient, addr, sni, path str
 		return err
 	}
 	defer tlsConn.Close()
-	req := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: OpenTailcat-Android/1.0\r\nConnection: close\r\n\r\n", path, sni)
+	req := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: %s\r\nConnection: close\r\n\r\n", path, sni, androidUserAgent)
 	if _, err := io.WriteString(tlsConn, req); err != nil {
 		return err
 	}
@@ -143,7 +143,7 @@ func tunnelHTTPRead(ctx context.Context, client TunnelClient, addr, sni, path st
 		return 0, 0, err
 	}
 	defer tlsConn.Close()
-	req := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: OpenTailcat-Android/1.0\r\nConnection: close\r\n\r\n", path, sni)
+	req := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: %s\r\nConnection: close\r\n\r\n", path, sni, androidUserAgent)
 	if _, err := io.WriteString(tlsConn, req); err != nil {
 		return 0, 0, err
 	}
@@ -179,8 +179,8 @@ func tunnelHTTPPost(ctx context.Context, client TunnelClient, addr, sni, path st
 	}
 	defer tlsConn.Close()
 	if _, err := io.WriteString(tlsConn, fmt.Sprintf(
-		"POST %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: OpenTailcat-Android/1.0\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
-		path, sni,
+		"POST %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: %s\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+		path, sni, androidUserAgent,
 	)); err != nil {
 		return 0, 0, err
 	}

@@ -17,7 +17,7 @@ acceptance is unimplemented.
 The checked-in AAR is built reproducibly with Go 1.27.0, NDK r29 (29.0.14206865),
 16 KB ELF load alignment, and verified Java signatures.
 
-Audit snapshot: version 1.1.9 on `main`. IPv4 Connect is test-enabled. `ipv6` is false.
+Audit snapshot: version 1.2.0 on `main`. IPv4 Connect is test-enabled. `ipv6` is false.
 
 Critical current behavior:
 
@@ -27,22 +27,23 @@ Critical current behavior:
   does not inspect DNS TC bits; a libc/app TCP/53 retry is a normal TCP proxy.
 - Other IPv4 UDP: gVisor netstack proxies datagrams via `Client.DialUDP` across
   Tailcat netstack (no application-flow `net.DialUDP` in `core-engine`).
-- IPv6: after `prepare`, Android installs `fd7a:115c:a1e0::2/128` and `::/0` on
-  the same TUN as IPv4 default routes, then `attachTun`. Native `handleIPv6`
-  proxies TCP/UDP with a 250ms dial timeout so dual-stack apps can fall back to
-  tunneled IPv4; ICMPv6 echo is dropped; oversized IPv6 gets a local Packet Too
-  Big; oversized IPv4 gets Fragmentation Needed. `ipv6` stays false.
+- IPv6: Android installs `fd7a:115c:a1e0::2/128` on a warm TUN, then `::/0` after
+  pumps are live. Native `handleIPv6` proxies TCP/UDP with a 250ms dial timeout so
+  dual-stack apps can fall back to tunneled IPv4; ICMPv6 echo is dropped;
+  oversized IPv6 gets a local Packet Too Big; oversized IPv4 gets Fragmentation
+  Needed. `ipv6` stays false.
 - ICMP echo: IPv4 answered locally. ICMPv6 echo is dropped.
 - Speed test: when CONNECTED, ping/download/upload use `Client.DialTCP` through
-  the gateway (`speed.cloudflare.com` is resolved with OS DNS on the app UID);
-  otherwise the app-UID physical path.
+  the gateway (`speed.cloudflare.com` is resolved with DNS-over-TCP via
+  `Client.DialTCP` to `1.1.1.1:53`); otherwise the app-UID physical path.
 - Telemetry: schema version 2. WireGuard peer Tx/Rx and Magicsock path come from
   live `Client.Status()` when a bridge is running. RTT is sampled from
   `DiscoPing` about every 5s while a bridge is running; jitter is null until
   three samples. Kotlin rejects v1 and requires `RUNNING` plus fresh
   `healthUnixSec` for CONNECTED. `liveStats` is test-enabled.
 - Capabilities: API v2 IPv4 test-routing flags true; `ipv6` false. After
-  `prepare`, Android installs `0.0.0.0/0` and `::/0`, then `attachTun`.
+  `prepare`, Android attaches a host-only TUN, then installs `0.0.0.0/0` and
+  `::/0` and reattaches.
 - Tests: unit, integration, race, lint, and build tests pass; complete live
   physical hardware tunnel test pending.
 
@@ -104,7 +105,7 @@ Follow the detailed methods and acceptance conditions in `handoff.md`:
 3. [x] Phase 2: Align Kotlin and Go token parsing and reject connect-time legacy tokens lacking disco keys.
 4. [x] Phase 3: Add native Tailcat UDP using userspace netstack; delete application-flow `net.DialUDP`.
 5. [ ] Phase 4: DNS routing code exists; IPv4 `dns` is test-enabled until Phase 8 evidence.
-6. [ ] Phase 5: IPv6 TCP/UDP is proxied with `::/0` after `prepare` then `attachTun`; `ipv6` stays false until live egress evidence.
+6. [ ] Phase 5: IPv6 TCP/UDP is proxied with `::/0` after pumps; `ipv6` stays false until live egress evidence.
 7. [ ] Phase 6: Cancellable machine and two-phase routes exist; live roam/leak evidence pending.
 8. [ ] Phase 7: Schema, WG counters, and live `DiscoPing` RTT exist; `liveStats` is test-enabled until Phase 8 evidence.
 9. [ ] Phase 8: Pass automated, local-gateway, physical-device, packet-capture, signing, 16 KB, R8/JNI, SBOM, and license gates.
@@ -145,10 +146,10 @@ Current lifecycle:
 - `stop` is concurrent-idempotent and waits with a 3s bound.
 - `detachTun` stops pumps, keeps the prepared client, and returns to `PREPARED`.
 - `disarmPumps` clears pump-failure without stopping the session.
-- After `prepare`, Android establishes one TUN with `0.0.0.0/0` and `::/0`, then
-  `attachTun`. The VPN service is `START_STICKY` with `stopWithTask=false`.
-  Shutdown closes the TUN before native `stop`. The UI resyncs CONNECTED from
-  live `getStatsJSON`.
+- After `prepare`, Android establishes a host-only TUN, `attachTun`, `disarmPumps`,
+  then a routed TUN with `0.0.0.0/0` and `::/0` and `attachTun` again. The VPN
+  service is `START_STICKY` with `stopWithTask=false`. Shutdown closes the TUN
+  before native `stop`. The UI resyncs CONNECTED from live `getStatsJSON`.
 
 ## Token contract
 
@@ -170,6 +171,7 @@ keys, timestamps, and trailing objects.
 
 Embedded DERP maps allow only region fields `i`/`c`/`m`/`N` and node fields
 `n`/`i`/`h`/`t`/`4`/`6`/`s`/`d`. Node `x` (`InsecureForTests`) is rejected.
+Loopback, unspecified, link-local, and multicast `h`/`4`/`6` values are rejected.
 
 Legacy numeric `r` tokens without `k` may be recognized only to show a reissue
 message. Never set the disco key equal to the node key; the real disco public
@@ -191,9 +193,8 @@ key cannot be derived from the node public key.
 10. Keep secrets, live tokens, signing keys, and traffic captures out of source
     control and public logs.
 
-These invariants are the release bar. Current IPv4 test-routing installs
-`0.0.0.0/0` and `::/0` after `prepare` and before `attachTun`; a brief window
-exists until pumps are live.
+These invariants are the release bar. Default routes are installed only after
+pumps are live; a brief window remains while the routed TUN is reattached.
 
 ## Definition of done
 

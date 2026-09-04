@@ -616,10 +616,58 @@ object TokenParser {
                     if (host.isNullOrEmpty()) {
                         throw IllegalArgumentException("embedded DERP node missing required HostName 'h'")
                     }
+                    rejectUnsafeDerpEndpoint("hostname", host)
+                    val ipv4 = nItem["4"] as? String
+                    if (!ipv4.isNullOrEmpty()) {
+                        rejectUnsafeDerpEndpoint("IPv4", ipv4)
+                    }
+                    val ipv6 = nItem["6"] as? String
+                    if (!ipv6.isNullOrEmpty()) {
+                        rejectUnsafeDerpEndpoint("IPv6", ipv6)
+                    }
                 }
             }
         }
         return firstId
+    }
+
+    private fun rejectUnsafeDerpEndpoint(label: String, value: String) {
+        if (value == "none") return
+        val lower = value.lowercase()
+        if (lower == "localhost" || lower.endsWith(".localhost") || lower == "ip6-localhost") {
+            throw IllegalArgumentException("embedded DERP $label is a loopback name")
+        }
+        val ip = literalIp(value) ?: return
+        if (ip.isLoopbackAddress) {
+            throw IllegalArgumentException("embedded DERP $label is a loopback address")
+        }
+        if (ip.isAnyLocalAddress) {
+            throw IllegalArgumentException("embedded DERP $label is unspecified")
+        }
+        if (ip.isLinkLocalAddress) {
+            throw IllegalArgumentException("embedded DERP $label is a link-local address")
+        }
+        if (ip.isMulticastAddress) {
+            throw IllegalArgumentException("embedded DERP $label is a multicast address")
+        }
+    }
+
+    private fun literalIp(value: String): java.net.InetAddress? {
+        if (value.contains(':')) {
+            return runCatching {
+                val addr = java.net.InetAddress.getByName(value)
+                if (addr is java.net.Inet6Address) addr else null
+            }.getOrNull()
+        }
+        val parts = value.split('.')
+        if (parts.size != 4) return null
+        val bytes = ByteArray(4)
+        for (i in 0 until 4) {
+            val n = parts[i].toIntOrNull() ?: return null
+            if (n !in 0..255) return null
+            bytes[i] = n.toByte()
+        }
+        return java.net.InetAddress.getByAddress(bytes)
     }
 }
 
