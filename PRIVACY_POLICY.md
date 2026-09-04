@@ -1,6 +1,6 @@
 # Privacy policy for OpenTailcat
 
-**Last updated:** September 3, 2026
+**Last updated:** September 4, 2026
 
 OpenTailcat is designed without accounts, advertising, analytics SDKs, remote
 crash reporting, or a proprietary coordination service. This policy describes
@@ -11,19 +11,21 @@ the current source tree, including its known development limitations.
 The current build is not a leak-free full-device VPN and must not be relied on
 for privacy-sensitive traffic:
 
-- IPv4 Connect is enabled for live-token testing. Android may install
-  `0.0.0.0/0` and `::/0` after pumps are live. This build is not leak-free.
+- IPv4 Connect is enabled for live-token testing. After `prepare`, Android
+  installs `0.0.0.0/0` and `::/0`, then `attachTun`. This build is not leak-free.
   IPv6 TCP/UDP is proxied if the gateway can egress IPv6; ICMPv6 echo is
   dropped; oversized IPv6 gets a local Packet Too Big.
 - IPv4 TCP is proxied through gVisor and Tailcat to the selected gateway.
 - IPv4 UDP is proxied through gVisor userspace netstack via `Client.DialUDP`.
 - UDP destination port 53 is proxied to the TUN destination (PROFILE_RESOLVER)
   or a forced resolver (FORCED_RESOLVER). The engine does not inspect DNS TC bits.
-- Android installs an IPv6 ULA and `::/0` after pumps are live. IPv6 TCP/UDP is
-  tunneled when the gateway supports it. ICMPv6 echo is dropped.
-- The in-app network benchmark uses ordinary app connections. OpenTailcat's own
-  UID bypasses the VPN, so these requests measure the direct device network and
-  are explicitly labeled as physical-network benchmarks in the UI.
+- After `prepare`, Android installs an IPv6 ULA and `::/0` on the same TUN as
+  IPv4 default routes, then `attachTun`. IPv6 TCP/UDP is tunneled when the
+  gateway supports it. ICMPv6 echo is dropped.
+- When CONNECTED, the in-app network benchmark uses `Client.DialTCP` through the
+  gateway (`speed.cloudflare.com` is resolved with OS DNS on the app UID). When
+  not CONNECTED, it uses ordinary app connections on the excluded UID. The UI
+  labels which path ran.
 
 ## Data stored on the device
 
@@ -44,14 +46,16 @@ device-to-device transfer for application data.
   `https://1.1.1.1/cdn-cgi/trace` to display the app process' public IP and
   country code. If that fails, it requests
   `https://api.ipify.org?format=json` for the IP only.
-- When the user starts a benchmark, the app requests Cloudflare endpoints at
-  `1.1.1.1` and `speed.cloudflare.com` for HTTP latency, download, and upload
-  measurements.
+- When the user starts a benchmark while CONNECTED, ping/download/upload use
+  `Client.DialTCP` through the gateway; `speed.cloudflare.com` is resolved with
+  OS DNS on the app UID. When not CONNECTED, the same Cloudflare endpoints are
+  requested with ordinary app connections.
 - During a prepared Tailcat session, the native engine contacts the relay
   described by the token or DERP map and the configured gateway peer.
 - After TUN attachment, the native engine attempts an exit-IP audit through
-  Tailcat. It first requests `api.ipify.org` over HTTP through the gateway and
-  falls back to an authenticated TLS request to Cloudflare `1.1.1.1`.
+  Tailcat: authenticated TLS `GET /cdn-cgi/trace` to Cloudflare `1.1.1.1`
+  via `Client.DialTCP`. The in-app public-IP display uses Cloudflare then
+  ipify from the excluded app UID, not the tunnel audit.
 - After TUN attachment, intercepted DNS is proxied through Tailcat according to
   PROFILE_RESOLVER or FORCED_RESOLVER. IPv4 `dns` is test-enabled; Phase 8 leak
   capture is still pending.
@@ -69,7 +73,7 @@ traffic and connection metadata to the same extent as another VPN provider.
 OpenTailcat cannot make privacy promises on behalf of a user-selected gateway.
 
 This development build may install IPv4 `0.0.0.0/0` and IPv6 `::/0` after
-pumps are live. IPv6 TCP/UDP on the TUN is proxied; ICMPv6 echo is dropped.
+`prepare` and before `attachTun`. IPv6 TCP/UDP on the TUN is proxied; ICMPv6 echo is dropped.
 OpenTailcat's own UID and split-tunnel apps bypass the VPN. It is not leak-free.
 
 Apps explicitly selected in OpenTailcat's split-tunnel settings also bypass the

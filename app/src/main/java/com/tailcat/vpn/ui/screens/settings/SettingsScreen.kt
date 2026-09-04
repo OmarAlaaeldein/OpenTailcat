@@ -235,7 +235,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
 
                     SettingsCard(icon = Icons.Default.Info, title = "About & legal") {
                         Text(
-                            "Tailcat for Android • v${BuildConfig.VERSION_NAME}",
+                            "OpenTailcat • v${BuildConfig.VERSION_NAME}",
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 color = TextPrimary,
                                 fontWeight = FontWeight.SemiBold

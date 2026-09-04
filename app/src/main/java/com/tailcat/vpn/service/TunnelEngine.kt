@@ -25,8 +25,8 @@ data class EngineCapabilities(
     val cancelSafeLifecycle: Boolean
 ) {
     /**
-     * Verifies whether all capabilities required for a production default-route VPN are present and true.
-     * Older API versions (< 2) or any false/missing capability will fail closed.
+     * Verifies IPv4 default-route capabilities. IPv6 is required only when requireIpv6 is true.
+     * Older API versions (< 2) or any false/missing required capability will fail closed.
      */
     fun satisfiesRouteRequirements(requireIpv6: Boolean = false): Boolean {
         if (apiVersion < REQUIRED_API_VERSION) return false

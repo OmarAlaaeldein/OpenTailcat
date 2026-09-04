@@ -9,7 +9,6 @@ This file is an overview, not a substitute for the license files distributed wit
 
 - AndroidX Core, Activity, Lifecycle, Compose UI, Material, test libraries, and AndroidX Security Crypto — Apache License 2.0.
 - Kotlin and kotlinx.coroutines — Apache License 2.0.
-- `co.nstant.in:cbor` — Apache License 2.0.
 - JUnit 4 — Eclipse Public License 1.0.
 
 Exact versions are defined in `gradle/libs.versions.toml` and the resolved Gradle dependency graph.
