@@ -75,20 +75,23 @@ data class ParsedToken(
         }
 
     val regionDisplayName: String
-        get() = when (derpRegionId) {
-            1 -> "NYC (Region 1)"
-            2 -> "SFO (Region 2)"
-            3 -> "Singapore (Region 3)"
-            4 -> "Frankfurt (Region 4)"
-            5 -> "Sydney (Region 5)"
-            6 -> "London (Region 6)"
-            7 -> "Tokyo (Region 7)"
-            8 -> "Toronto (Region 8)"
-            9 -> "Dallas (Region 9)"
-            10 -> "Seattle (Region 10)"
-            302 -> "San Francisco (Region 302)"
-            null -> if (hasEmbeddedRegion) "Embedded DERP Map" else "Default DERP"
-            else -> "DERP Region $derpRegionId"
+        get() {
+            if (hasEmbeddedRegion) return "Embedded DERP Map"
+            return when (derpRegionId) {
+                1 -> "NYC (Region 1)"
+                2 -> "SFO (Region 2)"
+                3 -> "Singapore (Region 3)"
+                4 -> "Frankfurt (Region 4)"
+                5 -> "Sydney (Region 5)"
+                6 -> "London (Region 6)"
+                7 -> "Tokyo (Region 7)"
+                8 -> "Toronto (Region 8)"
+                9 -> "Dallas (Region 9)"
+                10 -> "Seattle (Region 10)"
+                302 -> "San Francisco (Region 302)"
+                null -> "Default DERP"
+                else -> "DERP Region $derpRegionId"
+            }
         }
 
     override fun equals(other: Any?): Boolean {
@@ -560,12 +563,22 @@ object TokenParser {
         return candidate.copy(classification = finalClassification)
     }
 
+    private val allowedEmbeddedRegionFields = setOf("i", "c", "m", "N")
+    private val allowedEmbeddedNodeFields = setOf("n", "i", "h", "t", "4", "6", "s", "d")
+
     private fun parseStructuredRegions(regionsList: List<*>): Int {
         var firstId = 1
         for (ri in regionsList.indices) {
             val item = regionsList[ri]
             if (item !is Map<*, *>) {
                 throw IllegalArgumentException("embedded region entry must be a map")
+            }
+            for (key in item.keys) {
+                val name = key as? String
+                    ?: throw IllegalArgumentException("embedded region has unknown field")
+                if (name !in allowedEmbeddedRegionFields) {
+                    throw IllegalArgumentException("embedded region has unknown field \"$name\"")
+                }
             }
             val idVal = item["i"]
             val rId = when (idVal) {
@@ -588,6 +601,16 @@ object TokenParser {
                 for (nItem in nodesVal) {
                     if (nItem !is Map<*, *>) {
                         throw IllegalArgumentException("embedded DERP node must be a map")
+                    }
+                    if (nItem.containsKey("x")) {
+                        throw IllegalArgumentException("embedded DERP node InsecureForTests is forbidden")
+                    }
+                    for (key in nItem.keys) {
+                        val name = key as? String
+                            ?: throw IllegalArgumentException("embedded DERP node has unknown field")
+                        if (name !in allowedEmbeddedNodeFields) {
+                            throw IllegalArgumentException("embedded DERP node has unknown field \"$name\"")
+                        }
                     }
                     val host = nItem["h"] as? String
                     if (host.isNullOrEmpty()) {

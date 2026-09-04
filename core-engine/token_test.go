@@ -1,10 +1,13 @@
 package engine
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
+	"github.com/fxamacker/cbor/v2"
 	"github.com/tailscale/tailcat"
 )
 
@@ -112,5 +115,69 @@ func TestPrepareRejectsLegacyAndInvalidTokens(t *testing.T) {
 	// 3. Prepare must fail on invalid token
 	if err := Prepare("tcInvalid!"); err == nil {
 		t.Fatal("Prepare must reject invalid token")
+	}
+}
+
+func insecureDERPToken(t *testing.T, extraNodeField string, extraVal any) string {
+	t.Helper()
+	p := make([]byte, 32)
+	k := make([]byte, 32)
+	for i := 0; i < 32; i++ {
+		p[i] = byte(i + 1)
+		k[i] = byte(i + 33)
+	}
+	node := map[string]any{"h": "127.0.0.1"}
+	if extraNodeField != "" {
+		node[extraNodeField] = extraVal
+	}
+	raw := map[string]any{
+		"p": p,
+		"k": k,
+		"r": []any{
+			map[string]any{
+				"i": uint64(1),
+				"N": []any{node},
+			},
+		},
+	}
+	mode, err := cbor.CanonicalEncOptions().EncMode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cborBytes, err := mode.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "tc" + base64.RawURLEncoding.EncodeToString(cborBytes)
+}
+
+func TestParseTokenRejectsInsecureForTests(t *testing.T) {
+	token := insecureDERPToken(t, "x", true)
+	pt, err := ParseToken(token)
+	if err == nil || pt.IsConnectable() {
+		t.Fatal("token with InsecureForTests must not be connectable")
+	}
+	if pt.Classification != ClassificationInvalid {
+		t.Fatalf("expected INVALID, got %s", pt.Classification)
+	}
+	if pt.ErrorCode != ErrInvalidStructuredRegion {
+		t.Fatalf("expected ERR_INVALID_STRUCTURED_REGION, got %s", pt.ErrorCode)
+	}
+	if !strings.Contains(pt.ErrorMessage, "InsecureForTests") {
+		t.Fatalf("expected InsecureForTests in error, got %q", pt.ErrorMessage)
+	}
+	if err := Prepare(token); err == nil {
+		t.Fatal("Prepare must reject InsecureForTests token")
+	}
+}
+
+func TestParseTokenRejectsUnknownEmbeddedNodeField(t *testing.T) {
+	token := insecureDERPToken(t, "z", "ssrf")
+	pt, err := ParseToken(token)
+	if err == nil || pt.IsConnectable() {
+		t.Fatal("token with unknown DERP node field must not be connectable")
+	}
+	if pt.ErrorCode != ErrInvalidStructuredRegion {
+		t.Fatalf("expected ERR_INVALID_STRUCTURED_REGION, got %s", pt.ErrorCode)
 	}
 }

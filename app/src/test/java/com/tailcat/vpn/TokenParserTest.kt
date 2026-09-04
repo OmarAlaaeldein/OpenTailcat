@@ -108,5 +108,44 @@ class TokenParserTest {
             )
             assertEquals(expectedName, parsed.regionDisplayName)
         }
+
+        val embedded = com.tailcat.vpn.core.token.ParsedToken(
+            rawToken = "tc...",
+            classification = TokenClassification.VALID_OFFICIAL_RESOLVED,
+            derpRegionId = 1,
+            hasEmbeddedRegion = true
+        )
+        assertEquals("Embedded DERP Map", embedded.regionDisplayName)
+    }
+
+    @Test
+    fun testRejectsInsecureForTestsNode() {
+        val parsed = TokenParser.parse(INSECURE_FOR_TESTS_TOKEN)
+        assertEquals(TokenClassification.INVALID, parsed.classification)
+        assertEquals(
+            com.tailcat.vpn.core.token.TokenErrorCode.ERR_INVALID_STRUCTURED_REGION,
+            parsed.errorCode
+        )
+        assertTrue(parsed.errorMessage!!.contains("InsecureForTests"))
+        assertFalse(parsed.isConnectable)
+    }
+
+    @Test
+    fun testRejectsUnknownEmbeddedNodeField() {
+        val parsed = TokenParser.parse(UNKNOWN_NODE_FIELD_TOKEN)
+        assertEquals(TokenClassification.INVALID, parsed.classification)
+        assertEquals(
+            com.tailcat.vpn.core.token.TokenErrorCode.ERR_INVALID_STRUCTURED_REGION,
+            parsed.errorCode
+        )
+        assertFalse(parsed.isConnectable)
+    }
+
+    companion object {
+        private const val INSECURE_FOR_TESTS_TOKEN =
+            "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWhpMTI3LjAuMC4xYXj1YWkB"
+
+        private const val UNKNOWN_NODE_FIELD_TOKEN =
+            "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWhpMTI3LjAuMC4xYXpkc3NyZmFpAQ"
     }
 }

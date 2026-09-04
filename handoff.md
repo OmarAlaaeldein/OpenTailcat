@@ -24,7 +24,7 @@ unsafe shortcuts already found in the tree.
   `49c65dace2d79b41d89f536289002816d13e5274` and later UDP, DNS, NetMon, and status extensions.
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.0 and NDK 29.0.14206865. Current SHA-256:
-   `c37246783ac2968095952b3b7590b2fcc5cc71eb114aa34b873eedd4fde906e2`.
+   `280a66c96a78ef39e26135f0ee46a0cbcfe209a2b4aeb095509f3c41bd6b55cb`.
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
@@ -219,6 +219,8 @@ Required behavior:
   unknown fields, maximum token size, and timestamp semantics.
 - Do not mutate an official token while validating it. Canonicalization is only
   for a schema that can be reproduced without inventing cryptographic fields.
+- Embedded DERP maps allow only region fields `i`/`c`/`m`/`N` and node fields
+  `n`/`i`/`h`/`t`/`4`/`6`/`s`/`d`. Node `x` (`InsecureForTests`) is rejected.
 
 Tests must include byte-for-byte golden vectors produced by the pinned upstream
 version, malformed vectors, duplicate-map-key vectors, and cross-language

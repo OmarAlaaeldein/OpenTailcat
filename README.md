@@ -100,7 +100,8 @@ unchanged. Historical numeric-`r` tokens are classified as
 `LEGACY_REISSUE_REQUIRED` and cannot connect; no disco key is invented. Both
 parsers reject aliases, unknown or duplicate fields, padded/non-URL Base64,
 surrounding whitespace, malformed/oversized CBOR, invalid key lengths, invalid
-timestamps, and expired tokens.
+timestamps, and expired tokens. Embedded DERP nodes cannot set `x`
+(`InsecureForTests`); unknown nested region/node fields are rejected.
 
 ## Build and verification
 

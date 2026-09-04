@@ -509,14 +509,53 @@ func ParseToken(raw string) (*ParsedToken, error) {
 	}
 
 	// 6. Verify that upstream tailcat.ParseConnBlob accepts this exact unmutated token
-	if _, err := tailcat.ParseConnBlob(tailcat.ConnBlob(raw)); err != nil {
+	ci, err := tailcat.ParseConnBlob(tailcat.ConnBlob(raw))
+	if err != nil {
 		pt.Classification = ClassificationInvalid
 		pt.ErrorCode = ErrCborMalformed
 		pt.ErrorMessage = fmt.Sprintf("upstream tailcat parser rejected token: %v", err)
 		return pt, fmt.Errorf("upstream tailcat parser rejected token: %w", err)
 	}
+	if err := rejectInsecureDERPNodes(ci.Region); err != nil {
+		pt.Classification = ClassificationInvalid
+		pt.ErrorCode = ErrInvalidStructuredRegion
+		pt.ErrorMessage = err.Error()
+		return pt, err
+	}
 
 	return pt, nil
+}
+
+func rejectInsecureDERPNodes(regions []*tailcfg.DERPRegion) error {
+	for _, r := range regions {
+		if r == nil {
+			continue
+		}
+		for _, n := range r.Nodes {
+			if n != nil && n.InsecureForTests {
+				return errors.New("embedded DERP node InsecureForTests is forbidden")
+			}
+		}
+	}
+	return nil
+}
+
+var allowedEmbeddedRegionFields = map[string]bool{
+	"i": true,
+	"c": true,
+	"m": true,
+	"N": true,
+}
+
+var allowedEmbeddedNodeFields = map[string]bool{
+	"n": true,
+	"i": true,
+	"h": true,
+	"t": true,
+	"4": true,
+	"6": true,
+	"s": true,
+	"d": true,
 }
 
 func parseStructuredDERPRegions(rawList []any) ([]*tailcfg.DERPRegion, error) {
@@ -525,6 +564,11 @@ func parseStructuredDERPRegions(rawList []any) ([]*tailcfg.DERPRegion, error) {
 		m, ok := item.(map[string]any)
 		if !ok {
 			return nil, errors.New("embedded region entry must be a map")
+		}
+		for k := range m {
+			if !allowedEmbeddedRegionFields[k] {
+				return nil, fmt.Errorf("embedded region has unknown field %q", k)
+			}
 		}
 		var rID int64
 		if idVal, ok := m["i"]; ok {
@@ -569,6 +613,14 @@ func parseStructuredDERPRegions(rawList []any) ([]*tailcfg.DERPRegion, error) {
 					nM, ok := nItem.(map[string]any)
 					if !ok {
 						return nil, errors.New("embedded DERP node must be a map")
+					}
+					if _, hasX := nM["x"]; hasX {
+						return nil, errors.New("embedded DERP node InsecureForTests is forbidden")
+					}
+					for k := range nM {
+						if !allowedEmbeddedNodeFields[k] {
+							return nil, fmt.Errorf("embedded DERP node has unknown field %q", k)
+						}
 					}
 					node := &tailcfg.DERPNode{
 						RegionID: reg.RegionID,

@@ -22,7 +22,10 @@ privacy VPN.
   Unknown capability JSON fields fail closed.
 - Token validation in Android and Go strictly enforces official token structures,
   rejects legacy/synthetic disco keys, rejects duplicate CBOR keys, and rejects
-  expired tokens.
+  expired tokens. Embedded DERP maps allow only region fields `i`/`c`/`m`/`N` and
+  node fields `n`/`i`/`h`/`t`/`4`/`6`/`s`/`d`. Node `x` (`InsecureForTests`) is
+  rejected so a pasted token cannot disable DERP TLS. Pairing UI labels embedded
+  maps as "Embedded DERP Map", not an official city name.
 - Tunneled UDP uses a single gVisor netstack proxy routing datagrams exclusively
   through Tailcat WireGuard/Magicsock via `Client.DialUDP` without direct OS UDP
   sockets in `core-engine`. IPv4 `udp` is test-enabled; Phase 8 leak capture is
