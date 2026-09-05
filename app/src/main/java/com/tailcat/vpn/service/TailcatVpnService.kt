@@ -40,34 +40,71 @@ class TailcatVpnService : VpnService() {
         val profile = app.profileRepository.activeProfile.value
         val validationError = app.tunnelController.validateStartRequest()
         if (profile == null || validationError != null) {
-            app.tunnelController.onVpnStartFailed(
+            rejectStart(
                 validationError ?: "No gateway profile is selected"
             )
-            stopSelf()
             return START_NOT_STICKY
         }
 
         if (startJob?.isActive == true || vpnInterface != null) return START_STICKY
 
         shuttingDown = false
-        app.tunnelController.setTunnelState(TunnelState.CONNECTING)
-        val notification = app.notificationManager.buildNotification(
-            state = TunnelState.CONNECTING,
-            profileName = profile.name,
-            metrics = app.tunnelController.networkMetrics.value
-        )
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(
-                VpnNotificationManager.NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
+        try {
+            // Sticky/always-on restores do not pass through the UI consent launcher.
+            // Consent can also be revoked between the UI callback and service start.
+            check(prepare(this) == null) { VPN_PERMISSION_REQUIRED }
+            app.tunnelController.setTunnelState(TunnelState.CONNECTING)
+            val notification = app.notificationManager.buildNotification(
+                state = TunnelState.CONNECTING,
+                profileName = profile.name,
+                metrics = app.tunnelController.networkMetrics.value
             )
-        } else {
-            startForeground(VpnNotificationManager.NOTIFICATION_ID, notification)
-        }
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(
+                    VpnNotificationManager.NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
+                )
+            } else {
+                startForeground(VpnNotificationManager.NOTIFICATION_ID, notification)
+            }
 
-        startJob = serviceScope.launch { establishAndStartEngine(profile) }
-        return START_STICKY
+            startJob = serviceScope.launch { establishAndStartEngine(profile) }
+            return START_STICKY
+        } catch (error: Exception) {
+            // startForeground executes later than startForegroundService, so the
+            // controller's catch cannot handle Android rejecting this service.
+            rejectStart(
+                error.message ?: "Android could not start the VPN service"
+            )
+            return START_NOT_STICKY
+        }
+    }
+
+    private fun rejectStart(message: String) {
+        val app = TailcatApplication.instance
+        app.tunnelController.onVpnStartFailed(message)
+        // Android can crash the process even when stopSelf is called immediately
+        // after a rejected startForegroundService request. Satisfy that request
+        // with a short-lived notification, which needs no VPN consent, then stop.
+        // This type is used only for rejection cleanup, never to run a tunnel.
+        runCatching {
+            val notification = app.notificationManager.buildNotification(
+                state = TunnelState.DISCONNECTED,
+                profileName = app.profileRepository.activeProfile.value?.name.orEmpty(),
+                metrics = app.tunnelController.networkMetrics.value
+            )
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(
+                    VpnNotificationManager.NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SHORT_SERVICE
+                )
+            } else {
+                startForeground(VpnNotificationManager.NOTIFICATION_ID, notification)
+            }
+        }
+        shutdown()
     }
 
     private suspend fun establishAndStartEngine(profile: GatewayProfile) {
@@ -226,6 +263,8 @@ class TailcatVpnService : VpnService() {
     }
 
     companion object {
+        const val VPN_PERMISSION_REQUIRED =
+            "VPN permission is required. Tap Connect to allow the VPN connection."
         const val ACTION_START_VPN = "com.tailcat.vpn.ACTION_START"
         const val ACTION_STOP_VPN = "com.tailcat.vpn.ACTION_STOP"
     }

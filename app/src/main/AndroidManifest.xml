@@ -32,11 +32,12 @@
             </intent-filter>
         </activity>
 
+        <!-- shortService is only used to complete rejected-start cleanup. -->
         <service
             android:name=".service.TailcatVpnService"
             android:description="@string/vpn_service_desc"
             android:exported="false"
-            android:foregroundServiceType="systemExempted"
+            android:foregroundServiceType="systemExempted|shortService"
             android:stopWithTask="false"
             android:permission="android.permission.BIND_VPN_SERVICE"
             tools:ignore="ForegroundServicePermission">

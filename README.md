@@ -9,12 +9,18 @@ from a compact `tc...` token.
 
 ## Safety status
 
-**OpenTailcat 1.2.2 is a development build and must not be distributed or relied
+**OpenTailcat 1.2.3 is a development build and must not be distributed or relied
 on as a production privacy VPN.** The Android shell, Go Mobile AAR, Tailcat
 handshake, official token parser, TCP proxy, and userspace netstack UDP proxy are
 integrated. IPv4 test-routing capabilities are true so Connect can run with a
 live token. `ipv6` is false. Android installs `0.0.0.0/0` and `::/0` after pumps
 are live. This is not a production privacy VPN.
+
+Version 1.2.3 fixes a reproduced startup crash when Android VPN permission is
+absent and prevents failed starts from repeatedly restoring themselves. The
+lockdown startup check and transport socket protection still have known defects;
+this update does not establish full-device encrypted operation. See the
+[1.2.3 release notes](docs/releases/1.2.3.md) for validation and remaining limits.
 
 ### Audited status
 

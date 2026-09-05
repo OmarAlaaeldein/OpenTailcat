@@ -7,7 +7,7 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.2.2 on `main`. IPv4 test-routing capabilities are
+- Android repository: version 1.2.3 on `main` (startup correction after the 1.2.2 audit). IPv4 test-routing capabilities are
   true so Connect can be exercised with a live token. `ipv6` remains false.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
@@ -356,6 +356,18 @@ Acceptance condition: public IPv4 and IPv6 both change to gateway egress while
 connected, and neither family reaches the Internet directly on pump failure.
 
 ### Phase 6: lifecycle, readiness, and roaming
+
+Startup crash correction (2026-09-05): the controller checks Android VPN consent
+before requesting a foreground service, and the service checks it again before
+starting native work. Foreground-promotion exceptions are handled. A rejected
+service request posts a transient `shortService` notification on API 34+ and
+then stops; this satisfies Android's foreground-start contract even when VPN
+consent is absent. `shortService` never runs the tunnel. Failed starts clear
+`vpnWanted` so Activity/application restoration does not repeatedly retry them;
+an explicit Connect request can retry after permission is granted. The
+dedicated-emulator `VpnStartupInstrumentedTest` uses synthetic keys and checks
+missing consent, service rejection, process survival, retry, and cleanup. This
+does not establish physical-device or encrypted data-plane acceptance.
 
 **Checkpoint status: Machine exists; IPv4 test-routing enables `twoPhaseStart`
 and `cancelSafeLifecycle`.** Session context cancels blocked `prepare`. Mutex is

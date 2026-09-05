@@ -2,6 +2,7 @@ package com.tailcat.vpn.service
 
 import android.content.Context
 import android.content.Intent
+import android.net.VpnService
 import androidx.core.content.ContextCompat
 import com.tailcat.vpn.core.NetworkMonitor
 import com.tailcat.vpn.core.NetworkType
@@ -139,13 +140,16 @@ class TunnelController(
             return false
         }
 
-        preferences.vpnWanted = true
-        _lastError.value = null
-        _tunnelState.value = TunnelState.CONNECTING
-        val intent = Intent(context, TailcatVpnService::class.java).apply {
-            action = TailcatVpnService.ACTION_START_VPN
-        }
         return runCatching {
+            // Automatic restoration has no Activity to obtain consent. Do not
+            // enqueue a foreground-service start until Android has granted it.
+            check(VpnService.prepare(context) == null) { TailcatVpnService.VPN_PERMISSION_REQUIRED }
+            preferences.vpnWanted = true
+            _lastError.value = null
+            _tunnelState.value = TunnelState.CONNECTING
+            val intent = Intent(context, TailcatVpnService::class.java).apply {
+                action = TailcatVpnService.ACTION_START_VPN
+            }
             ContextCompat.startForegroundService(context, intent)
             true
         }.getOrElse {
@@ -218,6 +222,9 @@ class TunnelController(
     }
 
     fun onVpnStartFailed(message: String) {
+        // Resume/process recreation must not retry a start Android has rejected.
+        // A new explicit Connect request sets this again after UI consent.
+        preferences.vpnWanted = false
         pollingJob?.cancel()
         _tunnelState.value = TunnelState.DISCONNECTED
         _networkMetrics.value = NetworkMetrics()
