@@ -11,7 +11,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "usage: phase8-analyze --uplink file.pcap --probe 1.1.1.1,8.8.8.8 [--gateway file.pcap]\n")
+		fmt.Fprintf(os.Stderr, "usage: phase8-analyze --uplink file.pcap --probe 1.1.1.1,8.8.8.8 --gateway file.pcap\n")
 		os.Exit(2)
 	}
 	var uplink, gateway string
@@ -53,6 +53,11 @@ func main() {
 	if uplink == "" || len(probes) == 0 {
 		fatal("need --uplink and --probe")
 	}
+	// Simultaneous gateway capture is mandatory. An empty/optional gateway
+	// previously allowed false PASS on leaking or empty uplink (AUDIT H7).
+	if gateway == "" {
+		fatal("gateway capture is required (--gateway file.pcap)")
+	}
 	uf, err := os.Open(uplink)
 	if err != nil {
 		fatal(err.Error())
@@ -67,9 +72,6 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("PASS uplink: probe destinations absent")
-	if gateway == "" {
-		return
-	}
 	gf, err := os.Open(gateway)
 	if err != nil {
 		fatal(err.Error())

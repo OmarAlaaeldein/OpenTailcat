@@ -77,3 +77,63 @@ func TestProbeIPsPresentOnGateway(t *testing.T) {
 		t.Fatal("gateway capture missing probe destination")
 	}
 }
+func writePCAPWithLinkType(linkType uint32, frames ...[]byte) []byte {
+	var buf bytes.Buffer
+	var hdr [24]byte
+	binary.LittleEndian.PutUint32(hdr[0:4], pcapMagicMicroseconds)
+	binary.LittleEndian.PutUint16(hdr[4:6], 2)
+	binary.LittleEndian.PutUint16(hdr[6:8], 4)
+	binary.LittleEndian.PutUint32(hdr[16:20], 65535)
+	binary.LittleEndian.PutUint32(hdr[20:24], linkType)
+	buf.Write(hdr[:])
+	for _, f := range frames {
+		var ph [16]byte
+		binary.LittleEndian.PutUint32(ph[8:12], uint32(len(f)))
+		binary.LittleEndian.PutUint32(ph[12:16], uint32(len(f)))
+		buf.Write(ph[:])
+		buf.Write(f)
+	}
+	return buf.Bytes()
+}
+
+func TestProbeIPsRejectsEmptyCapture(t *testing.T) {
+	pcap := writePCAPWithLinkType(dltEN10MB)
+	_, err := ProbeIPsOnUplink(bytes.NewReader(pcap), []netip.Addr{netip.MustParseAddr("8.8.8.8")})
+	if err == nil {
+		t.Fatal("expected empty capture to fail")
+	}
+}
+
+func TestProbeIPsRejectsUnsupportedLinkType(t *testing.T) {
+	// DLT 999 is not supported; previously treated as raw IP and could PASS a leak.
+	frame := writeEthernetIPv4(netip.MustParseAddr("8.8.8.8"))
+	pcap := writePCAPWithLinkType(999, frame)
+	_, err := ProbeIPsOnUplink(bytes.NewReader(pcap), []netip.Addr{netip.MustParseAddr("8.8.8.8")})
+	if err == nil {
+		t.Fatal("expected unsupported link type to fail")
+	}
+}
+
+func TestProbeIPsDetectsLeakOnLinuxSLL2(t *testing.T) {
+	probe := netip.MustParseAddr("8.8.8.8")
+	ip := make([]byte, 20)
+	ip[0] = 0x45
+	binary.BigEndian.PutUint16(ip[2:4], 20)
+	ip[8] = 64
+	ip[9] = 17
+	copy(ip[12:16], netip.MustParseAddr("10.0.0.2").AsSlice())
+	copy(ip[16:20], probe.AsSlice())
+	// SLL2 header: proto(2) + reserved(2) + ifindex(4) + hatype(2) + pkttype(1) + addrlen(1) + addr(8)
+	sll2 := make([]byte, 20+len(ip))
+	binary.BigEndian.PutUint16(sll2[0:2], 0x0800)
+	sll2[11] = 8
+	copy(sll2[20:], ip)
+	pcap := writePCAPWithLinkType(dltLINUXSLL2, sll2)
+	leaked, err := ProbeIPsOnUplink(bytes.NewReader(pcap), []netip.Addr{probe})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leaked) != 1 || leaked[0] != probe {
+		t.Fatalf("expected SLL2 leak of %v, got %v", probe, leaked)
+	}
+}
