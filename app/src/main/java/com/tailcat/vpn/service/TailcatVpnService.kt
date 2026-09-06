@@ -148,12 +148,18 @@ class TailcatVpnService : VpnService() {
             adoptInterface(warm)
             warmOwned = null
 
-            // Now that a VPN exists, framework lockdown state is observable. Refuse before
-            // installing 0.0.0.0/0 or ::/0 when Always-on lockdown is off.
-            val lockdownEnabled = if (Build.VERSION.SDK_INT >= 29) isLockdownEnabled else true
-            LeakGuard.refusalReason(
+            // Prefer Settings.Secure Always-on lockdown (readable without relying solely on
+            // framework UnderlyingNetworkInfo) and OR with isLockdownEnabled after warm TUN.
+            // LockdownProbe existed but was previously unused here — Always-on users still failed.
+            val settingsLockdown = LockdownProbe.alwaysOnLockdownConfigured(
+                resolver = contentResolver,
+                packageName = packageName
+            )
+            val frameworkLockdown = if (Build.VERSION.SDK_INT >= 29) isLockdownEnabled else true
+            LeakGuard.refusalReasonForStartup(
                 sdkInt = Build.VERSION.SDK_INT,
-                lockdownEnabled = lockdownEnabled,
+                settingsLockdown = settingsLockdown,
+                frameworkLockdownEnabled = frameworkLockdown,
                 splitTunnelEmpty = app.preferencesStore.splitTunnelExcludedApps.isEmpty()
             )?.let { throw IllegalStateException(it) }
 

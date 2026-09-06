@@ -24,4 +24,23 @@ object LeakGuard {
         if (sdkInt >= LOCKDOWN_REQUIRED_API && !lockdownEnabled) return LOCKDOWN_REQUIRED
         return null
     }
+
+    /**
+     * Combines Settings.Secure Always-on lockdown with VpnService.isLockdownEnabled.
+     * See [LockdownProbe].
+     */
+    fun refusalReasonForStartup(
+        sdkInt: Int,
+        settingsLockdown: Boolean?,
+        frameworkLockdownEnabled: Boolean,
+        splitTunnelEmpty: Boolean
+    ): String? {
+        if (!splitTunnelEmpty) return SPLIT_TUNNEL_BLOCKED
+        val satisfied = LockdownProbe.lockdownSatisfied(
+            sdkInt = sdkInt,
+            settingsLockdown = settingsLockdown,
+            frameworkLockdownEnabled = frameworkLockdownEnabled
+        )
+        return if (satisfied) null else LOCKDOWN_REQUIRED
+    }
 }
