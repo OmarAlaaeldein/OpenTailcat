@@ -15,7 +15,7 @@ android {
         applicationId = "com.tailcat.vpn"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
+        versionCode = 16
         versionName = "1.2.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -52,6 +52,13 @@ android {
         }
         debug {
             isMinifyEnabled = false
+        }
+        create("development") {
+            // Downloadable test builds use release optimization without the
+            // debug variant's Compose tooling or a production signing key.
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
         }
     }
     splits {

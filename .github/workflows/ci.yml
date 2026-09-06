@@ -41,3 +41,5 @@ jobs:
           java-version: "21"
       - name: Unit tests
         run: ./gradlew testDebugUnitTest lintDebug
+      - name: Build optimized development APKs
+        run: ./gradlew assembleDevelopment

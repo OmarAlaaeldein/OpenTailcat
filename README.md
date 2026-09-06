@@ -127,6 +127,18 @@ cd ..
 ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease
 ```
 
+Downloadable development APKs use the optimized `development` build type. It
+inherits release code/resource shrinking, omits debug UI tooling, and uses the
+existing development certificate. Build its ARM64 and x86-64 APKs with:
+
+```bash
+./gradlew assembleDevelopment
+```
+
+The [1.2.3 optimization verification record](docs/verification/1.2.3-optimized.md)
+documents emulator checks and the limitation of running the existing
+instrumentation suite against the minified APK.
+
 Rebuild the AAR whenever `core-engine`, `third_party/tailcat`, Go dependencies,
 or native build flags change:
 
