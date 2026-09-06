@@ -11,6 +11,7 @@ import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.core.model.GatewayProfile
 import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TunnelState
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -24,10 +25,11 @@ import kotlinx.coroutines.launch
 class TailcatVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
+    private val interfaceLock = Any()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var startJob: Job? = null
     private var metricsCollectorJob: Job? = null
-    @Volatile private var shuttingDown = false
+    private val shuttingDown = AtomicBoolean(false)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_VPN) {
@@ -48,7 +50,7 @@ class TailcatVpnService : VpnService() {
 
         if (startJob?.isActive == true || vpnInterface != null) return START_STICKY
 
-        shuttingDown = false
+        shuttingDown.set(false)
         try {
             // Sticky/always-on restores do not pass through the UI consent launcher.
             // Consent can also be revoked between the UI callback and service start.
@@ -109,6 +111,8 @@ class TailcatVpnService : VpnService() {
 
     private suspend fun establishAndStartEngine(profile: GatewayProfile) {
         val app = TailcatApplication.instance
+        var warmOwned: ParcelFileDescriptor? = null
+        var routedOwned: ParcelFileDescriptor? = null
         try {
             // Validate resolver IP before configuring VPN interface
             val dnsValidation = com.tailcat.vpn.core.dns.DnsValidator.validate(profile.customDns)
@@ -127,6 +131,25 @@ class TailcatVpnService : VpnService() {
             app.tunnelEngine.updateNetworkState(networkState)
             app.tunnelEngine.setSocketProtector { fd -> protect(fd) }
 
+            // Complete the cryptographic gateway and transport handshake before installing any
+            // full-device route. A failed or cancelled prepare phase cannot affect device traffic.
+            // Do NOT query isLockdownEnabled here: Android only reports lockdown for the current
+            // always-on owner after a VPN interface exists (AUDIT H1).
+            app.tunnelEngine.prepare(profile.token)
+            // Tailcat createEngine disables netns; re-enable Android VpnService.protect hooks
+            // before any default route exists so Magicsock/DERP redials bypass the TUN (H2).
+            app.tunnelEngine.ensureTransportProtect()
+            currentCoroutineContext().ensureActive()
+            checkNotShuttingDown()
+
+            val warm = vpnBuilder(profile, dnsValidation.ip, defaultRoutes = false).establish()
+                ?: throw IllegalStateException("Android could not establish the VPN interface")
+            warmOwned = warm
+            adoptInterface(warm)
+            warmOwned = null
+
+            // Now that a VPN exists, framework lockdown state is observable. Refuse before
+            // installing 0.0.0.0/0 or ::/0 when Always-on lockdown is off.
             val lockdownEnabled = if (Build.VERSION.SDK_INT >= 29) isLockdownEnabled else true
             LeakGuard.refusalReason(
                 sdkInt = Build.VERSION.SDK_INT,
@@ -134,35 +157,62 @@ class TailcatVpnService : VpnService() {
                 splitTunnelEmpty = app.preferencesStore.splitTunnelExcludedApps.isEmpty()
             )?.let { throw IllegalStateException(it) }
 
-            // Complete the cryptographic gateway and transport handshake before installing any
-            // full-device route. A failed or cancelled prepare phase cannot affect device traffic.
-            app.tunnelEngine.prepare(profile.token)
-            currentCoroutineContext().ensureActive()
-
-            val warm = vpnBuilder(profile, dnsValidation.ip, defaultRoutes = false).establish()
-                ?: throw IllegalStateException("Android could not establish the VPN interface")
-            vpnInterface = warm
             attachLive(app, warm, networkState)
             currentCoroutineContext().ensureActive()
+            checkNotShuttingDown()
             app.tunnelEngine.detachTun()
 
             val routed = vpnBuilder(profile, dnsValidation.ip, defaultRoutes = true).establish()
                 ?: throw IllegalStateException("Android could not establish the VPN interface")
+            routedOwned = routed
             if (routed.fd != warm.fd) {
+                clearInterfaceIf(warm)
                 runCatching { warm.close() }
             }
-            vpnInterface = routed
+            adoptInterface(routed)
+            routedOwned = null
             val metrics = attachLive(app, routed, networkState)
             app.tunnelController.onEngineConnected(metrics)
             startMetricsNotificationUpdater(profile)
         } catch (error: CancellationException) {
+            closeOwned(warmOwned, routedOwned)
             shutdown()
             throw error
         } catch (error: Exception) {
+            closeOwned(warmOwned, routedOwned)
             app.tunnelController.onVpnStartFailed(
                 error.message ?: "VPN engine failed to start"
             )
             shutdown()
+        }
+    }
+
+    private fun closeOwned(vararg fds: ParcelFileDescriptor?) {
+        for (fd in fds) {
+            if (fd != null) {
+                runCatching { fd.close() }
+            }
+        }
+    }
+
+    private fun checkNotShuttingDown() {
+        if (shuttingDown.get()) {
+            throw CancellationException("VPN shutdown in progress")
+        }
+    }
+
+    private fun adoptInterface(established: ParcelFileDescriptor) {
+        synchronized(interfaceLock) {
+            checkNotShuttingDown()
+            vpnInterface = established
+        }
+    }
+
+    private fun clearInterfaceIf(expected: ParcelFileDescriptor) {
+        synchronized(interfaceLock) {
+            if (vpnInterface === expected || vpnInterface?.fd == expected.fd) {
+                vpnInterface = null
+            }
         }
     }
 
@@ -172,6 +222,7 @@ class TailcatVpnService : VpnService() {
         networkState: String
     ): NetworkMetrics {
         currentCoroutineContext().ensureActive()
+        checkNotShuttingDown()
         app.tunnelEngine.attachTun(established.fd)
         app.tunnelEngine.updateNetworkState(networkState)
         val metrics = app.tunnelEngine.getStats()
@@ -227,14 +278,17 @@ class TailcatVpnService : VpnService() {
     }
 
     private fun shutdown() {
-        if (shuttingDown) return
-        shuttingDown = true
+        if (!shuttingDown.compareAndSet(false, true)) return
         startJob?.cancel()
         metricsCollectorJob?.cancel()
         TailcatApplication.instance.tunnelController.stopPolling()
 
-        val tun = vpnInterface
-        vpnInterface = null
+        // Closing the TUN must not race a concurrent establish assigning a new FD.
+        val tun = synchronized(interfaceLock) {
+            val current = vpnInterface
+            vpnInterface = null
+            current
+        }
         runCatching { tun?.close() }
         runCatching { TailcatApplication.instance.tunnelEngine.stop() }
 
@@ -251,7 +305,7 @@ class TailcatVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        if (!shuttingDown) {
+        if (!shuttingDown.get()) {
             shutdown()
         }
         super.onDestroy()

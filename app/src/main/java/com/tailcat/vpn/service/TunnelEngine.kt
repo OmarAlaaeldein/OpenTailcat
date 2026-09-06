@@ -152,6 +152,14 @@ class TunnelEngine : NativeEngine {
         invoke(setter, proxy)
     }
 
+    override fun ensureTransportProtect() {
+        val klass = engineClass ?: return
+        val method = klass.methods.firstOrNull {
+            it.name.equals("ensureTransportProtect", ignoreCase = true) && it.parameterCount == 0
+        } ?: return
+        invoke(method)
+    }
+
     override fun updateNetworkState(networkStateJson: String) {
         val klass = engineClass ?: return
         val method = klass.methods.firstOrNull {

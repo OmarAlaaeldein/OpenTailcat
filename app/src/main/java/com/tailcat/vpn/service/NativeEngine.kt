@@ -12,6 +12,7 @@ interface NativeEngine {
     fun getStats(): NetworkMetrics
     fun updateNetworkState(networkStateJson: String)
     fun setSocketProtector(protect: (Int) -> Boolean)
+    fun ensureTransportProtect()
     fun measureTunnelPingMs(): Long
     fun measureTunnelDownloadMbps(): Double
     fun measureTunnelUploadMbps(): Double
