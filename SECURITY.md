@@ -2,7 +2,7 @@
 
 ## Release status
 
-OpenTailcat 1.2.2 in the current source tree is a development build. It has an
+OpenTailcat 1.2.4 in the current source tree is a development build. It has an
 integrated Go Mobile Tailcat engine with Phase 0 fail-closed capability gates,
 Phase 1 reproducible builds, Phase 2 official token validation, and Phase 3
 tunneled UDP userspace netstack code. IPv4 test-routing capabilities are true so
@@ -36,11 +36,12 @@ privacy VPN.
   port 53 is carried over TCP. Other UDP is dropped. This is not a full UDP VPN.
 - Profiles and tokens are stored in encrypted preferences backed by Android
   Keystore. Android backup and device-to-device transfer are disabled.
-- The app UID bypasses the VPN to prevent Magicsock/DERP transport recursion.
+- Transport sockets must be protected with `VpnService.protect` (netns re-enabled after Tailcat `SetEnabled(false)`). The builder no longer relies on app-UID exclusion alone.
 - Cleartext traffic is disabled for the Android application.
 
 ### Remaining release blockers & pending gates
 
+- **Audit H1–H7 code fixes** are in 1.2.4 source (lockdown-after-warm-TUN, transport protect re-enable, dead-reader attach, DNS TCP stop bound, DiscoPing health honesty, FD lifecycle serialization, phase8 fail-closed). Host Go tests cover the native pieces. Android still needs a rebuilt AAR (Go 1.27.1 + NDK 29.0.14206865), Always-on emulator/device run, and Phase 8 dual capture before any production claim.
 - **IPv4 flags are test-enabled, not Phase 8 accepted**: leak capture still pending.
 - **IPv6 dual-stack egress**: Android installs `::/0` after pumps are live.
   Native proxies IPv6 TCP/UDP with a 250ms dial timeout; ICMPv6 echo is dropped;

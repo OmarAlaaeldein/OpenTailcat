@@ -7,7 +7,7 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.2.3 on `main` (startup correction after the 1.2.2 audit). IPv4 test-routing capabilities are
+- Android repository: version 1.2.4 on `main` (audit H1–H7 source fixes after 1.2.2/1.2.3). IPv4 test-routing capabilities are
   true so Connect can be exercised with a live token. `ipv6` remains false.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
@@ -34,7 +34,9 @@ establishes a full Android VPN or proves leak-free traffic.
 
 ## Release status
 
-The 1.2.3 download rebuild uses versionCode 16 and the `development` build type:
+The 1.2.4 tree uses versionCode 17. Rebuild the native AAR before shipping Android
+binaries that need H2–H5 engine behavior. The prior 1.2.3 download rebuild used
+versionCode 16 and the `development` build type:
 release R8/resource optimization with the existing development certificate and
 no debug UI tooling. `release` signing remains separate. To reproduce these
 APKs, run `./gradlew assembleDevelopment`. The existing instrumentation suite
@@ -602,3 +604,16 @@ git status --short
 
 Live tokens, private signing keys, captures containing user traffic, and gateway
 secrets must never be committed or pasted into public logs.
+
+
+## IPv6 remaining blockers (capability stays false)
+
+`ipv6` must remain false until all of the following have evidence:
+
+1. Physical or emulator dual-stack uplink with working native IPv6 egress **before** VPN (this audit emulator timed out on IPv6 even offline-VPN).
+2. Connected Always-on session with `::/0` installed after pumps are live.
+3. Second-UID IPv6 TCP/UDP probe succeeds only via gateway; simultaneous uplink+gateway classic PCAPs pass phase8-analyze (H7 fail-closed).
+4. PMTU / Packet Too Big path exercised; ICMPv6 echo remains local-drop.
+5. Gateway under test has IPv6 WAN. Client 250ms IPv6 dial timeout is intentional fail-fast toward tunneled IPv4 when the gateway lacks IPv6.
+
+Omar device checklist: enable Always-on lockdown, rebuild AAR (`core-engine/build-aar.sh` with Go 1.27.1 + NDK 29.0.14206865), install development APK, confirm `isLockdownEnabled` after Connect, run `scripts/phase8` dual capture including an IPv6 probe address.

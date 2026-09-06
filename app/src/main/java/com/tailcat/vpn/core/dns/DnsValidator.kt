@@ -26,7 +26,19 @@ object DnsValidator {
 
         val trimmed = rawInput.trim()
 
-        if (trimmed.contains("/") || trimmed.contains(":53") || trimmed.contains("%") || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        if (trimmed.contains("/") || trimmed.contains("%") ||
+            trimmed.startsWith("http://") || trimmed.startsWith("https://")
+        ) {
+            return DnsValidationResult.Invalid("Enter a plain numeric IP without ports, paths, zones, or CIDR prefixes")
+        }
+
+        // Reject explicit host:port forms. Do not treat IPv6 hextets like ::53 as a port.
+        if (trimmed.startsWith("[") && trimmed.contains("]:")) {
+            return DnsValidationResult.Invalid("Enter a plain numeric IP without ports, paths, zones, or CIDR prefixes")
+        }
+        if (trimmed.count { it == '.' } == 3 && trimmed.contains(":") &&
+            trimmed.substringAfterLast(':').all { it.isDigit() }
+        ) {
             return DnsValidationResult.Invalid("Enter a plain numeric IP without ports, paths, zones, or CIDR prefixes")
         }
 
@@ -62,6 +74,9 @@ object DnsValidator {
             val part = parts[i]
             if (part.isEmpty() || part.length > 3) {
                 return DnsValidationResult.Invalid("Invalid octet in IPv4 address: '$part'")
+            }
+            if (!part.all { it.isDigit() }) {
+                return DnsValidationResult.Invalid("Non-numeric octet: '$part'")
             }
             // Disallow leading zeroes that could be interpreted as octal (e.g. 01)
             if (part.length > 1 && part.startsWith("0")) {
