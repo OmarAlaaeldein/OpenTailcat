@@ -131,10 +131,19 @@ class TailcatVpnService : VpnService() {
             app.tunnelEngine.updateNetworkState(networkState)
             app.tunnelEngine.setSocketProtector { fd -> protect(fd) }
 
+            // Settings.Secure Always-on lockdown is readable without a VPN NetworkAgent.
+            // Fail fast before prepare when lockdown is explicitly absent (AUDIT H1).
+            val settingsLockdownEarly = LockdownProbe.alwaysOnLockdownConfigured(
+                resolver = contentResolver,
+                packageName = packageName
+            )
+            if (settingsLockdownEarly == false) {
+                throw IllegalStateException(LeakGuard.LOCKDOWN_REQUIRED)
+            }
+
             // Complete the cryptographic gateway and transport handshake before installing any
             // full-device route. A failed or cancelled prepare phase cannot affect device traffic.
-            // Do NOT query isLockdownEnabled here: Android only reports lockdown for the current
-            // always-on owner after a VPN interface exists (AUDIT H1).
+            // Do NOT rely solely on isLockdownEnabled before a VPN exists (AUDIT H1).
             app.tunnelEngine.prepare(profile.token)
             // Tailcat createEngine disables netns; re-enable Android VpnService.protect hooks
             // before any default route exists so Magicsock/DERP redials bypass the TUN (H2).
@@ -148,17 +157,13 @@ class TailcatVpnService : VpnService() {
             adoptInterface(warm)
             warmOwned = null
 
-            // Prefer Settings.Secure Always-on lockdown (readable without relying solely on
-            // framework UnderlyingNetworkInfo) and OR with isLockdownEnabled after warm TUN.
-            // LockdownProbe existed but was previously unused here — Always-on users still failed.
-            val settingsLockdown = LockdownProbe.alwaysOnLockdownConfigured(
-                resolver = contentResolver,
-                packageName = packageName
-            )
-            val frameworkLockdown = if (Build.VERSION.SDK_INT >= 29) isLockdownEnabled else true
+            // After warm TUN, OR Settings.Secure with framework isLockdownEnabled.
+            // Settings.Secure=true wins even when the framework query is still false.
+            val frameworkLockdown =
+                if (Build.VERSION.SDK_INT >= LeakGuard.LOCKDOWN_REQUIRED_API) isLockdownEnabled else true
             LeakGuard.refusalReasonForStartup(
                 sdkInt = Build.VERSION.SDK_INT,
-                settingsLockdown = settingsLockdown,
+                settingsLockdown = settingsLockdownEarly,
                 frameworkLockdownEnabled = frameworkLockdown,
                 splitTunnelEmpty = app.preferencesStore.splitTunnelExcludedApps.isEmpty()
             )?.let { throw IllegalStateException(it) }

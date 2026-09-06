@@ -26,10 +26,48 @@ class LeakGuardTest {
             LeakGuard.SPLIT_TUNNEL_BLOCKED,
             LeakGuard.refusalReason(26, lockdownEnabled = false, splitTunnelEmpty = false)
         )
+        assertEquals(
+            LeakGuard.SPLIT_TUNNEL_BLOCKED,
+            LeakGuard.refusalReasonForStartup(
+                sdkInt = 30,
+                settingsLockdown = true,
+                frameworkLockdownEnabled = true,
+                splitTunnelEmpty = false
+            )
+        )
     }
 
     @Test
     fun testApi26AllowsWithoutLockdownQuery() {
         assertTrue(LeakGuard.mayInstallDefaultRoutes(26, lockdownEnabled = false, splitTunnelEmpty = true))
+        assertNull(
+            LeakGuard.refusalReasonForStartup(
+                sdkInt = 26,
+                settingsLockdown = false,
+                frameworkLockdownEnabled = false,
+                splitTunnelEmpty = true
+            )
+        )
+    }
+
+    @Test
+    fun testStartupCombinesSettingsAndFramework() {
+        assertNull(
+            LeakGuard.refusalReasonForStartup(
+                sdkInt = 30,
+                settingsLockdown = true,
+                frameworkLockdownEnabled = false,
+                splitTunnelEmpty = true
+            )
+        )
+        assertEquals(
+            LeakGuard.LOCKDOWN_REQUIRED,
+            LeakGuard.refusalReasonForStartup(
+                sdkInt = 30,
+                settingsLockdown = null,
+                frameworkLockdownEnabled = false,
+                splitTunnelEmpty = true
+            )
+        )
     }
 }

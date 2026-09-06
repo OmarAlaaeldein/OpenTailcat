@@ -26,15 +26,15 @@ object LockdownProbe {
      * Below [LeakGuard.LOCKDOWN_REQUIRED_API] returns true (lockdown not required).
      */
     fun alwaysOnLockdownConfigured(
-        resolver: ContentResolver,
+        resolver: ContentResolver?,
         packageName: String,
         sdkInt: Int = Build.VERSION.SDK_INT,
-        readString: (ContentResolver, String) -> String? = { cr, key ->
-            Settings.Secure.getString(cr, key)
+        readString: (ContentResolver?, String) -> String? = { cr, key ->
+            Settings.Secure.getString(requireNotNull(cr), key)
         },
-        readInt: (ContentResolver, String, Int) -> Int = { cr, key, def ->
+        readInt: (ContentResolver?, String, Int) -> Int = { cr, key, def ->
             try {
-                Settings.Secure.getInt(cr, key)
+                Settings.Secure.getInt(requireNotNull(cr), key)
             } catch (_: Settings.SettingNotFoundException) {
                 def
             }
