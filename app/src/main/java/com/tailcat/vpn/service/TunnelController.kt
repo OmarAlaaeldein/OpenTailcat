@@ -59,13 +59,16 @@ class TunnelController(
         scope.launch { ipAuditor.fetchCurrentEgress() }
 
         networkMonitor.setOnNetworkStateChangedListener { networkType, stateJson ->
-            tunnelEngine.updateNetworkState(stateJson)
+            // Never invoke JNI/Go on the NetworkCallback thread synchronously.
+            scope.launch(Dispatchers.IO) {
+                tunnelEngine.updateNetworkState(stateJson)
+            }
             when {
                 networkType == NetworkType.NONE && _tunnelState.value == TunnelState.CONNECTED -> {
                     _tunnelState.value = TunnelState.RECONNECTING
                 }
                 networkType != NetworkType.NONE && _tunnelState.value == TunnelState.RECONNECTING -> {
-                    scope.launch {
+                    scope.launch(Dispatchers.IO) {
                         runCatching { tunnelEngine.getStats() }
                             .onSuccess { metrics ->
                                 _networkMetrics.value = metrics
