@@ -14,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tailscale/tailcat"
 	"tailscale.com/ipn/ipnstate"
 )
 
@@ -76,9 +75,11 @@ type TunBridge struct {
 	closed atomic.Bool
 	wg     sync.WaitGroup
 
-	pumpDeadMu sync.Mutex
-	onPumpDead func(error)
-	onHealth   func()
+	pumpDeadMu    sync.Mutex
+	onPumpDead    func(error)
+	onHealth      func()
+	startupFailed atomic.Bool
+	discoFresh    atomic.Bool // true after a successful live DiscoPing
 }
 
 // DNSConfig defines the active DNS resolver policy and optional forced resolver destination.
@@ -175,6 +176,8 @@ func (b *TunBridge) reportPumpDead(err error) {
 	if err == nil || b.closed.Load() || b.ctx.Err() != nil {
 		return
 	}
+	b.startupFailed.Store(true)
+	b.discoFresh.Store(false)
 	b.pumpDeadMu.Lock()
 	fn := b.onPumpDead
 	b.pumpDeadMu.Unlock()
@@ -225,11 +228,20 @@ func (b *TunBridge) Start() error {
 	for _, ch := range []chan struct{}{tunReady, gvisorReady, udpReady, healthReady} {
 		select {
 		case <-ch:
+			if b.startupFailed.Load() {
+				return errors.New("packet pump failed during startup")
+			}
 		case <-b.ctx.Done():
 			return b.ctx.Err()
 		case <-timer.C:
 			return errors.New("timeout starting packet bridge pumps")
 		}
+	}
+	// Give an immediately-EOF reader a chance to fail after signaling ready
+	// before we publish RUNNING (AUDIT H3).
+	time.Sleep(20 * time.Millisecond)
+	if b.startupFailed.Load() || b.closed.Load() || b.ctx.Err() != nil {
+		return errors.New("packet pump failed during startup")
 	}
 	return nil
 }
@@ -582,7 +594,9 @@ func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 		case <-b.ctx.Done():
 			return
 		case t := <-ticker.C:
-			if b.onHealth != nil && b.pingFails.Load() == 0 {
+			// Health freshness requires a recent successful DiscoPing, not the
+			// one-shot Meow ack channel (AUDIT H5).
+			if b.onHealth != nil && b.discoFresh.Load() && b.pingFails.Load() == 0 {
 				b.onHealth()
 			}
 			currentTx := b.txBytes.Load()
@@ -626,7 +640,16 @@ func (b *TunBridge) sampleLiveRTT() {
 	defer cancel()
 	res, err := sampler.DiscoPing(ctx)
 	if err != nil || res == nil || res.LatencySeconds <= 0 {
+		b.discoFresh.Store(false)
+		if b.pingFails.Add(1) >= 3 {
+			b.reportPumpDead(errors.New("disco ping failed"))
+		}
 		return
+	}
+	b.pingFails.Store(0)
+	b.discoFresh.Store(true)
+	if b.onHealth != nil {
+		b.onHealth()
 	}
 	transport := "DERP_RELAY"
 	if res.Endpoint != "" {
@@ -638,28 +661,12 @@ func (b *TunBridge) sampleLiveRTT() {
 	b.RecordRTT(int64(res.LatencySeconds * 1000))
 }
 
-type gatewayPinger interface {
-	Ping(context.Context) (tailcat.PingResult, error)
-}
-
 func (b *TunBridge) sampleGatewayPing() {
-	if b.client == nil {
-		return
-	}
-	sampler, ok := b.client.(gatewayPinger)
-	if !ok {
-		return
-	}
-	ctx, cancel := context.WithTimeout(b.ctx, rttSampleTimeout)
-	defer cancel()
-	res, err := sampler.Ping(ctx)
-	if err != nil || res.Latency <= 0 {
-		if b.pingFails.Add(1) >= 3 {
-			b.reportPumpDead(errors.New("gateway ping failed"))
-		}
-		return
-	}
-	b.pingFails.Store(0)
+	// Client.Ping waits on a channel closed after the first Meowed reply.
+	// Subsequent calls can succeed without a fresh gateway observation, so
+	// this must not refresh health or clear ping failures (AUDIT H5).
+	// Liveness is owned by sampleLiveRTT / DiscoPing.
+	_ = b.client
 }
 
 // GetStats returns current measured metrics from the live bridge and client.

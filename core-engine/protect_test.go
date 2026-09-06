@@ -29,3 +29,18 @@ func TestProtectFDInvokesHook(t *testing.T) {
 		t.Fatalf("got %v", p.fds)
 	}
 }
+
+func TestEnsureTransportProtectNoopOrSafe(t *testing.T) {
+	// On non-Android this is a no-op; on Android it re-enables netns protect.
+	EnsureTransportProtect()
+	p := &testProtector{}
+	SetSocketProtector(p)
+	t.Cleanup(func() { SetSocketProtector(nil) })
+	EnsureTransportProtect()
+	if err := protectFD(9); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.fds) != 1 || p.fds[0] != 9 {
+		t.Fatalf("got %v", p.fds)
+	}
+}

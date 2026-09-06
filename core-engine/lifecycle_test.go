@@ -483,3 +483,33 @@ func TestForcedResolverInvalidDoesNotFailOpen(t *testing.T) {
 		t.Fatalf("loopback ForcedDNS must not be stored as valid, got %v", pending.ForcedDNS)
 	}
 }
+
+func TestAttachTunRejectsDeadReader(t *testing.T) {
+	_ = Stop()
+	fake := &prepareTestClient{}
+	installClient(t, fake)
+	if err := Prepare(officialTestToken(t)); err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	f, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open DevNull: %v", err)
+	}
+	defer f.Close()
+	err = AttachTun(int(f.Fd()))
+	if err == nil {
+		stats, st := statsState(t)
+		_ = Stop()
+		t.Fatalf("expected AttachTun on DevNull to fail, got state=%s health=%d", st, stats.HealthUnixSec)
+	}
+	stats, st := statsState(t)
+	if st == StateRunning {
+		t.Fatalf("must not report RUNNING after dead reader attach, stats=%+v", stats)
+	}
+	if stats.HealthUnixSec != 0 && st == StateFailed {
+		// FAILED may briefly race; health must not stay fresh for RUNNING.
+	}
+	if st == StateRunning && stats.HealthUnixSec > 0 {
+		t.Fatal("RUNNING with fresh health after dead reader")
+	}
+}

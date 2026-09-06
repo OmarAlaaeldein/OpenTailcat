@@ -33,3 +33,10 @@ func protectFD(fd int) error {
 	}
 	return nil
 }
+
+// EnsureTransportProtect restores Android VpnService.protect for Tailcat
+// Magicsock/DERP sockets after upstream createEngine disables netns.
+// Safe no-op on non-Android builds. Call after prepare() and before routes.
+func EnsureTransportProtect() {
+	ensureTransportProtect()
+}

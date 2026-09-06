@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"net/netip"
 	"sync"
 	"sync/atomic"
@@ -776,5 +777,112 @@ func TestDNSLeakPrevention(t *testing.T) {
 		if got[expected] != 1 {
 			t.Errorf("expected one DialUDP to %v, got %d", expected, got[expected])
 		}
+	}
+}
+
+// silentDeadlineConn blocks reads until Close or deadline, modeling a silent DNS TCP peer.
+type silentDeadlineConn struct {
+	mu       sync.Mutex
+	closed   chan struct{}
+	deadline time.Time
+	closeOnce sync.Once
+}
+
+func newSilentDeadlineConn() *silentDeadlineConn {
+	return &silentDeadlineConn{closed: make(chan struct{})}
+}
+
+func (c *silentDeadlineConn) Read(b []byte) (int, error) {
+	c.mu.Lock()
+	dl := c.deadline
+	c.mu.Unlock()
+	var timer <-chan time.Time
+	if !dl.IsZero() {
+		d := time.Until(dl)
+		if d <= 0 {
+			return 0, os.ErrDeadlineExceeded
+		}
+		t := time.NewTimer(d)
+		defer t.Stop()
+		timer = t.C
+	}
+	select {
+	case <-c.closed:
+		return 0, net.ErrClosed
+	case <-timer:
+		return 0, os.ErrDeadlineExceeded
+	}
+}
+
+func (c *silentDeadlineConn) Write(b []byte) (int, error) {
+	select {
+	case <-c.closed:
+		return 0, net.ErrClosed
+	default:
+		return len(b), nil
+	}
+}
+
+func (c *silentDeadlineConn) Close() error {
+	c.closeOnce.Do(func() { close(c.closed) })
+	return nil
+}
+func (c *silentDeadlineConn) LocalAddr() net.Addr                { return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1} }
+func (c *silentDeadlineConn) RemoteAddr() net.Addr               { return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 53} }
+func (c *silentDeadlineConn) SetDeadline(t time.Time) error      { c.mu.Lock(); c.deadline = t; c.mu.Unlock(); return nil }
+func (c *silentDeadlineConn) SetReadDeadline(t time.Time) error  { return c.SetDeadline(t) }
+func (c *silentDeadlineConn) SetWriteDeadline(t time.Time) error { return c.SetDeadline(t) }
+
+func TestDNSTCPFallbackStopDoesNotHang(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dialed := make(chan struct{}, 1)
+	mockClient := &mockTunnelClient{
+		dialTCPFn: func(ctx context.Context, dst netip.AddrPort) (net.Conn, error) {
+			select {
+			case dialed <- struct{}{}:
+			default:
+			}
+			return newSilentDeadlineConn(), nil
+		},
+	}
+	bridge := &TunBridge{
+		ctx:     ctx,
+		cancel:  cancel,
+		client:  mockClient,
+		token:   &ParsedToken{RegionID: 1},
+		tcpOnly: true,
+	}
+	proxy, err := newNetstackProxy(bridge)
+	if err != nil {
+		t.Fatalf("newNetstackProxy: %v", err)
+	}
+	bridge.netstack = proxy
+
+	query := buildDNSQuery(0xBEEF, "hang.example", 1)
+	srcAP := netip.MustParseAddrPort("10.0.0.2:45000")
+	dstAP := netip.MustParseAddrPort("1.1.1.1:53")
+	pkt := buildIPv4UDPPacket(srcAP, dstAP, query)
+	proxy.inject(pkt, false)
+
+	select {
+	case <-dialed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("DNS-over-TCP dial did not start")
+	}
+
+	// Give the flow time to block in binary.Read on the silent peer.
+	time.Sleep(50 * time.Millisecond)
+
+	done := make(chan struct{})
+	go func() {
+		proxy.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(stopWaitTimeout + time.Second):
+		t.Fatalf("proxy.Close hung beyond stopWaitTimeout=%s with silent DNS TCP peer", stopWaitTimeout)
 	}
 }

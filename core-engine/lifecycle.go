@@ -193,6 +193,9 @@ func Prepare(tokenStr string) error {
 	globalCore.state = StatePrepared
 	globalCore.mu.Unlock()
 
+	// Magicsock/DERP sockets created during Ping saw netns disabled by Tailcat.
+	// Re-enable protect before Android installs default routes (AUDIT H2).
+	ensureTransportProtect()
 	return nil
 }
 
@@ -265,7 +268,28 @@ func AttachTun(tunFD int) error {
 		}
 	})
 
+	// Publish ownership before Start so a pump that dies during readiness
+	// is attributed to this attach (AUDIT H3). Start fails closed if any
+	// required pump exits before returning.
+	globalCore.mu.Lock()
+	if globalCore.sess != sess || sess.ctx.Err() != nil {
+		globalCore.mu.Unlock()
+		_ = bridge.Stop()
+		return context.Canceled
+	}
+	sess.bridge = bridge
+	globalCore.state = StateAttaching
+	globalCore.mu.Unlock()
+
 	if err := bridge.Start(); err != nil {
+		globalCore.mu.Lock()
+		if globalCore.sess == sess && sess.bridge == bridge {
+			sess.bridge = nil
+			if globalCore.state == StateAttaching {
+				globalCore.state = StatePrepared
+			}
+		}
+		globalCore.mu.Unlock()
 		_ = bridge.Stop()
 		abandonAttach(sess)
 		return fmt.Errorf("start tun bridge: %w", err)
@@ -277,10 +301,19 @@ func AttachTun(tunFD int) error {
 		_ = bridge.Stop()
 		return context.Canceled
 	}
-	sess.bridge = bridge
+	if globalCore.state == StateFailed {
+		globalCore.mu.Unlock()
+		return errors.New("TUN pump failed during attach")
+	}
+	if sess.bridge != bridge {
+		globalCore.mu.Unlock()
+		_ = bridge.Stop()
+		return errors.New("TUN attach superseded during start")
+	}
 	globalCore.state = StateRunning
 	globalCore.healthUnix.Store(time.Now().Unix())
 	globalCore.mu.Unlock()
+	ensureTransportProtect()
 	return nil
 }
 

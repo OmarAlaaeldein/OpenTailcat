@@ -32,6 +32,7 @@ const (
 	netstackQueueSize          = 4096
 	tcpMaxInFlight             = 1024
 	tcpDialTimeout             = 15 * time.Second
+	dnsTCPIOTimeout            = 10 * time.Second
 	udpDialTimeout             = 10 * time.Second
 	ipv6DialTimeout            = 250 * time.Millisecond
 	udpIdleTimeout             = 30 * time.Second
@@ -550,7 +551,23 @@ func (p *netstackProxy) exchangeDNSOverTCP(ctx context.Context, dst netip.AddrPo
 		}
 		return err
 	}
-	defer conn.Close()
+	// Track and bound I/O so Close()/Stop cannot hang on a silent resolver (AUDIT H4).
+	p.track(conn)
+	defer func() {
+		_ = conn.Close()
+		p.untrack(conn)
+	}()
+	deadline := time.Now().Add(dnsTCPIOTimeout)
+	if err := conn.SetDeadline(deadline); err != nil {
+		return err
+	}
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-time.After(time.Until(deadline) + time.Second):
+		}
+	}()
 	if err := binary.Write(conn, binary.BigEndian, uint16(len(query))); err != nil {
 		return err
 	}
@@ -686,7 +703,16 @@ func (p *netstackProxy) Close() {
 		return true
 	})
 
-	p.udpWg.Wait()
-	p.tcpWg.Wait()
+	done := make(chan struct{})
+	go func() {
+		p.udpWg.Wait()
+		p.tcpWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(stopWaitTimeout):
+		// Flows were cancelled/closed; abandon waiters so TunBridge.Stop stays bounded.
+	}
 	p.stack.Destroy()
 }
