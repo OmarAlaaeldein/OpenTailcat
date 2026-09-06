@@ -70,8 +70,9 @@ class VpnStartupInstrumentedTest {
 
                 if (Build.VERSION.SDK_INT >= 29) {
                     // An explicit retry after consent must reach normal startup.
-                    // This emulator has no lockdown; after the warm TUN (H1) the
-                    // guard must still report LOCKDOWN_REQUIRED and clean up.
+                    // This emulator has no Always-on lockdown in Settings.Secure;
+                    // fail-fast / post-warm LeakGuard must still report
+                    // LOCKDOWN_REQUIRED and clean up (H1).
                     ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(
                         "appops set ${app.packageName} ACTIVATE_VPN allow"
                     )).use { it.readBytes() }

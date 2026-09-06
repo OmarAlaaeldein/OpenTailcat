@@ -24,7 +24,7 @@ unsafe shortcuts already found in the tree.
   unmodified `0c31395bfd1ae0c0ef2917c0ec20432466087417` (application-layer UDP).
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.1 and NDK 29.0.14206865. Current SHA-256:
-   `188ee38c4708a05a398aab8e05f278ed3903d692eee304028a1eff83ae2fa084`.
+   `ceea51161f87f05d882c9c0c2ee3a98fa38b35b0218ed2c1624fd13b445a95dd`.
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
