@@ -7,6 +7,8 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,11 +67,20 @@ class NetworkMonitor(context: Context) {
         }
     }
 
+    // ConnectivityManager delivers NetworkCallback on the registering thread's
+    // Looper when no Handler is passed — that defaults to the main thread. JNI
+    // into the Go engine from main during VPN link flaps can ANR/kill the process
+    // in the first seconds after Connect (Always-on + Block). Keep callbacks off main.
+    private val callbackThread = HandlerThread("OpenTailcat-NetworkMonitor").apply { start() }
+    private val callbackHandler = Handler(callbackThread.looper)
+
     init {
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
-        runCatching { connectivityManager.registerNetworkCallback(request, networkCallback) }
+        runCatching {
+            connectivityManager.registerNetworkCallback(request, networkCallback, callbackHandler)
+        }
         for (network in connectivityManager.allNetworks) {
             connectivityManager.getNetworkCapabilities(network)?.let { capabilitiesByNetwork[network] = it }
             connectivityManager.getLinkProperties(network)?.let { linkPropertiesByNetwork[network] = it }
