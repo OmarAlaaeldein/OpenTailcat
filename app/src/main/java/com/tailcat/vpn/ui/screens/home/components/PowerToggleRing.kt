@@ -33,7 +33,6 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.tailcat.vpn.core.model.TransportType
 import com.tailcat.vpn.core.model.TunnelState
-import com.tailcat.vpn.ui.theme.AccentCyan
 import com.tailcat.vpn.ui.theme.AmberConnecting
 import com.tailcat.vpn.ui.theme.AmberGlow
 import com.tailcat.vpn.ui.theme.BorderSubtle

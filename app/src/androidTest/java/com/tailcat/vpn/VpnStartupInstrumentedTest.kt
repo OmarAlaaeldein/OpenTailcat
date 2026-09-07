@@ -73,6 +73,14 @@ class VpnStartupInstrumentedTest {
                     // This emulator has no Always-on lockdown in Settings.Secure;
                     // fail-fast / post-warm LeakGuard must still report
                     // LOCKDOWN_REQUIRED and clean up (H1).
+                    // On API 31+ (S) Settings.Secure always_on_vpn_app is hidden
+                    // from third-party apps (SecurityException), so the
+                    // pre-prepare Settings fail-fast cannot fire and the probe
+                    // returns null. Startup must still fail closed: the
+                    // handshake against the synthetic token fails, no routes
+                    // are installed, and the service stops. LOCKDOWN_REQUIRED
+                    // on S+ is exercised with a live token through the
+                    // post-warm framework check instead.
                     ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(
                         "appops set ${app.packageName} ACTIVATE_VPN allow"
                     )).use { it.readBytes() }
@@ -80,9 +88,17 @@ class VpnStartupInstrumentedTest {
                     instrumentation.runOnMainSync {
                         assertTrue(app.tunnelController.startTunnel())
                     }
-                    await("Consented retry did not report the lockdown requirement") {
-                        app.tunnelController.lastError.value == LeakGuard.LOCKDOWN_REQUIRED &&
-                            app.tunnelController.tunnelState.value == TunnelState.DISCONNECTED
+                    if (Build.VERSION.SDK_INT >= 31) {
+                        await("Consented retry did not fail closed") {
+                            app.tunnelController.lastError.value != null &&
+                                app.tunnelController.lastError.value != TailcatVpnService.VPN_PERMISSION_REQUIRED &&
+                                app.tunnelController.tunnelState.value == TunnelState.DISCONNECTED
+                        }
+                    } else {
+                        await("Consented retry did not report the lockdown requirement") {
+                            app.tunnelController.lastError.value == LeakGuard.LOCKDOWN_REQUIRED &&
+                                app.tunnelController.tunnelState.value == TunnelState.DISCONNECTED
+                        }
                     }
                     await("Retried VPN service did not stop") {
                         app.getSystemService(NotificationManager::class.java).activeNotifications
@@ -100,12 +116,19 @@ class VpnStartupInstrumentedTest {
 
     @Suppress("DEPRECATION") // Android still exposes the caller's own services.
     private fun assertStopped(app: TailcatApplication) {
-        val manager = app.getSystemService(ActivityManager::class.java)
-        assertFalse("Rejected VPN service was left running", manager.getRunningServices(Int.MAX_VALUE).any {
-            it.service.className == TailcatVpnService::class.java.name
-        })
-        assertFalse("VPN notification was left behind", app.getSystemService(NotificationManager::class.java)
-            .activeNotifications.any { it.id == VpnNotificationManager.NOTIFICATION_ID })
+        // Service destruction is asynchronous (shutdown runs off the binder
+        // thread), so poll briefly instead of asserting instantly. A truly
+        // leaked service still fails the bound.
+        await("Rejected VPN service was left running") {
+            val manager = app.getSystemService(ActivityManager::class.java)
+            !manager.getRunningServices(Int.MAX_VALUE).any {
+                it.service.className == TailcatVpnService::class.java.name
+            }
+        }
+        await("VPN notification was left behind") {
+            app.getSystemService(NotificationManager::class.java)
+                .activeNotifications.none { it.id == VpnNotificationManager.NOTIFICATION_ID }
+        }
         assertEquals("STOPPED", app.tunnelEngine.getStats().state)
     }
 

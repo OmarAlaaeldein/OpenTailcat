@@ -99,11 +99,20 @@ func closeSession(sess *session) {
 	}
 	sess.cancel()
 	sess.closeOnce.Do(func() {
-		if sess.bridge != nil {
-			_ = sess.bridge.Stop()
+		// sess.bridge/sess.client are published under globalCore.mu by
+		// Prepare/AttachTun/DetachTun. Snapshot them under the same mutex:
+		// markFailed runs closeSession on a new goroutine while AttachTun
+		// may still be publishing or clearing the bridge (H3 dead-reader
+		// path). Stop() runs outside the mutex as before.
+		globalCore.mu.Lock()
+		bridge := sess.bridge
+		client := sess.client
+		globalCore.mu.Unlock()
+		if bridge != nil {
+			_ = bridge.Stop()
 		}
-		if sess.client != nil {
-			_ = sess.client.Close()
+		if client != nil {
+			_ = client.Close()
 		}
 	})
 }

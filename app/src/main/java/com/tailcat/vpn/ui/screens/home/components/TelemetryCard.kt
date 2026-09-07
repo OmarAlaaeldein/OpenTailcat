@@ -133,7 +133,7 @@ fun TelemetryCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // 2. Transport Header (Direct P2P vs DERP)
+            // Transport header (Direct P2P vs DERP)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -195,7 +195,7 @@ fun TelemetryCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 3. Metrics Grid (Download / Upload / MTU)
+            // Metrics grid (Download / Upload / MTU)
             Row(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,

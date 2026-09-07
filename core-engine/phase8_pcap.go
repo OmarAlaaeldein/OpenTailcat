@@ -31,14 +31,6 @@ type pcapCapture struct {
 	packets  []pcapPacket
 }
 
-func readPCAP(r io.Reader) (linkType uint32, packets []pcapPacket, err error) {
-	cap, err := readPCAPValidated(r)
-	if err != nil {
-		return 0, nil, err
-	}
-	return cap.linkType, cap.packets, nil
-}
-
 func readPCAPValidated(r io.Reader) (*pcapCapture, error) {
 	var hdr [24]byte
 	if _, err := io.ReadFull(r, hdr[:]); err != nil {

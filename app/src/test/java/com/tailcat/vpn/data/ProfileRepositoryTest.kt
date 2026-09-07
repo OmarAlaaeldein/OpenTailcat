@@ -1,7 +1,6 @@
 package com.tailcat.vpn.data
 
 import com.tailcat.vpn.core.model.DnsPolicy
-import com.tailcat.vpn.core.token.TokenParser
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
