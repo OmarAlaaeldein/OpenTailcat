@@ -7,7 +7,7 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.2.6 on `main` (audit H1–H7 source fixes after 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep). IPv4 test-routing capabilities are
+- Android repository: version 1.2.7 on `main` (audit H1–H7 source fixes after 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep, strict interior-whitespace token error, 5s UDP capability probe with periodic re-probe, `tcpOnly` telemetry). IPv4 test-routing capabilities are
   true so Connect can be exercised with a live token. `ipv6` remains false.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
@@ -17,7 +17,7 @@ unsafe shortcuts already found in the tree.
 - Phase 4 DNS routing exists with pending-config and omit-means-preserve; IPv4 `dns` is test-enabled.
 - Phase 5 IPv6 TCP/UDP is proxied with a 250ms dial timeout; ICMPv6 echo is dropped; oversized IPv6 gets a local Packet Too Big; Android installs `::/0` only after pumps are live; `ipv6` remains false.
 - Phase 6 cancellable session context, readiness barriers, pump-failure `FAILED`, bounded `Stop`, `DetachTun`, and `DisarmPumps` exist. After `prepare`, Android establishes a host-only TUN (no VPN DNS), attaches pumps, `detachTun`, then installs `0.0.0.0/0` and `::/0` with VPN DNS and reattaches. The VPN service is `START_STICKY` with `stopWithTask=false`; shutdown closes the TUN before native `stop`. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
-- Phase 7 telemetry schema and WireGuard counters exist; RTT is sampled from live `DiscoPing` while a bridge is running; Kotlin rejects schema v1 and does not synthesize `RUNNING`; `liveStats` is test-enabled.
+- Phase 7 telemetry schema and WireGuard counters exist; RTT is sampled from live `DiscoPing` while a bridge is running; Kotlin rejects schema v1 and does not synthesize `RUNNING`; the measured `tcpOnly` latch (5s UDP probe at prepare, 30s re-probe while latched) is reported in stats and the UI; `liveStats` is test-enabled.
 - Upstream Tailcat base: signed `v0.4.0`, commit
   `ce6fedcabc220bab3b94d470ab330219111eeae8`.
 - Tailcat source: git submodule of `github.com/tailscale/tailcat` at
@@ -34,7 +34,7 @@ establishes a full Android VPN or proves leak-free traffic.
 
 ## Release status
 
-The 1.2.6 tree uses versionCode 19. Rebuild the native AAR before shipping Android
+The 1.2.7 tree uses versionCode 20. Rebuild the native AAR before shipping Android
 binaries that need H2–H5 engine behavior. The prior 1.2.3 download rebuild used
 versionCode 16 and the `development` build type:
 release R8/resource optimization with the existing development certificate and

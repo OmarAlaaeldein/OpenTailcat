@@ -157,6 +157,44 @@ class TokenParserTest {
         assertFalse(parsed.isConnectable)
     }
 
+    @Test
+    fun testRejectsInteriorWhitespaceFromWrappedPaste() {
+        // Use a known-valid fixture token so the only defect is the wrapping.
+        val stream = javaClass.classLoader?.getResourceAsStream("token_fixtures.json")
+        assertNotNull("Canonical token fixture corpus was not found", stream)
+        val jsonText = stream!!.bufferedReader().use { it.readText() }
+        val array = JSONArray(jsonText)
+        var valid = ""
+        for (i in 0 until array.length()) {
+            val obj = array.getJSONObject(i)
+            val cls = obj.getString("expectedClassification")
+            if (cls == "VALID_OFFICIAL_SHORT" || cls == "VALID_OFFICIAL_RESOLVED") {
+                valid = obj.getString("token")
+                break
+            }
+        }
+        assertTrue("No valid fixture token available", valid.isNotEmpty())
+        // Simulate a chat-app line wrap: newline plus two spaces mid-payload.
+        val mid = valid.length / 2
+        val wrapped = listOf(
+            valid.substring(0, mid) + "\n  " + valid.substring(mid),
+            valid.substring(0, mid) + "\t" + valid.substring(mid),
+            valid.substring(0, mid) + " " + valid.substring(mid)
+        )
+        for (token in wrapped) {
+            val parsed = TokenParser.parse(token)
+            assertEquals(TokenClassification.INVALID, parsed.classification)
+            assertEquals(
+                com.tailcat.vpn.core.token.TokenErrorCode.ERR_WHITESPACE,
+                parsed.errorCode
+            )
+            assertTrue(parsed.errorMessage!!.contains("pasting"))
+            assertFalse(parsed.isConnectable)
+            val state = TokenParser.validate(token)
+            assertTrue(state is TokenValidationState.Invalid)
+        }
+    }
+
     companion object {
         private const val INSECURE_FOR_TESTS_TOKEN =
             "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWhsZGVycC5leGFtcGxlYXj1YWkB"

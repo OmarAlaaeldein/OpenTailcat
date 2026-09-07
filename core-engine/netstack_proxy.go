@@ -351,7 +351,7 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 	srcAP := netip.AddrPortFrom(srcIP.Unmap(), id.RemotePort)
 	dstAP := netip.AddrPortFrom(dstIP.Unmap(), id.LocalPort)
 
-	if p.bridge.tcpOnly && dstAP.Port() != 53 {
+	if p.bridge.tcpOnly.Load() && dstAP.Port() != 53 {
 		p.bridge.policyRejections.Add(1)
 		return false
 	}
@@ -436,7 +436,7 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 	p.udpMu.Unlock()
 	p.track(localConn)
 
-	if p.bridge.tcpOnly && resolvedDst.Port() == 53 {
+	if p.bridge.tcpOnly.Load() && resolvedDst.Port() == 53 {
 		go p.runDNSOverTCPFlow(ctx, flow, resolvedDst)
 		return true
 	}

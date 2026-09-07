@@ -852,8 +852,8 @@ func TestDNSTCPFallbackStopDoesNotHang(t *testing.T) {
 		cancel:  cancel,
 		client:  mockClient,
 		token:   &ParsedToken{RegionID: 1},
-		tcpOnly: true,
 	}
+	bridge.tcpOnly.Store(true)
 	proxy, err := newNetstackProxy(bridge)
 	if err != nil {
 		t.Fatalf("newNetstackProxy: %v", err)

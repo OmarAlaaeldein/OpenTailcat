@@ -1,2 +1,0 @@
-f74bafdbfae3d2f90239d453464670f35aff68f28599f43eab57e792e2da2a63  OpenTailcat-1.2.6-arm64-v8a.apk
-96062ff2b8b783afec72a8b6e989cd09ab700af09984006befe6bd56da0615e5  OpenTailcat-1.2.6-x86_64.apk

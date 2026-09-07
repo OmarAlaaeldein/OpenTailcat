@@ -17,8 +17,10 @@ acceptance is unimplemented.
 The checked-in AAR is built reproducibly with Go 1.27.1, NDK r29 (29.0.14206865),
 16 KB ELF load alignment, and verified Java signatures.
 
-Current version: 1.2.6, with audit H1–H7 source fixes after the 1.2.2/1.2.3 audits,
-an S+-aware startup instrumented expectation, and a behavior-neutral dead-code sweep.
+Current version: 1.2.7, with audit H1–H7 source fixes after the 1.2.2/1.2.3 audits,
+an S+-aware startup instrumented expectation, a behavior-neutral dead-code sweep,
+a strict interior-whitespace token error, a 5s UDP capability probe with
+periodic re-probe, and `tcpOnly` telemetry.
 IPv4 Connect is test-enabled. `ipv6` is false.
 
 Critical current behavior:

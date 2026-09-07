@@ -196,6 +196,20 @@ object TokenParser {
             )
         }
 
+        // Reject interior whitespace from wrapped copy-paste (no silent stripping).
+        // The surrounding check above guarantees the endpoints are clean, so any
+        // hit here is interior and previously surfaced as a generic ERR_BASE64_CHAR.
+        for (i in input.indices) {
+            if (input[i] <= ' ') {
+                return ParsedToken(
+                    rawToken = input,
+                    classification = TokenClassification.INVALID,
+                    errorCode = TokenErrorCode.ERR_WHITESPACE,
+                    errorMessage = "token must not contain interior whitespace; remove line breaks or spaces introduced when pasting"
+                )
+            }
+        }
+
         // Exact lowercase "tc" prefix required
         if (!input.startsWith(PREFIX)) {
             return ParsedToken(

@@ -176,7 +176,7 @@ func Prepare(tokenStr string) error {
 
 	tcpOnly := false
 	if prober, ok := client.(udpCapability); ok {
-		udpCtx, udpCancel := context.WithTimeout(sess.ctx, time.Second)
+		udpCtx, udpCancel := context.WithTimeout(sess.ctx, udpProbeTimeout)
 		tcpOnly = !prober.SupportsUDP(udpCtx)
 		udpCancel()
 	}
@@ -261,7 +261,7 @@ func AttachTun(tunFD int) error {
 		abandonAttach(sess)
 		return fmt.Errorf("create tun bridge: %w", err)
 	}
-	bridge.tcpOnly = tcpOnly
+	bridge.tcpOnly.Store(tcpOnly)
 	if dns != nil {
 		bridge.SetDNSConfig(*dns)
 	}

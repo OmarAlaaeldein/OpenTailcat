@@ -217,3 +217,46 @@ func TestParseTokenRejectsHostnameEmbeddedIP(t *testing.T) {
 		t.Fatalf("expected ERR_INVALID_STRUCTURED_REGION, got %s", pt.ErrorCode)
 	}
 }
+
+func TestParseTokenRejectsInteriorWhitespace(t *testing.T) {
+	// Use a known-valid fixture token so the only defect is the wrapping.
+	data, err := os.ReadFile("testdata/token_fixtures.json")
+	if err != nil {
+		t.Fatalf("Failed to read testdata/token_fixtures.json: %v", err)
+	}
+	var fixtures []TokenFixture
+	if err := json.Unmarshal(data, &fixtures); err != nil {
+		t.Fatalf("Failed to unmarshal fixtures: %v", err)
+	}
+	valid := ""
+	for _, f := range fixtures {
+		if f.ExpectedClassification == "VALID_OFFICIAL_SHORT" || f.ExpectedClassification == "VALID_OFFICIAL_RESOLVED" {
+			valid = f.Token
+			break
+		}
+	}
+	if valid == "" {
+		t.Fatal("no valid fixture token available")
+	}
+	// Simulate a chat-app line wrap: newline plus two spaces mid-payload.
+	mid := len(valid) / 2
+	for _, wrapped := range []string{
+		valid[:mid] + "\n  " + valid[mid:],
+		valid[:mid] + "\t" + valid[mid:],
+		valid[:mid] + " " + valid[mid:],
+	} {
+		pt, err := ParseToken(wrapped)
+		if err == nil || pt.IsConnectable() {
+			t.Fatalf("wrapped token %q must not be connectable", wrapped)
+		}
+		if pt.Classification != ClassificationInvalid {
+			t.Fatalf("expected INVALID, got %s", pt.Classification)
+		}
+		if pt.ErrorCode != ErrWhitespace {
+			t.Fatalf("expected ERR_WHITESPACE, got %s (%s)", pt.ErrorCode, pt.ErrorMessage)
+		}
+		if !strings.Contains(pt.ErrorMessage, "pasting") {
+			t.Fatalf("expected paste guidance in error, got %q", pt.ErrorMessage)
+		}
+	}
+}

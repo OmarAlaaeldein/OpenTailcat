@@ -34,7 +34,7 @@ type TunBridge struct {
 	transport string
 	rttMs     int64
 	mtu       int
-	tcpOnly   bool
+	tcpOnly   atomic.Bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -574,6 +574,15 @@ func (b *TunBridge) handleICMPv4(pkt []byte, ihl int, srcIP, dstIP netip.Addr) {
 const (
 	rttSampleInterval = 5 * time.Second
 	rttSampleTimeout  = 2 * time.Second
+	// udpProbeTimeout bounds the gateway UDP capability check. The previous 1s
+	// bound could latch tcpOnly on a slow DERP-relayed mobile path even though
+	// gateway UDP works, dropping all non-DNS UDP for the whole session while
+	// the TCP-only speedtest stayed green.
+	udpProbeTimeout = 5 * time.Second
+	// udpReprobeInterval clears a stale tcpOnly latch when gateway UDP
+	// recovers. Re-probing only ever re-enables gateway-proxied UDP via
+	// Client.DialUDP, never direct OS sockets.
+	udpReprobeInterval = 30 * time.Second
 )
 
 type discoPinger interface {
@@ -588,6 +597,7 @@ func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 		b.onHealth()
 	}
 	var lastRTTSample time.Time
+	var lastUDPReprobe time.Time
 
 	for {
 		select {
@@ -624,6 +634,12 @@ func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 					}()
 				}
 			}
+
+			if b.tcpOnly.Load() &&
+				(lastUDPReprobe.IsZero() || t.Sub(lastUDPReprobe) >= udpReprobeInterval) {
+				lastUDPReprobe = t
+				go b.reprobeUDP()
+			}
 		}
 	}
 }
@@ -659,6 +675,24 @@ func (b *TunBridge) sampleLiveRTT() {
 	b.transport = transport
 	b.rttMu.Unlock()
 	b.RecordRTT(int64(res.LatencySeconds * 1000))
+}
+
+// reprobeUDP clears a stale tcpOnly latch when gateway UDP recovers.
+// It only re-enables gateway-proxied UDP via Client.DialUDP; a failed probe
+// keeps tcpOnly and never touches direct OS sockets.
+func (b *TunBridge) reprobeUDP() {
+	if b.client == nil {
+		return
+	}
+	prober, ok := b.client.(udpCapability)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(b.ctx, udpProbeTimeout)
+	defer cancel()
+	if prober.SupportsUDP(ctx) {
+		b.tcpOnly.Store(false)
+	}
 }
 
 func (b *TunBridge) sampleGatewayPing() {
@@ -730,6 +764,7 @@ func (b *TunBridge) GetStats() EngineStats {
 		SessionID:        b.sessionID,
 		State:            "RUNNING",
 		Transport:        transport,
+		TcpOnly:          b.tcpOnly.Load(),
 		DerpRegionID:     regionID,
 		TunnelEgressIP:   egressIP,
 		EgressAuditError: egressErr,

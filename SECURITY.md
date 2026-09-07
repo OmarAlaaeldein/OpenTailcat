@@ -2,7 +2,7 @@
 
 ## Release status
 
-OpenTailcat 1.2.6 in the current source tree is a development build. It has an
+OpenTailcat 1.2.7 in the current source tree is a development build. It has an
 integrated Go Mobile Tailcat engine with Phase 0 fail-closed capability gates,
 Phase 1 reproducible builds, Phase 2 official token validation, and Phase 3
 tunneled UDP userspace netstack code. IPv4 test-routing capabilities are true so
@@ -21,7 +21,8 @@ privacy VPN.
   `requireIpv6 = false`, so `::/0` is installed while `ipv6` stays false.
   Unknown capability JSON fields fail closed.
 - Token validation in Android and Go strictly enforces official token structures,
-  rejects legacy/synthetic disco keys, rejects duplicate CBOR keys, and rejects
+  rejects legacy/synthetic disco keys, rejects duplicate CBOR keys, rejects
+  surrounding and interior whitespace, and rejects
   expired tokens. Embedded DERP maps allow only region fields `i`/`c`/`m`/`N` and
   node fields `n`/`i`/`h`/`t`/`4`/`6`/`s`/`d`. Node `x` (`InsecureForTests`) is
   rejected so a pasted token cannot disable DERP TLS. Loopback, unspecified,
@@ -32,8 +33,11 @@ privacy VPN.
   through Tailcat WireGuard/Magicsock via `Client.DialUDP` without direct OS UDP
   sockets in `core-engine`. IPv4 `udp` is test-enabled; Phase 8 leak capture is
   still pending.
-- TCP-only gateways can `prepare`. DNS port 53 is carried over TCP and other
-  UDP is dropped on such gateways. The live `nullexit` target was observed
+- TCP-only gateways can `prepare`. The UDP capability probe uses a 5s bound at
+  prepare and re-probes every 30s while latched, so a slow DERP path cannot
+  permanently drop non-DNS UDP for the session. DNS port 53 is carried over TCP
+  and other UDP is dropped on such gateways; the measured `tcpOnly` state is
+  reported in telemetry and the UI. The live `nullexit` target was observed
   answering native UDP (DNS query via `Client.DialUDP`); TCP-only remains the
   fallback (`tcpOnly` session). Gateway UDP support is deployment-specific and
   still needs Phase 8 capture proof per gateway.
@@ -44,7 +48,7 @@ privacy VPN.
 
 ### Remaining release blockers & pending gates
 
-- **Audit H1–H7 code fixes** are in 1.2.6 source (lockdown-after-warm-TUN, transport protect re-enable, dead-reader attach, DNS TCP stop bound, DiscoPing health honesty, FD lifecycle serialization, phase8 fail-closed). Host Go tests cover the native pieces. Android still needs a rebuilt AAR (Go 1.27.1 + NDK 29.0.14206865), Always-on emulator/device run, and Phase 8 dual capture before any production claim.
+- **Audit H1–H7 code fixes** are in 1.2.7 source (lockdown-after-warm-TUN, transport protect re-enable, dead-reader attach, DNS TCP stop bound, DiscoPing health honesty, FD lifecycle serialization, phase8 fail-closed). Host Go tests cover the native pieces. Android still needs a rebuilt AAR (Go 1.27.1 + NDK 29.0.14206865), Always-on emulator/device run, and Phase 8 dual capture before any production claim.
 - **IPv4 flags are test-enabled, not Phase 8 accepted**: leak capture still pending.
 - **IPv6 dual-stack egress**: Android installs `::/0` after pumps are live.
   Native proxies IPv6 TCP/UDP with a 250ms dial timeout; ICMPv6 echo is dropped;

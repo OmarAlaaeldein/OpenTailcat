@@ -244,6 +244,7 @@ type EngineStats struct {
 	State                   string       `json:"state"`
 	HealthUnixSec           int64        `json:"healthUnixSec,omitempty"`
 	Transport               string       `json:"transport"`
+	TcpOnly                 bool         `json:"tcpOnly"`
 	DirectEndpoint          string       `json:"directEndpoint,omitempty"`
 	DerpRegionID            int          `json:"derpRegionId"`
 	DerpRegionCode          string       `json:"derpRegionCode,omitempty"`

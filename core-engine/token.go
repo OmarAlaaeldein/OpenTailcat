@@ -125,6 +125,20 @@ func ParseToken(raw string) (*ParsedToken, error) {
 		}, errors.New("token contains surrounding whitespace")
 	}
 
+	// Reject interior whitespace from wrapped copy-paste (no silent stripping).
+	// The surrounding check above guarantees the endpoints are clean, so any
+	// hit here is interior and previously surfaced as a generic ERR_BASE64_CHAR.
+	for i := 0; i < len(raw); i++ {
+		if raw[i] <= ' ' {
+			return &ParsedToken{
+				RawToken:       raw,
+				Classification: ClassificationInvalid,
+				ErrorCode:      ErrWhitespace,
+				ErrorMessage:   "token must not contain interior whitespace; remove line breaks or spaces introduced when pasting",
+			}, errors.New("token contains interior whitespace")
+		}
+	}
+
 	// Exact lowercase "tc" prefix required (reject uppercase "TC" or mixed case)
 	if !strings.HasPrefix(raw, "tc") {
 		return &ParsedToken{

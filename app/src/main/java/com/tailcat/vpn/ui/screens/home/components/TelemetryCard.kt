@@ -174,6 +174,20 @@ fun TelemetryCard(
                             fontSize = 13.sp
                         )
                     )
+                    // Measured UDP capability: when the engine latched TCP-only
+                    // (gateway UDP unreachable at handshake), non-DNS UDP is
+                    // dropped and DNS rides TCP. Speedtest is TCP-only and stays
+                    // green in this mode, so say so instead of looking healthy.
+                    if (tunnelActive && metrics.tcpOnly) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "TCP-only",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                color = TextSecondary,
+                                fontSize = 12.sp
+                            )
+                        )
+                    }
                 }
 
                 Text(
