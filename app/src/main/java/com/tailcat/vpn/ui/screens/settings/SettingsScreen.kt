@@ -28,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Security
@@ -86,6 +87,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
     var mtuText by remember { mutableStateOf(store.defaultMtu.toString()) }
     var dnsText by remember { mutableStateOf(store.defaultDns) }
     var excludedApps by remember { mutableStateOf(store.splitTunnelExcludedApps) }
+    var debugMode by remember { mutableStateOf(store.debugMode) }
 
     val installedApps = remember {
         val launcherApps = context.getSystemService(LauncherApps::class.java)
@@ -179,6 +181,36 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         ) {
                             Text("Open Android VPN settings")
                         }
+                    }
+
+                    SettingsCard(icon = Icons.Default.BugReport, title = "Diagnostics") {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                "Debug failure reports",
+                                style = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary),
+                                modifier = Modifier.weight(1f)
+                            )
+                            Checkbox(
+                                checked = debugMode,
+                                onCheckedChange = { checked ->
+                                    debugMode = checked
+                                    store.debugMode = checked
+                                },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = AccentCyan,
+                                    uncheckedColor = BorderSubtle
+                                )
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "When on, failure banners name the cause and append a telemetry snapshot (state, transport, health age, counters). Off by default; never changes routing or lockdown.",
+                            style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
+                        )
                     }
 
                     SettingsCard(icon = Icons.Default.Dns, title = "Defaults for new profiles") {

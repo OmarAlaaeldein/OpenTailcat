@@ -14,6 +14,12 @@ interface PreferencesStorage {
     var splitTunnelExcludedApps: Set<String>
     var savedProfilesJson: String?
     var vpnWanted: Boolean
+    /**
+     * Debug diagnostics: failure banners carry a raw telemetry snapshot
+     * (state, transport, health age, counters). Off by default; user-facing
+     * messages stay short either way. Never gates routing or lockdown.
+     */
+    var debugMode: Boolean
 }
 
 class PreferencesStore(context: Context) : PreferencesStorage {
@@ -47,6 +53,10 @@ class PreferencesStore(context: Context) : PreferencesStorage {
     override var vpnWanted: Boolean
         get() = prefs.getBoolean(KEY_VPN_WANTED, false)
         set(value) = prefs.edit { putBoolean(KEY_VPN_WANTED, value) }
+
+    override var debugMode: Boolean
+        get() = prefs.getBoolean(KEY_DEBUG_MODE, false)
+        set(value) = prefs.edit { putBoolean(KEY_DEBUG_MODE, value) }
 
     @SuppressLint("UseKtx") // A direct Editor lets us verify commit before deleting plaintext.
     private fun migrateLegacyPreferences(context: Context) {
@@ -91,6 +101,7 @@ class PreferencesStore(context: Context) : PreferencesStorage {
         private const val KEY_SPLIT_TUNNEL_EXCLUDED = "key_split_tunnel_excluded"
         private const val KEY_SAVED_PROFILES = "key_saved_profiles"
         private const val KEY_VPN_WANTED = "key_vpn_wanted"
+        private const val KEY_DEBUG_MODE = "key_debug_mode"
 
         private const val MIN_MTU = 1_280
         private const val MAX_MTU = 1_500

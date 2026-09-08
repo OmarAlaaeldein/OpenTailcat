@@ -192,8 +192,9 @@ class TunnelController(
                     .onSuccess { metrics ->
                         consecutiveFailures = 0
                         _networkMetrics.value = metrics
-                        if (EngineHealth.shouldTearDown(metrics, unixNow())) {
-                            reportError("VPN engine data plane failed")
+                        val reason = EngineHealth.teardownReason(metrics, unixNow())
+                        if (reason != EngineHealth.TeardownReason.Healthy) {
+                            reportError(dataPlaneFailureMessage(reason, metrics))
                             stopTunnel()
                             return@launch
                         }
@@ -207,7 +208,15 @@ class TunnelController(
                     .onFailure {
                         consecutiveFailures++
                         if (consecutiveFailures >= MAX_TELEMETRY_FAILURES) {
-                            reportError(it.message ?: "Lost contact with the VPN engine")
+                            val base = "Lost contact with the VPN engine"
+                            val detail = it.message ?: "no detail"
+                            reportError(
+                                if (preferences.debugMode) {
+                                    "$base ($consecutiveFailures consecutive failure(s); last: $detail)"
+                                } else {
+                                    base
+                                }
+                            )
                             stopTunnel()
                             return@launch
                         }
@@ -238,6 +247,27 @@ class TunnelController(
     private fun reportError(message: String) {
         _lastError.value = message
         _tunnelEvents.tryEmit(message)
+    }
+
+    /**
+     * User-facing data-plane failure: always names the cause; with debug mode
+     * on, appends a raw telemetry snapshot so failures are diagnosable from
+     * the banner alone. Debug output never changes routing or lockdown.
+     */
+    private fun dataPlaneFailureMessage(
+        reason: EngineHealth.TeardownReason,
+        metrics: NetworkMetrics
+    ): String {
+        val base = "VPN data plane failed: ${EngineHealth.shortCause(reason)}"
+        if (!preferences.debugMode) return base
+        val drops = metrics.dropCounters
+        val healthAge = (unixNow() - metrics.healthUnixSec).coerceAtLeast(0L)
+        return base + " [debug state=${metrics.state}" +
+            " transport=${metrics.transportType} tcpOnly=${metrics.tcpOnly}" +
+            " healthAge=${healthAge}s rtt=${metrics.rttLatencyMs}ms" +
+            " dns=${metrics.dnsQueries} tcp=${metrics.tcpPackets} udp=${metrics.udpPackets}" +
+            " drops=${drops.malformedIp}/${drops.mtuExceeded}/${drops.queueExhaustion}/${drops.policyRejections}" +
+            " egressErr=${metrics.egressAuditError ?: "-"}]"
     }
 
     companion object {

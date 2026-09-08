@@ -17,6 +17,7 @@ class FakePreferencesStorage : PreferencesStorage {
     override var splitTunnelExcludedApps: Set<String> = emptySet()
     override var savedProfilesJson: String? = null
     override var vpnWanted: Boolean = false
+    override var debugMode: Boolean = false
 }
 
 class ProfileRepositoryTest {
