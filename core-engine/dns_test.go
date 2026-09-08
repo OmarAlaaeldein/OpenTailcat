@@ -886,3 +886,74 @@ func TestDNSTCPFallbackStopDoesNotHang(t *testing.T) {
 		t.Fatalf("proxy.Close hung beyond stopWaitTimeout=%s with silent DNS TCP peer", stopWaitTimeout)
 	}
 }
+
+func TestIsSafeDNSAddrRejectsPrivateRanges(t *testing.T) {
+	rejected := []string{
+		// RFC 1918 private IPv4.
+		"10.0.0.1", "10.255.255.255",
+		"172.16.0.1", "172.31.255.255",
+		"192.168.1.1", "192.168.0.1",
+		// CGNAT shared space 100.64.0.0/10.
+		"100.64.0.1", "100.127.255.255",
+		// IPv4 link-local.
+		"169.254.10.20", "169.254.169.254",
+		// Already-unsafe specials.
+		"127.0.0.1", "0.0.0.0", "255.255.255.255", "224.0.0.1",
+		// IPv6 ULA, deprecated site-local, link-local, loopback.
+		"fc00::1", "fd00::53", "fd12:3456::1", "fec0::1", "fe80::1", "::1", "::",
+	}
+	for _, s := range rejected {
+		addr := netip.MustParseAddr(s)
+		if isSafeDNSAddr(addr) {
+			t.Errorf("isSafeDNSAddr(%s) = true, want false", s)
+		}
+	}
+
+	kept := []string{
+		"1.1.1.1", "9.9.9.9", "8.8.8.8",
+		"11.0.0.1", "172.15.255.255", "172.32.0.1",
+		"100.63.255.255", "100.128.0.1",
+		"169.253.255.255", "169.255.0.1",
+		"2606:4700:4700::1111", "2001:4860:4860::8888",
+	}
+	for _, s := range kept {
+		addr := netip.MustParseAddr(s)
+		if !isSafeDNSAddr(addr) {
+			t.Errorf("isSafeDNSAddr(%s) = false, want true", s)
+		}
+	}
+}
+
+func TestForcedDNSPrivateRangesStoredInvalid(t *testing.T) {
+	_ = Stop()
+	defer Stop()
+
+	// Private/CGNAT/link-local forced values must be stored invalid/zero so
+	// resolveDNSDestination drops the query instead of dialing a destination
+	// the gateway's allowProxyDest would reject (total DNS blackout).
+	for _, ip := range []string{"192.168.1.1", "10.0.0.1", "100.64.0.1", "169.254.10.20", "fd00::53"} {
+		v := ip
+		applyDNSPolicy("FORCED_RESOLVER", &v)
+		pending := globalCore.pendingDNS.Load()
+		if pending == nil || pending.Policy != "FORCED_RESOLVER" {
+			t.Fatalf("forced %s: expected FORCED_RESOLVER pending, got %+v", ip, pending)
+		}
+		if pending.ForcedDNS.IsValid() {
+			t.Errorf("forced %s must be stored invalid/zero, got %v", ip, pending.ForcedDNS)
+		}
+	}
+
+	// A global forced resolver must still be kept verbatim.
+	for _, ip := range []string{"1.1.1.1", "9.9.9.9"} {
+		v := ip
+		applyDNSPolicy("FORCED_RESOLVER", &v)
+		pending := globalCore.pendingDNS.Load()
+		if pending == nil || !pending.ForcedDNS.IsValid() {
+			t.Errorf("forced %s must be kept, got %+v", ip, pending)
+			continue
+		}
+		if pending.ForcedDNS.Addr().String() != ip {
+			t.Errorf("forced %s stored as %v", ip, pending.ForcedDNS)
+		}
+	}
+}

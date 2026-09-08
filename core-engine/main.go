@@ -226,7 +226,45 @@ func applyDNSPolicy(policyName string, forced *string) {
 }
 
 func isSafeDNSAddr(addr netip.Addr) bool {
-	return addr.IsValid() && (addr.IsGlobalUnicast() || addr.IsPrivate())
+	if !addr.IsValid() {
+		return false
+	}
+	if addr.IsUnspecified() || addr.IsLoopback() || addr.IsMulticast() ||
+		addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() ||
+		addr.IsInterfaceLocalMulticast() {
+		return false
+	}
+	// RFC 1918 private IPv4 and RFC 4193 IPv6 unique-local addresses are
+	// rejected: the live gateway's allowProxyDest refuses private
+	// destinations, so a forced private resolver would black out DNS while
+	// CONNECTED. NOTE: the PROFILE path forwards the TUN destination
+	// verbatim; this gate applies only to the configured forcedDNS value.
+	if addr.IsPrivate() {
+		return false
+	}
+	if addr.Is4() {
+		a := addr.As4()
+		// Carrier-grade NAT shared space 100.64.0.0/10 (RFC 6598).
+		if a[0] == 100 && a[1]&0xC0 == 0x40 {
+			return false
+		}
+		// IPv4 link-local 169.254.0.0/16 (defense in depth alongside
+		// IsLinkLocalUnicast).
+		if a[0] == 169 && a[1] == 254 {
+			return false
+		}
+	} else if addr.Is6() {
+		b := addr.As16()
+		// IPv6 unique-local fc00::/7 (defense in depth alongside IsPrivate).
+		if b[0]&0xFE == 0xFC {
+			return false
+		}
+		// Deprecated IPv6 site-local fec0::/10.
+		if b[0] == 0xFE && b[1]&0xC0 == 0xC0 {
+			return false
+		}
+	}
+	return addr.IsGlobalUnicast()
 }
 
 // DropCounters records packet drops and flow rejections by category.
@@ -239,12 +277,16 @@ type DropCounters struct {
 
 // EngineStats encapsulates authoritative measured telemetry reported to Android.
 type EngineStats struct {
-	Version                 int          `json:"version"`
-	SessionID               int64        `json:"sessionId"`
-	State                   string       `json:"state"`
-	HealthUnixSec           int64        `json:"healthUnixSec,omitempty"`
-	Transport               string       `json:"transport"`
-	TcpOnly                 bool         `json:"tcpOnly"`
+	Version       int    `json:"version"`
+	SessionID     int64  `json:"sessionId"`
+	State         string `json:"state"`
+	HealthUnixSec int64  `json:"healthUnixSec,omitempty"`
+	Transport     string `json:"transport"`
+	TcpOnly       bool   `json:"tcpOnly"`
+	// DiscoStale reports whether the last live DiscoPing is stale while the
+	// pumps remain alive. Additive in schema v2; Kotlin health-freshness
+	// gating is unchanged.
+	DiscoStale              bool         `json:"discoStale"`
 	DirectEndpoint          string       `json:"directEndpoint,omitempty"`
 	DerpRegionID            int          `json:"derpRegionId"`
 	DerpRegionCode          string       `json:"derpRegionCode,omitempty"`

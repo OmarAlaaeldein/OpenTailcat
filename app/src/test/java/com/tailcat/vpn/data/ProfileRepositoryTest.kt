@@ -160,4 +160,28 @@ class ProfileRepositoryTest {
         // Unknown policy falls back to PROFILE_RESOLVER
         assertEquals(DnsPolicy.PROFILE_RESOLVER, p.dnsPolicy)
     }
+
+    @Test
+    fun testLoadProfilesMigratesRemovedGatewayResolverToProfile() {
+        val savedArray = JSONArray().apply {
+            put(JSONObject().apply {
+                put("id", "profile-gateway")
+                put("name", "Legacy Gateway Resolver")
+                put("token", validOfficialToken)
+                put("serverPublicKey", "ddeeff")
+                put("customDns", "1.1.1.1")
+                put("dnsPolicy", "GATEWAY_RESOLVER")
+                put("mtu", 1280)
+                put("isDefault", true)
+                put("createdAt", 2000L)
+            })
+        }
+        fakeStorage.savedProfilesJson = savedArray.toString()
+
+        val reloadedRepo = ProfileRepository(fakeStorage)
+        val profiles = reloadedRepo.profiles.value
+        assertEquals(1, profiles.size)
+        // Removed GATEWAY_RESOLVER option migrates safely to PROFILE_RESOLVER
+        assertEquals(DnsPolicy.PROFILE_RESOLVER, profiles[0].dnsPolicy)
+    }
 }

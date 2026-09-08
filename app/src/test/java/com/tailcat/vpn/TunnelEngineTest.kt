@@ -256,6 +256,10 @@ class TunnelEngineTest {
         assertEquals(88L, metrics.dnsQueries)
         assertEquals(2L, metrics.dropCounters.malformedIp)
         assertEquals(1L, metrics.dropCounters.mtuExceeded)
+        assertEquals(0L, metrics.dropCounters.queueExhaustion)
+        assertEquals(0L, metrics.dropCounters.policyRejections)
+        // discoStale absent in this payload must default to false
+        assertFalse(metrics.discoStale)
         assertEquals(1725301200L, metrics.egressAuditTimestampSec)
     }
 
@@ -277,6 +281,54 @@ class TunnelEngineTest {
         val metrics = com.tailcat.vpn.core.model.NetworkMetrics.fromJson(json)
         assertEquals(40L, metrics.rttLatencyMs)
         assertEquals(null, metrics.jitterMs)
+    }
+
+    @Test
+    fun testNetworkMetricsDiscoStaleParsedWhenPresent() {
+        val json = """{
+            "version": 2,
+            "sessionId": 7,
+            "state": "RUNNING",
+            "transport": "DERP_RELAY",
+            "rttMs": 55,
+            "dnsQueries": 12,
+            "discoStale": true,
+            "dropCounters": {
+                "malformedIp": 0,
+                "mtuExceeded": 0,
+                "queueExhaustion": 1,
+                "policyRejections": 3
+            }
+        }"""
+
+        val metrics = com.tailcat.vpn.core.model.NetworkMetrics.fromJson(json)
+        assertTrue(metrics.discoStale)
+        assertEquals(12L, metrics.dnsQueries)
+        assertEquals(1L, metrics.dropCounters.queueExhaustion)
+        assertEquals(3L, metrics.dropCounters.policyRejections)
+    }
+
+    @Test
+    fun testNetworkMetricsDiscoStaleDefaultsFalseWhenAbsent() {
+        val json = """{
+            "version": 2,
+            "sessionId": 8,
+            "state": "RUNNING",
+            "transport": "DIRECT_P2P",
+            "rttMs": 18,
+            "dnsQueries": 5,
+            "dropCounters": {
+                "malformedIp": 0,
+                "mtuExceeded": 0,
+                "queueExhaustion": 0,
+                "policyRejections": 0
+            }
+        }"""
+
+        val metrics = com.tailcat.vpn.core.model.NetworkMetrics.fromJson(json)
+        assertFalse(metrics.discoStale)
+        assertEquals(5L, metrics.dnsQueries)
+        assertEquals(0L, metrics.dropCounters.policyRejections)
     }
 
     @Test

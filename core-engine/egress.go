@@ -55,6 +55,7 @@ func (b *TunBridge) probeTunnelEgressIP(ctx context.Context) (netip.Addr, error)
 }
 
 func (b *TunBridge) egressProbeLoop() {
+	defer b.recoverPumpLogOnly("egress probe")
 	const retryDelay = 3 * time.Second
 	for attempt := 1; ; attempt++ {
 		probeCtx, cancel := context.WithTimeout(b.ctx, 15*time.Second)

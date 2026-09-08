@@ -109,6 +109,30 @@ object DnsValidator {
             return DnsValidationResult.Invalid("Broadcast address cannot be used as a DNS server")
         }
 
+        // Private/LAN ranges (RFC 1918): the live gateway's allowProxyDest
+        // rejects private destinations, so a private forced resolver would
+        // black out DNS entirely while CONNECTED.
+        if (octets[0] == 10) {
+            return DnsValidationResult.Invalid("Private 10.0.0.0/8 address cannot be used as a tunnel DNS server (gateway rejects private destinations)")
+        }
+        if (octets[0] == 172 && octets[1] in 16..31) {
+            return DnsValidationResult.Invalid("Private 172.16.0.0/12 address cannot be used as a tunnel DNS server (gateway rejects private destinations)")
+        }
+        if (octets[0] == 192 && octets[1] == 168) {
+            return DnsValidationResult.Invalid("Private 192.168.0.0/16 address cannot be used as a tunnel DNS server (gateway rejects private destinations)")
+        }
+
+        // Carrier-grade NAT shared space (100.64.0.0/10, RFC 6598): not a
+        // public resolver reachable through the gateway.
+        if (octets[0] == 100 && octets[1] in 64..127) {
+            return DnsValidationResult.Invalid("Carrier-grade NAT 100.64.0.0/10 address cannot be used as a tunnel DNS server")
+        }
+
+        // IPv4 link-local (169.254.0.0/16): never a public resolver.
+        if (octets[0] == 169 && octets[1] == 254) {
+            return DnsValidationResult.Invalid("Link-local 169.254.0.0/16 address cannot be used as a DNS server")
+        }
+
         return DnsValidationResult.Valid(ip = ipStr, isIpv6 = false)
     }
 
@@ -132,6 +156,16 @@ object DnsValidator {
 
         if (parsed.isLinkLocalAddress) {
             return DnsValidationResult.Invalid("IPv6 link-local address cannot be used as a DNS server")
+        }
+
+        // Unique-local (fc00::/7, RFC 4193) and deprecated site-local
+        // (fec0::/10): not public resolvers reachable through the gateway.
+        val raw = parsed.address
+        if (raw.isNotEmpty() && (raw[0].toInt() and 0xFE) == 0xFC) {
+            return DnsValidationResult.Invalid("IPv6 unique-local address cannot be used as a DNS server")
+        }
+        if (raw.size >= 2 && raw[0] == 0xFE.toByte() && (raw[1].toInt() and 0xC0) == 0xC0) {
+            return DnsValidationResult.Invalid("IPv6 site-local address cannot be used as a DNS server")
         }
 
         return DnsValidationResult.Valid(ip = ipStr, isIpv6 = true)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/netip"
 	"os"
@@ -173,7 +174,10 @@ func (b *TunBridge) setOnPumpDead(fn func(error)) {
 }
 
 func (b *TunBridge) reportPumpDead(err error) {
-	if err == nil || b.closed.Load() || b.ctx.Err() != nil {
+	if b == nil || err == nil || b.closed.Load() {
+		return
+	}
+	if b.ctx != nil && b.ctx.Err() != nil {
 		return
 	}
 	b.startupFailed.Store(true)
@@ -183,6 +187,27 @@ func (b *TunBridge) reportPumpDead(err error) {
 	b.pumpDeadMu.Unlock()
 	if fn != nil {
 		fn(err)
+	}
+}
+
+// recoverPump converts a pump-loop panic into a fail-closed FAILED signal via
+// the existing reportPumpDead path instead of aborting the process.
+func (b *TunBridge) recoverPump(name string) {
+	if r := recover(); r != nil {
+		err := fmt.Errorf("%s pump panic: %v", name, r)
+		log.Printf("Tailcat %s", err.Error())
+		if b == nil {
+			return
+		}
+		b.reportPumpDead(err)
+	}
+}
+
+// recoverPumpLogOnly contains a panic in a non-required loop (egress audit,
+// UDP re-probe) without marking the session FAILED.
+func (b *TunBridge) recoverPumpLogOnly(name string) {
+	if r := recover(); r != nil {
+		log.Printf("Tailcat %s pump panic (contained, session kept): %v", name, r)
 	}
 }
 
@@ -196,30 +221,35 @@ func (b *TunBridge) Start() error {
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
+		defer b.recoverPump("tun read")
 		b.reportPumpDead(b.readLoop(tunReady))
 	}()
 
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
+		defer b.recoverPump("gvisor output")
 		b.reportPumpDead(b.netstack.writeLoop(gvisorReady))
 	}()
 
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
+		defer b.recoverPump("udp gc")
 		b.netstack.cleanupIdleUDPFlows(udpReady)
 	}()
 
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
+		defer b.recoverPump("health/rate")
 		b.rateCalcLoop(healthReady)
 	}()
 
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
+		defer b.recoverPumpLogOnly("egress probe")
 		b.egressProbeLoop()
 	}()
 
@@ -274,6 +304,7 @@ func (b *TunBridge) Stop() error {
 }
 
 func (b *TunBridge) readLoop(ready chan struct{}) error {
+	defer b.recoverPump("tun read")
 	buf := make([]byte, 65535)
 	signalReady(ready)
 	for {
@@ -590,6 +621,7 @@ type discoPinger interface {
 }
 
 func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
+	defer b.recoverPump("health/rate")
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 	signalReady(ready)
@@ -604,9 +636,11 @@ func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 		case <-b.ctx.Done():
 			return
 		case t := <-ticker.C:
-			// Health freshness requires a recent successful DiscoPing, not the
-			// one-shot Meow ack channel (AUDIT H5).
-			if b.onHealth != nil && b.discoFresh.Load() && b.pingFails.Load() == 0 {
+			// Pumps-alive heartbeat: health tracks required-loop liveness, not
+			// disco freshness. Health freshness still gates Kotlin CONNECTED;
+			// disco staleness is exposed separately via discoStale so callers
+			// can distinguish "pumps alive, RTT stale" from a dead data plane.
+			if b.onHealth != nil && !b.closed.Load() && !b.startupFailed.Load() && b.ctx != nil && b.ctx.Err() == nil {
 				b.onHealth()
 			}
 			currentTx := b.txBytes.Load()
@@ -628,6 +662,7 @@ func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 				if b.rttSampling.CompareAndSwap(false, true) {
 					lastRTTSample = t
 					go func() {
+						defer b.recoverPump("rtt sample")
 						defer b.rttSampling.Store(false)
 						b.sampleGatewayPing()
 						b.sampleLiveRTT()
@@ -656,10 +691,12 @@ func (b *TunBridge) sampleLiveRTT() {
 	defer cancel()
 	res, err := sampler.DiscoPing(ctx)
 	if err != nil || res == nil || res.LatencySeconds <= 0 {
+		// A failed DiscoPing must not kill a relayed tunnel: user traffic
+		// can flow over DERP while disco probes fail. Keep the last known
+		// transport, mark disco stale, and keep counting failures. Only a
+		// real required-pump exit marks FAILED via reportPumpDead.
 		b.discoFresh.Store(false)
-		if b.pingFails.Add(1) >= 3 {
-			b.reportPumpDead(errors.New("disco ping failed"))
-		}
+		b.pingFails.Add(1)
 		return
 	}
 	b.pingFails.Store(0)
@@ -681,6 +718,7 @@ func (b *TunBridge) sampleLiveRTT() {
 // It only re-enables gateway-proxied UDP via Client.DialUDP; a failed probe
 // keeps tcpOnly and never touches direct OS sockets.
 func (b *TunBridge) reprobeUDP() {
+	defer b.recoverPumpLogOnly("udp reprobe")
 	if b.client == nil {
 		return
 	}
@@ -765,6 +803,7 @@ func (b *TunBridge) GetStats() EngineStats {
 		State:            "RUNNING",
 		Transport:        transport,
 		TcpOnly:          b.tcpOnly.Load(),
+		DiscoStale:       !b.discoFresh.Load(),
 		DerpRegionID:     regionID,
 		TunnelEgressIP:   egressIP,
 		EgressAuditError: egressErr,

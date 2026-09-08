@@ -9,21 +9,21 @@ from a compact `tc...` token.
 
 ## Safety status
 
-**OpenTailcat 1.2.7 is a development build and must not be distributed or relied
+**OpenTailcat 1.2.8 is a development build and must not be distributed or relied
 on as a production privacy VPN.** The Android shell, Go Mobile AAR, Tailcat
 handshake, official token parser, TCP proxy, and userspace netstack UDP proxy are
 integrated. IPv4 test-routing capabilities are true so Connect can run with a
 live token. `ipv6` is false. Android installs `0.0.0.0/0` and `::/0` after pumps
 are live. This is not a production privacy VPN.
 
-Version 1.2.7 addresses audit findings H1–H7 in source (lockdown check after warm
-TUN, Magicsock/DERP protect re-enable, attach/pump and DNS stop bounds, DiscoPing
-health honesty, VPN FD lifecycle serialization, phase8 analyzer fail-closed),
-rejects wrapped-paste interior whitespace with a clear error, probes gateway UDP
-with a 5s bound plus periodic re-probe instead of a one-shot 1s latch, and
-surfaces the measured `tcpOnly` state in telemetry and the UI. It keeps `ipv6`
-false. Rebuild the AAR and run Always-on + Phase 8 dual capture before
-any production claim. See [1.2.7 release notes](docs/releases/1.2.7.md).
+Version 1.2.8 rejects private/CGNAT/link-local tunnel DNS (the gateway refuses
+private destinations, so a LAN resolver blacked out DNS while CONNECTED),
+contains native pump panics to FAILED instead of aborting the process, no longer
+kills a DERP-relayed tunnel on repeated DiscoPing misses (downgrades transport,
+reports additive `discoStale`), removes the dead `GATEWAY_RESOLVER` option, and
+shows DNS/policy/rejected counters plus RTT-stale state in telemetry. It keeps
+`ipv6` false. Rebuild the AAR and run Always-on + Phase 8 dual capture before
+any production claim. See [1.2.8 release notes](docs/releases/1.2.8.md).
 
 ### Audited status
 

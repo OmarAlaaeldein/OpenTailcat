@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/netip"
 	"strings"
@@ -103,6 +104,19 @@ type netstackProxy struct {
 	closed atomic.Bool
 }
 
+// recoverFlow converts a per-flow panic into a fail-closed FAILED signal via
+// the existing bridge reportPumpDead path instead of aborting the process.
+func (p *netstackProxy) recoverFlow(name string) {
+	if r := recover(); r != nil {
+		err := fmt.Errorf("%s panic: %v", name, r)
+		log.Printf("Tailcat %s", err.Error())
+		if p == nil || p.bridge == nil {
+			return
+		}
+		p.bridge.reportPumpDead(err)
+	}
+}
+
 func newNetstackProxy(bridge *TunBridge) (*netstackProxy, error) {
 	ipStack := stack.New(stack.Options{
 		NetworkProtocols: []stack.NetworkProtocolFactory{
@@ -181,6 +195,7 @@ func (p *netstackProxy) inject(pkt []byte, ipv6Packet bool) {
 }
 
 func (p *netstackProxy) writeLoop(ready chan struct{}) error {
+	defer p.recoverFlow("gvisor output")
 	signalReady(ready)
 	for {
 		packet := p.link.ReadContext(p.bridge.ctx)
@@ -247,6 +262,7 @@ func (p *netstackProxy) acceptTCP(request *tcp.ForwarderRequest) {
 }
 
 func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest) {
+	defer p.recoverFlow("tcp proxy")
 	defer func() {
 		p.tcpActive.Add(-1)
 		p.tcpWg.Done()
@@ -275,6 +291,7 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest) {
 	}
 	dialed := make(chan dialResult, 1)
 	go func() {
+		defer p.recoverFlow("tcp dial")
 		ctx, cancel := context.WithTimeout(p.bridge.ctx, dialTimeoutFor(resolvedDst, tcpDialTimeout))
 		conn, err := p.bridge.client.DialTCP(ctx, resolvedDst)
 		cancel()
@@ -316,6 +333,7 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest) {
 
 	copyDone := make(chan struct{}, 2)
 	go func() {
+		defer p.recoverFlow("tcp copy")
 		_, _ = io.Copy(remote, local)
 		if closeWriter, ok := remote.(interface{ CloseWrite() error }); ok {
 			_ = closeWriter.CloseWrite()
@@ -323,6 +341,7 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest) {
 		copyDone <- struct{}{}
 	}()
 	go func() {
+		defer p.recoverFlow("tcp copy")
 		_, _ = io.Copy(local, remote)
 		_ = local.CloseWrite()
 		copyDone <- struct{}{}
@@ -446,6 +465,17 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 }
 
 func (p *netstackProxy) dialAndRunUDPFlow(ctx context.Context, flow *udpFlow, resolvedDst netip.AddrPort) {
+	defer p.recoverFlow("udp dial")
+	// This call owns exactly one udpWg credit (added by acceptUDP) on every
+	// path that does not hand the flow off to runUDPFlow, which owns the
+	// credit thereafter via its own defer. The guard keeps accounting exact
+	// even when a panicking client is contained by recoverFlow above.
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			p.udpWg.Done()
+		}
+	}()
 	dialCtx, dialCancel := context.WithTimeout(ctx, dialTimeoutFor(resolvedDst, udpDialTimeout))
 	remoteConn, err := p.bridge.client.DialUDP(dialCtx, resolvedDst)
 	dialCancel()
@@ -456,7 +486,6 @@ func (p *netstackProxy) dialAndRunUDPFlow(ctx context.Context, flow *udpFlow, re
 		flow.close()
 		p.untrack(flow.localConn)
 		p.unregisterFlow(flow)
-		p.udpWg.Done()
 		return
 	}
 	flow.remoteMu.Lock()
@@ -469,9 +498,9 @@ func (p *netstackProxy) dialAndRunUDPFlow(ctx context.Context, flow *udpFlow, re
 		p.untrack(flow.localConn)
 		p.untrack(remoteConn)
 		p.unregisterFlow(flow)
-		p.udpWg.Done()
 		return
 	}
+	handedOff = true
 	p.runUDPFlow(ctx, flow, remoteConn)
 }
 
@@ -516,6 +545,7 @@ func (p *netstackProxy) unregisterFlow(flow *udpFlow) {
 }
 
 func (p *netstackProxy) runDNSOverTCPFlow(ctx context.Context, flow *udpFlow, dst netip.AddrPort) {
+	defer p.recoverFlow("dns-over-tcp flow")
 	defer func() {
 		flow.close()
 		p.untrack(flow.localConn)
@@ -591,6 +621,7 @@ func (p *netstackProxy) exchangeDNSOverTCP(ctx context.Context, dst netip.AddrPo
 }
 
 func (p *netstackProxy) runUDPFlow(ctx context.Context, flow *udpFlow, remoteConn net.Conn) {
+	defer p.recoverFlow("udp flow")
 	defer func() {
 		flow.close()
 		p.untrack(flow.localConn)
@@ -602,6 +633,7 @@ func (p *netstackProxy) runUDPFlow(ctx context.Context, flow *udpFlow, remoteCon
 	done := make(chan struct{}, 2)
 
 	go func() {
+		defer p.recoverFlow("udp flow copy")
 		buf := make([]byte, maxUDPPacketSize)
 		for {
 			n, err := flow.localConn.Read(buf)
@@ -618,6 +650,7 @@ func (p *netstackProxy) runUDPFlow(ctx context.Context, flow *udpFlow, remoteCon
 	}()
 
 	go func() {
+		defer p.recoverFlow("udp flow copy")
 		buf := make([]byte, maxUDPPacketSize)
 		for {
 			n, err := remoteConn.Read(buf)
@@ -640,6 +673,7 @@ func (p *netstackProxy) runUDPFlow(ctx context.Context, flow *udpFlow, remoteCon
 }
 
 func (p *netstackProxy) cleanupIdleUDPFlows(ready chan struct{}) {
+	defer p.recoverFlow("udp gc")
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	signalReady(ready)

@@ -41,6 +41,7 @@ data class NetworkMetrics(
     val tcpPackets: Long = 0,
     val udpPackets: Long = 0,
     val dnsQueries: Long = 0,
+    val discoStale: Boolean = false,
     val dropCounters: DropCounters = DropCounters(),
     val egressAuditTimestampSec: Long = 0,
     val egressAuditError: String? = null
@@ -124,6 +125,7 @@ data class NetworkMetrics(
                 tcpPackets = json.optLong("tcpPackets", 0L),
                 udpPackets = json.optLong("udpPackets", 0L),
                 dnsQueries = json.optLong("dnsQueries", 0L),
+                discoStale = json.optBoolean("discoStale", false),
                 dropCounters = dropCounters,
                 egressAuditTimestampSec = json.optLong("egressAuditTimestampSec", 0L),
                 egressAuditError = optNullableString("egressAuditError")

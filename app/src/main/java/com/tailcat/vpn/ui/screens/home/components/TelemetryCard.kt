@@ -270,6 +270,32 @@ fun TelemetryCard(
                     )
                 }
             }
+
+            // Factual telemetry discriminators: only shown when the engine
+            // reported a non-zero counter or a stale RTT sample.
+            if (metrics.dnsQueries > 0 || metrics.dropCounters.policyRejections > 0 || metrics.discoStale) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Column {
+                    if (metrics.dnsQueries > 0) {
+                        Text(
+                            text = "DNS queries: ${metrics.dnsQueries}",
+                            style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
+                        )
+                    }
+                    if (metrics.dropCounters.policyRejections > 0) {
+                        Text(
+                            text = "Policy rejections: ${metrics.dropCounters.policyRejections}",
+                            style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
+                        )
+                    }
+                    if (metrics.discoStale) {
+                        Text(
+                            text = "RTT stale (relay)",
+                            style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
+                        )
+                    }
+                }
+            }
         }
     }
 }

@@ -1,0 +1,2 @@
+027c8e89f726b00d9e02c0dbc9c309b1ffcf0fa422a9d49cc6ebda44ad791d8c  OpenTailcat-1.2.8-arm64-v8a.apk
+374af70cea20b42fde40408736d68a2018f4df2d563f6bf05a95b5e42501ac9f  OpenTailcat-1.2.8-x86_64.apk
