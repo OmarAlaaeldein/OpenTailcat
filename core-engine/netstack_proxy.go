@@ -108,7 +108,7 @@ type netstackProxy struct {
 // the existing bridge reportPumpDead path instead of aborting the process.
 func (p *netstackProxy) recoverFlow(name string) {
 	if r := recover(); r != nil {
-		err := fmt.Errorf("%s panic: %v", name, r)
+		err := fmt.Errorf("%s panic: %v @ %s", name, r, panicSite())
 		log.Printf("Tailcat %s", err.Error())
 		if p == nil || p.bridge == nil {
 			return
@@ -300,7 +300,7 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest) {
 
 	var waitQueue waiter.Queue
 	endpoint, tcpErr := request.CreateEndpoint(&waitQueue)
-	if tcpErr != nil {
+	if tcpErr != nil || endpoint == nil {
 		request.Complete(true)
 		res := <-dialed
 		if res.conn != nil {
@@ -312,8 +312,8 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest) {
 	local := gonet.NewTCPConn(&waitQueue, endpoint)
 
 	res := <-dialed
-	if res.err != nil {
-		if strings.Contains(res.err.Error(), "proxy destination not permitted") {
+	if res.err != nil || isNilConn(res.conn) {
+		if res.err != nil && strings.Contains(res.err.Error(), "proxy destination not permitted") {
 			p.bridge.policyRejections.Add(1)
 		}
 		_ = local.Close()
@@ -479,8 +479,8 @@ func (p *netstackProxy) dialAndRunUDPFlow(ctx context.Context, flow *udpFlow, re
 	dialCtx, dialCancel := context.WithTimeout(ctx, dialTimeoutFor(resolvedDst, udpDialTimeout))
 	remoteConn, err := p.bridge.client.DialUDP(dialCtx, resolvedDst)
 	dialCancel()
-	if err != nil {
-		if strings.Contains(err.Error(), "proxy destination not permitted") {
+	if err != nil || isNilConn(remoteConn) {
+		if err != nil && strings.Contains(err.Error(), "proxy destination not permitted") {
 			p.bridge.policyRejections.Add(1)
 		}
 		flow.close()
@@ -575,9 +575,15 @@ func (p *netstackProxy) exchangeDNSOverTCP(ctx context.Context, dst netip.AddrPo
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeoutFor(dst, tcpDialTimeout))
 	defer cancel()
 	conn, err := p.bridge.client.DialTCP(dialCtx, dst)
-	if err != nil {
-		if strings.Contains(err.Error(), "proxy destination not permitted") {
+	if err != nil || isNilConn(conn) {
+		if err != nil && strings.Contains(err.Error(), "proxy destination not permitted") {
 			p.bridge.policyRejections.Add(1)
+		}
+		if conn != nil {
+			_ = conn.Close()
+		}
+		if err == nil {
+			err = errors.New("gateway dial returned nil connection without error")
 		}
 		return err
 	}

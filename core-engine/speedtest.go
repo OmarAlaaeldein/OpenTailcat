@@ -101,7 +101,10 @@ func tunnelDialTLS(ctx context.Context, client TunnelClient, addr, sni string) (
 		return nil, err
 	}
 	conn, err := client.DialTCP(ctx, ap)
-	if err != nil {
+	if err != nil || isNilConn(conn) {
+		if err == nil {
+			err = errors.New("gateway dial returned nil connection without error")
+		}
 		return nil, fmt.Errorf("DialTCP %s: %w", addr, err)
 	}
 	if deadline, ok := ctx.Deadline(); ok {

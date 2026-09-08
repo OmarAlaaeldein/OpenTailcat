@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net/netip"
@@ -17,7 +18,10 @@ func tunnelLookupA(ctx context.Context, client TunnelClient, name string) (netip
 		return netip.Addr{}, err
 	}
 	conn, err := client.DialTCP(ctx, netip.MustParseAddrPort("1.1.1.1:53"))
-	if err != nil {
+	if err != nil || isNilConn(conn) {
+		if err == nil {
+			err = errors.New("gateway dial returned nil connection without error")
+		}
 		return netip.Addr{}, fmt.Errorf("dial DNS through Tailcat: %w", err)
 	}
 	defer conn.Close()

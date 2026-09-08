@@ -332,7 +332,7 @@ type udpCapability interface {
 func (c *engineClient) SupportsUDP(ctx context.Context) bool {
 	dst := netip.MustParseAddrPort("1.1.1.1:53")
 	conn, err := c.DialUDP(ctx, dst)
-	if err != nil {
+	if err != nil || isNilConn(conn) {
 		return false
 	}
 	defer conn.Close()

@@ -10,6 +10,8 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"reflect"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -194,7 +196,7 @@ func (b *TunBridge) reportPumpDead(err error) {
 // the existing reportPumpDead path instead of aborting the process.
 func (b *TunBridge) recoverPump(name string) {
 	if r := recover(); r != nil {
-		err := fmt.Errorf("%s pump panic: %v", name, r)
+		err := fmt.Errorf("%s pump panic: %v @ %s", name, r, panicSite())
 		log.Printf("Tailcat %s", err.Error())
 		if b == nil {
 			return
@@ -207,7 +209,42 @@ func (b *TunBridge) recoverPump(name string) {
 // UDP re-probe) without marking the session FAILED.
 func (b *TunBridge) recoverPumpLogOnly(name string) {
 	if r := recover(); r != nil {
-		log.Printf("Tailcat %s pump panic (contained, session kept): %v", name, r)
+		log.Printf("Tailcat %s pump panic (contained, session kept): %v @ %s", name, r, panicSite())
+	}
+}
+
+// panicSite names the innermost function active when a panic is recovered, so
+// contained pump/flow reports point at the faulting code instead of only the
+// panic value. Callers are the recover* helpers deferred at the fault boundary.
+func panicSite() string {
+	var pcs [8]uintptr
+	// Skip Callers, panicSite, the recover* helper, and runtime.gopanic,
+	// which runs deferred helpers during a panic unwind.
+	if runtime.Callers(4, pcs[:]) == 0 {
+		return "unknown"
+	}
+	frame, _ := runtime.CallersFrames(pcs[:]).Next()
+	if frame.Function == "" {
+		return "unknown"
+	}
+	return frame.Function
+}
+
+// isNilConn reports whether a dialed connection is unusable: either a nil
+// interface or a typed-nil pointer inside the interface. Upstream dials must
+// return (nil, err) on failure, but a (nil, nil) result dereferences to a
+// "tcp proxy panic: invalid memory address" on flow teardown, so every dial
+// consumption site rejects it fail-closed before tracking or copying.
+func isNilConn(c net.Conn) bool {
+	if c == nil {
+		return true
+	}
+	v := reflect.ValueOf(c)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
 	}
 }
 

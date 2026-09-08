@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -20,7 +21,10 @@ const maxEgressProbeBody = 16 << 10
 func (b *TunBridge) probeTunnelEgressIP(ctx context.Context) (netip.Addr, error) {
 	cloudflare := netip.MustParseAddrPort("1.1.1.1:443")
 	conn, err := b.client.DialTCP(ctx, cloudflare)
-	if err != nil {
+	if err != nil || isNilConn(conn) {
+		if err == nil {
+			err = errors.New("gateway dial returned nil connection without error")
+		}
 		return netip.Addr{}, fmt.Errorf("dial egress probe through Tailcat: %w", err)
 	}
 	defer conn.Close()
