@@ -397,7 +397,10 @@ class TunnelEngineTest {
         )
         assertTrue(live.isLiveRunning(nowUnixSec = 1004L))
         assertTrue(live.isLiveRunning(nowUnixSec = 1005L))
-        assertFalse(live.isLiveRunning(nowUnixSec = 1006L))
+        // 6s age must remain live (regression for HealthStale auto-close).
+        assertTrue(live.isLiveRunning(nowUnixSec = 1006L))
+        assertTrue(live.isLiveRunning(nowUnixSec = 1015L))
+        assertFalse(live.isLiveRunning(nowUnixSec = 1016L))
 
         val stale = com.tailcat.vpn.core.model.NetworkMetrics(
             state = "RUNNING",
@@ -422,6 +425,18 @@ class TunnelEngineTest {
             healthUnixSec = 1000L
         )
         assertFalse(missingState.isLiveRunning(nowUnixSec = 1000L))
+
+        val slightFuture = com.tailcat.vpn.core.model.NetworkMetrics(
+            state = "RUNNING",
+            healthUnixSec = 1002L
+        )
+        assertTrue(slightFuture.isLiveRunning(nowUnixSec = 1000L))
+
+        val farFuture = com.tailcat.vpn.core.model.NetworkMetrics(
+            state = "RUNNING",
+            healthUnixSec = 1000L + com.tailcat.vpn.core.model.NetworkMetrics.MAX_HEALTH_FUTURE_SKEW_SEC + 5L
+        )
+        assertFalse(farFuture.isLiveRunning(nowUnixSec = 1000L))
     }
 
     @Test

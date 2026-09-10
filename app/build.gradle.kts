@@ -15,8 +15,8 @@ android {
         applicationId = "com.tailcat.vpn"
         minSdk = 26
         targetSdk = 35
-        versionCode = 25
-        versionName = "1.2.12"
+        versionCode = 26
+        versionName = "1.2.13"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         if (!enableAbiSplits) {

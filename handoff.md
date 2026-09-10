@@ -7,7 +7,7 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.2.12 on `main` (audit H1–H7 source fixes after 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep, strict interior-whitespace token error, 5s UDP capability probe with periodic re-probe, `tcpOnly` telemetry, private-DNS rejection, native pump panic containment, disco-failure transport downgrade with `discoStale`, dead `GATEWAY_RESOLVER` removal, structured data-plane failure reporting with a debug diagnostics flag, nil-dial hardening with panic call-site reporting, typed-nil Close fix and per-flow panic isolation). IPv4 test-routing capabilities are
+- Android repository: version 1.2.13 on `main` (audit H1–H7 source fixes after 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep, strict interior-whitespace token error, 5s UDP capability probe with periodic re-probe, `tcpOnly` telemetry, private-DNS rejection, native pump panic containment, disco-failure transport downgrade with `discoStale`, dead `GATEWAY_RESOLVER` removal, structured data-plane failure reporting with a debug diagnostics flag, nil-dial hardening with panic call-site reporting, typed-nil Close fix and per-flow panic isolation, HealthStale 15s/3-poll grace for intermittent 6s auto-close). IPv4 test-routing capabilities are
   true so Connect can be exercised with a live token. `ipv6` is true; `ipv6Egress` is session-measured.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
@@ -34,7 +34,7 @@ establishes a full Android VPN or proves leak-free traffic.
 
 ## Release status
 
-The 1.2.12 tree uses versionCode 25. Rebuild the native AAR before shipping Android
+The 1.2.13 tree uses versionCode 26. Rebuild the native AAR before shipping Android
 binaries that need H2–H5 engine behavior. The prior 1.2.3 download rebuild used
 versionCode 16 and the `development` build type:
 release R8/resource optimization with the existing development certificate and

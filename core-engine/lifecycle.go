@@ -487,6 +487,13 @@ func GetStatsJSON() string {
 	stats.Version = 2
 	stats.SessionID = sessionID
 	stats.State = state.String()
+	// Re-load after GetStats so a slow bridge snapshot cannot publish a health
+	// timestamp that aged while we held no lock. rateCalcLoop still owns the
+	// pumps-alive heartbeat; this only avoids reporting an artificially old
+	// value from the earlier locked snapshot.
+	if state == StateRunning {
+		health = globalCore.healthUnix.Load()
+	}
 	stats.HealthUnixSec = health
 	if state == StateFailed {
 		stats.HealthUnixSec = 0

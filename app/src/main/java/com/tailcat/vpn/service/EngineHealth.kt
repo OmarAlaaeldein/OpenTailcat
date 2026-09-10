@@ -4,6 +4,14 @@ import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TransportType
 
 object EngineHealth {
+    /**
+     * Consecutive HealthStale poll observations required before teardown.
+     * PumpFailed and TransportLost still tear down on the first observation.
+     * With a 1s metrics poll, three stale polls after the freshness window
+     * already expired avoids single-sample flaps without hiding a dead engine.
+     */
+    const val STALE_TEARDOWN_POLLS: Int = 3
+
     /** Machine-readable reason a live tunnel must be torn down. */
     sealed interface TeardownReason {
         /** No teardown required. */
@@ -26,6 +34,21 @@ object EngineHealth {
 
     fun shouldTearDown(metrics: NetworkMetrics, nowUnixSec: Long): Boolean =
         teardownReason(metrics, nowUnixSec) != TeardownReason.Healthy
+
+    /**
+     * Whether a HealthStale observation should tear down after
+     * [consecutiveStalePolls] inclusive counts (1 = this poll).
+     */
+    fun stalePollsRequireTeardown(consecutiveStalePolls: Int): Boolean =
+        consecutiveStalePolls >= STALE_TEARDOWN_POLLS
+
+    /**
+     * Next consecutive HealthStale counter given this poll's [reason].
+     * Non-stale reasons reset the counter to 0 (caller still applies
+     * immediate teardown for PumpFailed / TransportLost).
+     */
+    fun nextStalePollCount(reason: TeardownReason, consecutiveStalePolls: Int): Int =
+        if (reason is TeardownReason.HealthStale) consecutiveStalePolls + 1 else 0
 
     fun teardownReason(metrics: NetworkMetrics, nowUnixSec: Long): TeardownReason {
         if (metrics.state == "FAILED") {

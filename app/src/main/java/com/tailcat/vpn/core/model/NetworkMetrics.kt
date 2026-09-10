@@ -47,13 +47,36 @@ data class NetworkMetrics(
     val egressAuditTimestampSec: Long = 0,
     val egressAuditError: String? = null
 ) {
-    fun isLiveRunning(nowUnixSec: Long, maxAgeSec: Long = 5): Boolean {
+    fun isLiveRunning(
+        nowUnixSec: Long,
+        maxAgeSec: Long = DEFAULT_HEALTH_MAX_AGE_SEC
+    ): Boolean {
         if (state != "RUNNING") return false
         if (healthUnixSec <= 0L) return false
-        return nowUnixSec - healthUnixSec <= maxAgeSec
+        val age = nowUnixSec - healthUnixSec
+        // Reject samples too far in the future (AUDIT: future health timestamps).
+        if (age < -MAX_HEALTH_FUTURE_SKEW_SEC) return false
+        // Small forward skew is treated as fresh (device clock vs engine clock).
+        if (age < 0L) return true
+        return age <= maxAgeSec
     }
 
     companion object {
+        /**
+         * Wall-clock freshness window for native healthUnixSec.
+         *
+         * Native rateCalcLoop refreshes health about every 1s (pumps-alive),
+         * while DiscoPing RTT sampling is ~5s with a 2s timeout. A 5s window
+         * tore the tunnel down on a single 6s gap after brief process
+         * suspension / GC / binder stall even though pumps and transport were
+         * still live. 15s covers ping interval + timeout + several poll
+         * periods of margin without masking a truly dead health loop.
+         */
+        const val DEFAULT_HEALTH_MAX_AGE_SEC: Long = 15L
+
+        /** Tolerated healthUnixSec ahead of local wall clock (seconds). */
+        const val MAX_HEALTH_FUTURE_SKEW_SEC: Long = 2L
+
         fun fromJson(raw: String): NetworkMetrics {
             val json = JSONObject(raw)
 

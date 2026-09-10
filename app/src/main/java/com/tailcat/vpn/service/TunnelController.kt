@@ -187,13 +187,24 @@ class TunnelController(
         pollingJob?.cancel()
         pollingJob = scope.launch {
             var consecutiveFailures = 0
+            var consecutiveStaleHealth = 0
             while (isActive && _tunnelState.value != TunnelState.DISCONNECTED) {
                 runCatching { tunnelEngine.getStats() }
                     .onSuccess { metrics ->
                         consecutiveFailures = 0
                         _networkMetrics.value = metrics
                         val reason = EngineHealth.teardownReason(metrics, unixNow())
-                        if (reason != EngineHealth.TeardownReason.Healthy) {
+                        consecutiveStaleHealth = EngineHealth.nextStalePollCount(
+                            reason,
+                            consecutiveStaleHealth
+                        )
+                        val tearDown = when (reason) {
+                            EngineHealth.TeardownReason.Healthy -> false
+                            is EngineHealth.TeardownReason.HealthStale ->
+                                EngineHealth.stalePollsRequireTeardown(consecutiveStaleHealth)
+                            else -> true // PumpFailed / TransportLost: fail closed immediately
+                        }
+                        if (tearDown) {
                             reportError(dataPlaneFailureMessage(reason, metrics))
                             stopTunnel()
                             return@launch

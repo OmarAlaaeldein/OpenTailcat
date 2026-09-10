@@ -9,19 +9,21 @@ from a compact `tc...` token.
 
 ## Safety status
 
-**OpenTailcat 1.2.12 is a development build and must not be distributed or relied
+**OpenTailcat 1.2.13 is a development build and must not be distributed or relied
 on as a production privacy VPN.** The Android shell, Go Mobile AAR, Tailcat
 handshake, official token parser, TCP proxy, and userspace netstack UDP proxy are
 integrated. IPv4 test-routing capabilities are true so Connect can run with a
-live token. `ipv6` is false. Android installs `0.0.0.0/0` and `::/0` after pumps
+live token. `ipv6` capability is true (gateway WAN may still be IPv4-only —
+check `ipv6Egress`). Android installs `0.0.0.0/0` and `::/0` after pumps
 are live. This is not a production privacy VPN.
 
-Version 1.2.12 keeps the 1.2.10 nil-dial hardening and fixes the remaining
-CONNECTED blackhole class: typed-nil `net.Conn.Close()` in the TCP proxy (and
-DNS-over-TCP) no longer panics, and per-flow panics are contained without
-marking the session FAILED. Required pumps still fail-closed. `ipv6` stays
-false. Rebuild the AAR and run Always-on + Phase 8 dual capture before any
-production claim. See [1.2.12 release notes](docs/releases/1.2.12.md).
+Version 1.2.13 keeps 1.2.12 IPv6 capability work and fixes intermittent
+auto-close with banner `VPN data plane failed: no fresh engine health for 6s`:
+Kotlin health freshness is now 15s with three consecutive stale polls before
+HealthStale teardown (PumpFailed/TransportLost still immediate). Native AAR
+rebuilt so `GetStatsJSON` re-reads `healthUnixSec` after bridge stats. Do not
+claim leak-free — Phase 8 dual capture still required. See
+[1.2.13 release notes](docs/releases/1.2.13.md).
 
 ### Audited status
 
