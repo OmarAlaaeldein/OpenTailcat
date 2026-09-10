@@ -23,7 +23,7 @@ object LockdownProbe {
      * @return true when this package is the Always-on VPN with lockdown;
      * false when Settings are readable and lockdown is not configured;
      * null when the secure settings cannot be read (fall back to framework).
-     * Below [LeakGuard.LOCKDOWN_REQUIRED_API] returns true (lockdown not required).
+     * Below [LeakGuard.LOCKDOWN_REQUIRED_API] returns true (lockdown settings N/A).
      */
     fun alwaysOnLockdownConfigured(
         resolver: ContentResolver?,
@@ -51,7 +51,8 @@ object LockdownProbe {
     }
 
     /**
-     * True when default routes may be installed for leak policy on this API.
+     * True when Always-on + block-without-VPN appears enabled (status only).
+     * Does not gate Connect or default routes — see [LeakGuard].
      * Settings.Secure=true wins even if [frameworkLockdownEnabled] is still false
      * after a host-only warm TUN (framework UnderlyingNetworkInfo race / quirk).
      */

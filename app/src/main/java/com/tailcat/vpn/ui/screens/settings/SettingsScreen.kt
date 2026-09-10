@@ -170,7 +170,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
 
                     SettingsCard(icon = Icons.Default.Security, title = "Always-on & kill switch") {
                         Text(
-                            "Android 10+ requires Always-on VPN and ‘Block connections without VPN’ before OpenTailcat will install default routes. Split-tunnel exclusions are refused.",
+                            "Recommended on Android 10+: turn on Always-on VPN and ‘Block connections without VPN’ for stronger leak protection. Connect still works without them. Split-tunnel exclusions are refused.",
                             style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary)
                         )
                         Spacer(Modifier.height(10.dp))

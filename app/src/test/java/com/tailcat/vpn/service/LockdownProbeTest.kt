@@ -40,7 +40,7 @@ class LockdownProbeTest {
     }
 
     @Test
-    fun neitherSignalRefusesOnApi29() {
+    fun neitherSignalUnsatisfiedButDoesNotRefuseConnect() {
         assertFalse(
             LockdownProbe.lockdownSatisfied(
                 sdkInt = 29,
@@ -48,8 +48,8 @@ class LockdownProbeTest {
                 frameworkLockdownEnabled = false
             )
         )
-        assertEquals(
-            LeakGuard.LOCKDOWN_REQUIRED,
+        // Status may show lockdown off; Connect / default routes are still allowed.
+        assertNull(
             LeakGuard.refusalReasonForStartup(
                 sdkInt = 29,
                 settingsLockdown = false,

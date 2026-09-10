@@ -1,10 +1,15 @@
 package com.tailcat.vpn.service
 
 object LeakGuard {
+    /** API level where Always-on + block-without-VPN settings exist and are recommended. */
     const val LOCKDOWN_REQUIRED_API = 29
 
-    const val LOCKDOWN_REQUIRED =
-        "Enable Always-on VPN and ‘Block connections without VPN’ in Android VPN settings before connecting"
+    /**
+     * Soft tip for UI copy. Never returned from [refusalReason] /
+     * [refusalReasonForStartup] — Connect and default routes work without lockdown.
+     */
+    const val LOCKDOWN_RECOMMENDED =
+        "For stronger leak protection, enable Always-on VPN and ‘Block connections without VPN’ in Android VPN settings"
 
     const val SPLIT_TUNNEL_BLOCKED =
         "Disable split-tunnel exclusions before connecting; excluded apps bypass the VPN"
@@ -20,14 +25,14 @@ object LeakGuard {
         lockdownEnabled: Boolean,
         splitTunnelEmpty: Boolean
     ): String? {
+        // lockdownEnabled is retained for call-site compatibility; it never blocks.
         if (!splitTunnelEmpty) return SPLIT_TUNNEL_BLOCKED
-        if (sdkInt >= LOCKDOWN_REQUIRED_API && !lockdownEnabled) return LOCKDOWN_REQUIRED
         return null
     }
 
     /**
-     * Combines Settings.Secure Always-on lockdown with VpnService.isLockdownEnabled.
-     * See [LockdownProbe].
+     * Split-tunnel exclusions still refuse Connect. Always-on / lockdown is
+     * optional — [LockdownProbe] remains available for status display only.
      */
     fun refusalReasonForStartup(
         sdkInt: Int,
@@ -36,11 +41,6 @@ object LeakGuard {
         splitTunnelEmpty: Boolean
     ): String? {
         if (!splitTunnelEmpty) return SPLIT_TUNNEL_BLOCKED
-        val satisfied = LockdownProbe.lockdownSatisfied(
-            sdkInt = sdkInt,
-            settingsLockdown = settingsLockdown,
-            frameworkLockdownEnabled = frameworkLockdownEnabled
-        )
-        return if (satisfied) null else LOCKDOWN_REQUIRED
+        return null
     }
 }

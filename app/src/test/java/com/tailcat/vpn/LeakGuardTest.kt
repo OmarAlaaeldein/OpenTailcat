@@ -9,12 +9,9 @@ import org.junit.Test
 
 class LeakGuardTest {
     @Test
-    fun testApi29RequiresLockdown() {
-        assertFalse(LeakGuard.mayInstallDefaultRoutes(29, lockdownEnabled = false, splitTunnelEmpty = true))
-        assertEquals(
-            LeakGuard.LOCKDOWN_REQUIRED,
-            LeakGuard.refusalReason(29, lockdownEnabled = false, splitTunnelEmpty = true)
-        )
+    fun testApi29AllowsWithoutLockdown() {
+        assertTrue(LeakGuard.mayInstallDefaultRoutes(29, lockdownEnabled = false, splitTunnelEmpty = true))
+        assertNull(LeakGuard.refusalReason(29, lockdownEnabled = false, splitTunnelEmpty = true))
         assertTrue(LeakGuard.mayInstallDefaultRoutes(29, lockdownEnabled = true, splitTunnelEmpty = true))
         assertNull(LeakGuard.refusalReason(29, lockdownEnabled = true, splitTunnelEmpty = true))
     }
@@ -51,7 +48,7 @@ class LeakGuardTest {
     }
 
     @Test
-    fun testStartupCombinesSettingsAndFramework() {
+    fun testStartupNeverRefusesForMissingLockdown() {
         assertNull(
             LeakGuard.refusalReasonForStartup(
                 sdkInt = 30,
@@ -60,11 +57,18 @@ class LeakGuardTest {
                 splitTunnelEmpty = true
             )
         )
-        assertEquals(
-            LeakGuard.LOCKDOWN_REQUIRED,
+        assertNull(
             LeakGuard.refusalReasonForStartup(
                 sdkInt = 30,
                 settingsLockdown = null,
+                frameworkLockdownEnabled = false,
+                splitTunnelEmpty = true
+            )
+        )
+        assertNull(
+            LeakGuard.refusalReasonForStartup(
+                sdkInt = 30,
+                settingsLockdown = false,
                 frameworkLockdownEnabled = false,
                 splitTunnelEmpty = true
             )

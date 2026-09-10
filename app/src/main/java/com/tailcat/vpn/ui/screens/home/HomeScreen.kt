@@ -119,10 +119,16 @@ fun HomeScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var showProfileDropdown by remember { mutableStateOf(false) }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(showAddDialog) {
         val window = (context as? Activity)?.window
-        window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose { }
+        if (showAddDialog) {
+            window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
     }
 
     val isDeviceOffline = networkType == NetworkType.NONE
