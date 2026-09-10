@@ -210,7 +210,7 @@ fun HomeScreen(
                             style = MaterialTheme.typography.headlineLarge
                         )
                         Text(
-                            text = "Development test client — not leak-free",
+                            text = "Private gateway for Tailcat",
                             style = MaterialTheme.typography.labelMedium
                         )
                     }

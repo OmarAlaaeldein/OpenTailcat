@@ -99,7 +99,7 @@ Official Tailcat `v0.4.0` configures `serve exit-node` with `OnTCPForward` and
 admits TCP only. Current upstream (this submodule pin) exports `Client.DialUDP`
 and `Server.OnUDPForward`. Therefore:
 
-- First determine whether the live target gateway (`nullexit` or another
+- First determine whether the live target gateway (your Tailcat gateway or another
   deployment) already accepts UDP flows over the Tailcat WireGuard peer.
 - Record the gateway implementation/version and prove the capability with a
   minimal tunneled UDP echo test.

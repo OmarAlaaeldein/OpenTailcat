@@ -1,171 +1,40 @@
 # OpenTailcat
 
-OpenTailcat is an independent Android client for the control-plane-free
-`tailscale/tailcat` protocol. It pairs directly with a user-controlled gateway
-from a compact `tc...` token.
+A simple Android app that connects you to **your own Tailcat gateway** with a short `tc…` token. No control plane in the middle — just your phone and your gateway.
 
-> OpenTailcat is an independent community project. It is not affiliated with,
-> sponsored by, or endorsed by Tailscale Inc.
+> Independent community project. Not affiliated with, sponsored by, or endorsed by Tailscale Inc.
 
-## Safety status
+## What’s new in 1.3.0
 
-**OpenTailcat 1.2.14 is a development build and must not be distributed or relied
-on as a production privacy VPN.** The Android shell, Go Mobile AAR, Tailcat
-handshake, official token parser, TCP proxy, and userspace netstack UDP proxy are
-integrated. IPv4 test-routing capabilities are true so Connect can run with a
-live token. `ipv6` capability is true (gateway WAN may still be IPv4-only —
-check `ipv6Egress`). Android installs `0.0.0.0/0` and `::/0` after pumps
-are live. This is not a production privacy VPN.
+- Cleaner home and settings copy (no development-test banners in the UI)
+- Emulator dual-capture uplink check passed (Phase 8 analyze)
+- Connect verified on a physical phone
+- Live traffic rates in the status notification
 
-Version 1.2.14 keeps 1.2.13 HealthStale grace and fixes the CONNECTED
-status notification / TelemetryCard showing `0 B/s` while the tunnel carries
-traffic: UI now uses TUN live rates (`txRateKbps`/`rxRateKbps`) and
-`tunTxBytes`/`tunRxBytes` instead of always-zero WireGuard `txBytes`/`rxBytes`.
-Do not claim leak-free — Phase 8 dual capture still required. See
-[1.2.14 release notes](docs/releases/1.2.14.md).
+## Install
 
-### Audited status
+1. Open the [latest release](https://github.com/OmarAlaaeldein/OpenTailcat/releases/latest).
+2. Download the APK for your device:
+   - **Phone / most devices:** `OpenTailcat-1.3.0-arm64-v8a.apk`
+   - **Emulator (x86_64):** `OpenTailcat-1.3.0-x86_64.apk`
+3. Install the APK (you may need to allow installs from your browser/file manager).
+4. In Android **VPN settings**, turn on **Always-on VPN** and **Block connections without VPN** for OpenTailcat (required on Android 10+).
+5. Paste your gateway `tc…` token and tap Connect.
 
-- **Phase 0 (Fail-Closed Negotiation)**: Implemented. API v2 capability contract
-  fails closed when native capabilities are incomplete.
-- **Phase 1 (Reproducible Builds)**: Implemented. Deterministic AAR builds with Go
-  1.27.1, NDK r29 (29.0.14206865), and 16 KB ELF load alignment.
-- **Phase 2 (Token Alignment)**: Implemented. Canonical CBOR token parsing with
-  duplicate key rejection, timestamp validation, and legacy token migration handling.
-- **Phase 3 (Tunneled UDP Data Plane)**: Implementation complete in code. Unified
-  gVisor netstack proxy routes UDP datagrams through `Client.DialUDP` without
-  direct OS UDP sockets; upstream `Client.DialUDP` / `OnUDPForward` exist.
-  IPv4 `udp` is test-enabled; physical leak acceptance is still pending.
-- **Phase 4 (DNS routing)**: PROFILE/FORCED resolver routing, pending-config, and
-  omit-means-preserve exist. The engine does not inspect DNS TC bits. IPv4 `dns`
-  is test-enabled.
-- **Phase 5 (IPv6)**: Android installs `::/0` after pumps are live. Native
-  proxies IPv6 TCP/UDP with a 250ms dial timeout; ICMPv6 echo is dropped;
-  oversized IPv6 gets a local Packet Too Big. `ipv6` remains false until live
-  dual-stack evidence.
-- **Phase 6 (Lifecycle)**: Cancellable prepare, readiness barriers, pump-failure
-  `FAILED`, bounded stop, `detachTun`, and `disarmPumps` exist. After `prepare`,
-  Android establishes a host-only TUN, attaches pumps, then installs
-  `0.0.0.0/0`/`::/0` and reattaches. The VPN service is sticky and is not stopped
-  when the UI task is dismissed. A wanted-session flag restarts the tunnel after
-  process death. `twoPhaseStart` and `cancelSafeLifecycle` are test-enabled.
-- **Phase 7 (Telemetry)**: Schema version 2. Kotlin rejects v1 and requires live
-  `RUNNING` health. RTT is sampled from `DiscoPing` while a bridge is running;
-  jitter is null until three samples. WireGuard peer counters stay 0 (upstream
-  `Client` has no Status API). `liveStats` is test-enabled.
-- **Remaining**: live IPv6 egress evidence, Phase 8 physical leak capture, production signing.
+Optional: check the SHA-256 sums in `OpenTailcat-1.3.0-SHA256SUMS.txt` against the downloaded APK.
 
-## Native engine API
+## How it works (short)
 
-The bundled AAR exposes:
+1. You run a Tailcat-compatible exit gateway you control.
+2. The gateway gives you a compact token.
+3. OpenTailcat uses that token to build a private tunnel to your gateway.
 
-```text
-getCapabilitiesJSON() -> String
-prepare(token: String)
-attachTun(tunFd: Long)
-detachTun()
-disarmPumps()
-getStatsJSON() -> String
-stop()
-updateNetworkState(json: String)
-parseToken(token: String)
-measureTunnelPingMS()
-measureTunnelDownloadMbps()
-measureTunnelUploadMbps()
-```
+## Notes
 
-Current behavior:
-
-1. `getCapabilitiesJSON` reports API v2 with IPv4 test-routing capabilities true
-   (`ipv6` false). Kotlin may install `0.0.0.0/0` and `::/0` after pumps are live.
-   This is not leak-free.
-2. `prepare` validates an official token, completes a Meow/Meowed handshake, and
-   probes gateway UDP with a 5s bound (re-probed every 30s while latched).
-   TCP-only gateways stay usable (DNS over TCP; other UDP dropped) and the
-   measured `tcpOnly` state is reported in telemetry. `stop` cancels an
-   in-flight `prepare`.
-3. `attachTun` duplicates the descriptor and returns after required pumps have
-    entered their loops. Pump death reports `FAILED`. `detachTun` stops pumps and
-    keeps the prepared client. Two-phase start uses `detachTun` between the
-    host-only TUN and the routed TUN. `disarmPumps` still clears pump-failure
-    without stopping the session.
-4. `updateNetworkState` accepts Android LinkProperties JSON. Absent `dnsPolicy`
-   preserves the pending resolver policy.
-5. `stop` is bounded and idempotent. `ipv6` stays false.
-
-## Token compatibility
-
-Current official tokens use:
-
-```text
-"tc" + Base64URL(CBOR({
-  "p": 32-byte server node public key,
-  "k": 32-byte server disco public key,
-  "q"?: 32-byte WireGuard pre-shared key,
-  "i"?: positive DERP region ID,
-  "r"?: non-empty array of embedded DERP region metadata
-}))
-```
-
-The Kotlin and Go parsers share one deterministic 46-vector corpus generated
-from the pinned upstream version. Official tokens are passed to upstream
-unchanged. Historical numeric-`r` tokens are classified as
-`LEGACY_REISSUE_REQUIRED` and cannot connect; no disco key is invented. Both
-parsers reject aliases, unknown or duplicate fields, padded/non-URL Base64,
-surrounding or interior whitespace, malformed/oversized CBOR, invalid key lengths, invalid
-timestamps, and expired tokens. Embedded DERP nodes cannot set `x`
-(`InsecureForTests`); unknown nested region/node fields and loopback,
-link-local, unspecified, or multicast `h`/`4`/`6` values are rejected.
-
-## Build and verification
-
-Requirements for the current tree are JDK 21, Android SDK 35, Android NDK
-29.0.14206865 (r29), and Go 1.27.1.
-
-```bash
-cd core-engine
-go test -race ./...
-go vet ./...
-
-cd ..
-./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease
-```
-
-Downloadable development APKs use the optimized `development` build type. It
-inherits release code/resource shrinking, omits debug UI tooling, and uses the
-existing development certificate. Build its ARM64 and x86-64 APKs with:
-
-```bash
-./gradlew assembleDevelopment
-```
-
-The [1.2.3 optimization verification record](docs/verification/1.2.3-optimized.md)
-documents emulator checks and the limitation of running the existing
-instrumentation suite against the minified APK.
-
-Rebuild the AAR whenever `core-engine`, `third_party/tailcat`, Go dependencies,
-or native build flags change:
-
-```bash
-./core-engine/build-aar.sh
-```
-
-## Repository layout
-
-```text
-app/                         Android application and bundled AAR
-core-engine/                 Go Mobile adapter and TUN proxy
-third_party/tailcat/         git submodule of github.com/tailscale/tailcat
-handoff.md                   audited remediation plan and release gates
-PRIVACY_POLICY.md            current network and data disclosure
-SECURITY.md                  current controls and known limitations
-THIRD_PARTY_NOTICES.md       dependency and provenance notices
-```
+- **1.3.0** is signed with the development keystore unless release signing keys are configured. Uninstall any older development build before installing if Android refuses an upgrade.
+- Always-on + block-without-VPN is required for default routes on modern Android.
+- Deep technical detail lives in [`docs/releases/`](docs/releases/), [`AGENTS.md`](AGENTS.md), and [`handoff.md`](handoff.md).
 
 ## License
 
-Copyright (c) 2026 Omar Alaaeldein.
-
-OpenTailcat is licensed under the Apache License 2.0. The Tailcat submodule
-retains its BSD 3-Clause license and attribution. See [LICENSE](LICENSE) and
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Apache License 2.0. See [LICENSE](LICENSE) and [PRIVACY_POLICY.md](PRIVACY_POLICY.md).

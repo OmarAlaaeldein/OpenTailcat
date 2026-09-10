@@ -82,8 +82,8 @@ the Android app.
 
 Data-plane interoperability still requires a compatible gateway. Official
 Tailcat v0.4.0 `serve exit-node` is TCP-only. Current upstream (this submodule
-pin) exports `Client.DialUDP` and `Server.OnUDPForward`. If the live `nullexit`
-gateway already supports native tunneled UDP, prove and version that capability.
+pin) exports `Client.DialUDP` and `Server.OnUDPForward`. If the live user-controlled Tailcat gateway
+already supports native tunneled UDP, prove and version that capability.
 Otherwise a matching gateway-side Tailcat UDP deployment is required. A
 client-only direct socket is never an acceptable substitute.
 

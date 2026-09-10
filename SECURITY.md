@@ -37,7 +37,7 @@ privacy VPN.
   prepare and re-probes every 30s while latched, so a slow DERP path cannot
   permanently drop non-DNS UDP for the session. DNS port 53 is carried over TCP
   and other UDP is dropped on such gateways; the measured `tcpOnly` state is
-  reported in telemetry and the UI. The live `nullexit` target was observed
+  reported in telemetry and the UI. A compatible exit gateway was observed
   answering native UDP (DNS query via `Client.DialUDP`); TCP-only remains the
   fallback (`tcpOnly` session). Gateway UDP support is deployment-specific and
   still needs Phase 8 capture proof per gateway.

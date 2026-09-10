@@ -275,7 +275,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Apache License 2.0. Gateway tokens are encrypted on this device. Development test build — not leak-free, not a production VPN.",
+                            "Apache License 2.0. Gateway tokens are encrypted on this device.",
                             style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
                         )
                     }
