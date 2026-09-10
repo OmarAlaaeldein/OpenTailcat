@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
@@ -333,3 +334,43 @@ func buildIPv4Packet(protocol byte, srcPort, dstPort uint16, payload []byte) []b
 	copy(pkt[28:], payload)
 	return pkt
 }
+
+func TestRateCalcLoopFromTunCounters(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bridge := &TunBridge{
+		sessionID: 1,
+		token:     &ParsedToken{RegionID: 1},
+		transport: "DERP_RELAY",
+		ctx:       ctx,
+		cancel:    cancel,
+		lastTime:  time.Now(),
+	}
+	ready := make(chan struct{})
+	go bridge.rateCalcLoop(ready)
+	<-ready
+
+	bridge.txBytes.Store(50_000)  // 50 KB over ~1s => ~400 kbps
+	bridge.rxBytes.Store(100_000) // 100 KB over ~1s => ~800 kbps
+
+	deadline := time.Now().Add(3 * time.Second)
+	var stats EngineStats
+	for time.Now().Before(deadline) {
+		stats = bridge.GetStats()
+		if stats.TxRateKbps > 0 && stats.RxRateKbps > 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if stats.TxRateKbps <= 0 || stats.RxRateKbps <= 0 {
+		t.Fatalf("expected non-zero TUN-derived rates, got tx=%d rx=%d", stats.TxRateKbps, stats.RxRateKbps)
+	}
+	if stats.TunTxBytes != 50_000 || stats.TunRxBytes != 100_000 {
+		t.Fatalf("TUN counters mismatch: tx=%d rx=%d", stats.TunTxBytes, stats.TunRxBytes)
+	}
+	// Schema rule: txBytes/rxBytes stay WireGuard-only (0 without Status API).
+	if stats.TxBytes != 0 || stats.RxBytes != 0 {
+		t.Fatalf("txBytes/rxBytes must remain WG zeros, got tx=%d rx=%d", stats.TxBytes, stats.RxBytes)
+	}
+}
+

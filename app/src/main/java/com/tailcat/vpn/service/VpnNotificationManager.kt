@@ -8,11 +8,10 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.tailcat.vpn.R
+import com.tailcat.vpn.core.metrics.TrafficFormat
 import com.tailcat.vpn.core.model.NetworkMetrics
-import com.tailcat.vpn.core.model.TransportType
 import com.tailcat.vpn.core.model.TunnelState
 import com.tailcat.vpn.ui.MainActivity
-import java.util.Locale
 
 class VpnNotificationManager(private val context: Context) {
 
@@ -64,15 +63,11 @@ class VpnNotificationManager(private val context: Context) {
             TunnelState.DISCONNECTED -> "OpenTailcat: Disconnected"
         }
 
-        val rttSuffix = if (metrics.rttLatencyMs > 0) " (${metrics.rttLatencyMs}ms)" else ""
-        val transportStr = when (metrics.transportType) {
-            TransportType.DIRECT_P2P -> "Direct P2P$rttSuffix"
-            TransportType.DERP_RELAY -> "DERP Relay #${metrics.derpRegionId ?: "?"}$rttSuffix"
-            TransportType.UNKNOWN -> "Establishing transport..."
-        }
-
+        // Live rates from TUN pump accounting (txRateKbps/rxRateKbps). Do not use
+        // metrics.txBytes/rxBytes — those alias WireGuard peer counters and stay 0
+        // without a Client.Status API (see handoff Phase 7).
         val content = if (state == TunnelState.CONNECTED) {
-            "$transportStr | ⬇ ${formatBytes(metrics.rxBytes)}  ⬆ ${formatBytes(metrics.txBytes)}"
+            TrafficFormat.connectedNotificationContent(metrics)
         } else {
             "Tap to manage your VPN connection"
         }
@@ -93,16 +88,6 @@ class VpnNotificationManager(private val context: Context) {
             builder.addAction(R.drawable.ic_vpn_status, "Disconnect", stopPendingIntent)
         }
         return builder.build()
-    }
-
-    private fun formatBytes(bytes: Long): String {
-        if (bytes < 1024) return "$bytes B"
-        val kb = bytes / 1024.0
-        if (kb < 1024) return String.format(Locale.getDefault(), "%.1f KB", kb)
-        val mb = kb / 1024.0
-        if (mb < 1024) return String.format(Locale.getDefault(), "%.1f MB", mb)
-        val gb = mb / 1024.0
-        return String.format(Locale.getDefault(), "%.2f GB", gb)
     }
 
     companion object {

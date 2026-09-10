@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tailcat.vpn.core.metrics.TrafficFormat
 import com.tailcat.vpn.core.model.EgressInfo
 import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TransportType
@@ -236,11 +237,11 @@ fun TelemetryCard(
                     Spacer(modifier = Modifier.width(4.dp))
                     Column {
                         Text(
-                            text = formatBytes(metrics.rxBytes),
+                            text = TrafficFormat.formatBytes(metrics.tunRxBytes),
                             style = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary)
                         )
                         Text(
-                            text = "${metrics.rxRateKbps} Kb/s",
+                            text = TrafficFormat.formatKbps(metrics.rxRateKbps),
                             style = MaterialTheme.typography.labelMedium
                         )
                     }
@@ -257,11 +258,11 @@ fun TelemetryCard(
                     Spacer(modifier = Modifier.width(4.dp))
                     Column {
                         Text(
-                            text = formatBytes(metrics.txBytes),
+                            text = TrafficFormat.formatBytes(metrics.tunTxBytes),
                             style = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary)
                         )
                         Text(
-                            text = "${metrics.txRateKbps} Kb/s",
+                            text = TrafficFormat.formatKbps(metrics.txRateKbps),
                             style = MaterialTheme.typography.labelMedium
                         )
                     }
@@ -310,12 +311,3 @@ fun TelemetryCard(
     }
 }
 
-private fun formatBytes(bytes: Long): String {
-    if (bytes < 1024) return "$bytes B"
-    val kb = bytes / 1024.0
-    if (kb < 1024) return "%.1f KB".format(kb)
-    val mb = kb / 1024.0
-    if (mb < 1024) return "%.1f MB".format(mb)
-    val gb = mb / 1024.0
-    return "%.2f GB".format(gb)
-}
