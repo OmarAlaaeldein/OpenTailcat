@@ -9,20 +9,19 @@ from a compact `tc...` token.
 
 ## Safety status
 
-**OpenTailcat 1.2.10 is a development build and must not be distributed or relied
+**OpenTailcat 1.2.11 is a development build and must not be distributed or relied
 on as a production privacy VPN.** The Android shell, Go Mobile AAR, Tailcat
 handshake, official token parser, TCP proxy, and userspace netstack UDP proxy are
 integrated. IPv4 test-routing capabilities are true so Connect can run with a
 live token. `ipv6` is false. Android installs `0.0.0.0/0` and `::/0` after pumps
 are live. This is not a production privacy VPN.
 
-Version 1.2.10 keeps the 1.2.9 behavior (diagnosable teardown banners, debug
-diagnostics flag) and fixes a native crash class: gateway dials returning
-`(nil, nil)` are now rejected fail-closed per flow instead of panicking as
-"tcp proxy panic: invalid memory address" and tearing down a healthy tunnel.
-Contained pump/flow panic reports now name the faulting function. It keeps
-`ipv6` false. Rebuild the AAR and run Always-on + Phase 8 dual capture before
-any production claim. See [1.2.10 release notes](docs/releases/1.2.10.md).
+Version 1.2.11 keeps the 1.2.10 nil-dial hardening and fixes the remaining
+CONNECTED blackhole class: typed-nil `net.Conn.Close()` in the TCP proxy (and
+DNS-over-TCP) no longer panics, and per-flow panics are contained without
+marking the session FAILED. Required pumps still fail-closed. `ipv6` stays
+false. Rebuild the AAR and run Always-on + Phase 8 dual capture before any
+production claim. See [1.2.11 release notes](docs/releases/1.2.11.md).
 
 ### Audited status
 

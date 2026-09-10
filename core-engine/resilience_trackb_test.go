@@ -80,8 +80,8 @@ func (c *panickingUDPClient) Close() error {
 }
 
 // TestPanicInFlowHandled proves a panicking TunnelClient is contained: the
-// process stays alive and the session is marked FAILED via the existing
-// reportPumpDead path.
+// process stays alive and the session stays RUNNING. Per-flow panics must not
+// report pump death (that was tearing down CONNECTED tunnels on typed-nil Close).
 func TestPanicInFlowHandled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -115,11 +115,11 @@ func TestPanicInFlowHandled(t *testing.T) {
 	proxy.dialAndRunUDPFlow(flowCtx, flow, netip.MustParseAddrPort("1.1.1.1:53"))
 
 	// Reaching here proves the process survived the panic.
-	if got := pumpDead.Load(); got == 0 {
-		t.Fatal("expected panicking flow to report pump death (FAILED path)")
+	if got := pumpDead.Load(); got != 0 {
+		t.Fatalf("per-flow panic must not report pump death, got %d", got)
 	}
-	if !bridge.startupFailed.Load() {
-		t.Fatal("expected startupFailed set after flow panic")
+	if bridge.startupFailed.Load() {
+		t.Fatal("per-flow panic must not set startupFailed")
 	}
 }
 

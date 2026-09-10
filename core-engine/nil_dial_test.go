@@ -220,17 +220,73 @@ func TestIsNilConn(t *testing.T) {
 //go:noinline
 func panicSiteHelper() { panic("boom") }
 
+// recoverLikeProduction mirrors recoverFlow/recoverPump nesting so panicSite
+// is exercised the same way as on device.
+func recoverLikeProduction(site *string) {
+	if recover() != nil {
+		*site = panicSite()
+	}
+}
+
 func TestPanicSiteNamesFaultingFunction(t *testing.T) {
 	var site string
 	func() {
-		defer func() {
-			if recover() != nil {
-				site = panicSite()
-			}
-		}()
+		defer recoverLikeProduction(&site)
 		panicSiteHelper()
 	}()
+	if strings.HasPrefix(site, "runtime.") || site == "unknown" {
+		t.Fatalf("panicSite must not report runtime frames, got %q", site)
+	}
 	if !strings.Contains(site, "panicSiteHelper") {
 		t.Fatalf("expected panicSite to name the faulting helper, got %q", site)
 	}
+}
+
+// typedNilTCPConn is a typed-nil *net.TCPConn stored in a net.Conn interface.
+// c != nil is true for this value; Close must not be called on it.
+func typedNilTCPConn() net.Conn {
+	var p *net.TCPConn
+	return p
+}
+
+func TestTCPTypedNilCloseDoesNotFailSession(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	mockClient := &mockTunnelClient{
+		dialTCPFn: func(ctx context.Context, dst netip.AddrPort) (net.Conn, error) {
+			return typedNilTCPConn(), nil
+		},
+	}
+	b := &TunBridge{ctx: ctx, cancel: cancel, client: mockClient, token: &ParsedToken{RegionID: 1}}
+	proxy, err := newNetstackProxy(b)
+	if err != nil {
+		t.Fatalf("newNetstackProxy: %v", err)
+	}
+	defer proxy.Close()
+	b.netstack = proxy
+	var pumpDead int32
+	b.setOnPumpDead(func(error) { pumpDead++ })
+
+	srcAP := netip.MustParseAddrPort("10.0.0.2:45679")
+	dstAP := netip.MustParseAddrPort("93.184.216.34:443")
+	proxy.inject(buildIPv4TCPSyn(srcAP, dstAP), false)
+	completeTCPHandshake(t, ctx, proxy, srcAP, dstAP)
+	deadline := time.Now().Add(5 * time.Second)
+	for proxy.tcpActive.Load() != 0 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if b.startupFailed.Load() || pumpDead != 0 {
+		t.Fatalf("typed-nil TCP dial Close must not fail session (startupFailed=%v pumpDead=%d)", b.startupFailed.Load(), pumpDead)
+	}
+	if got := proxy.tcpActive.Load(); got != 0 {
+		t.Fatalf("tcpActive = %d after typed-nil dial, want 0", got)
+	}
+}
+
+func TestCloseConnIgnoresTypedNil(t *testing.T) {
+	// Must not panic.
+	closeConn(nil)
+	closeConn(typedNilTCPConn())
 }

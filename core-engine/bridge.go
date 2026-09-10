@@ -12,6 +12,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -213,21 +214,67 @@ func (b *TunBridge) recoverPumpLogOnly(name string) {
 	}
 }
 
-// panicSite names the innermost function active when a panic is recovered, so
-// contained pump/flow reports point at the faulting code instead of only the
-// panic value. Callers are the recover* helpers deferred at the fault boundary.
+// panicSite names the innermost non-runtime function active when a panic is
+// recovered, so contained pump/flow reports point at the faulting code instead
+// of runtime.panicmem / gopanic frames. Anonymous defer wrappers (.funcN) are
+// skipped when a named caller is available.
 func panicSite() string {
-	var pcs [8]uintptr
-	// Skip Callers, panicSite, the recover* helper, and runtime.gopanic,
-	// which runs deferred helpers during a panic unwind.
-	if runtime.Callers(4, pcs[:]) == 0 {
+	var pcs [16]uintptr
+	n := runtime.Callers(3, pcs[:])
+	if n == 0 {
 		return "unknown"
 	}
-	frame, _ := runtime.CallersFrames(pcs[:]).Next()
-	if frame.Function == "" {
-		return "unknown"
+	frames := runtime.CallersFrames(pcs[:n])
+	fallback := ""
+	for {
+		frame, more := frames.Next()
+		fn := frame.Function
+		if fn == "" {
+			if !more {
+				break
+			}
+			continue
+		}
+		base := fn
+		if i := strings.LastIndex(fn, "/"); i >= 0 {
+			base = fn[i+1:]
+		}
+		// Match helper names exactly on the base (do not use Contains("panicSite"),
+		// which would also skip panicSiteHelper).
+		if strings.HasPrefix(fn, "runtime.") ||
+			base == "panicSite" ||
+			strings.HasSuffix(base, ".panicSite") ||
+			strings.Contains(base, "recoverFlow") ||
+			strings.Contains(base, "recoverPump") ||
+			strings.Contains(base, "recoverLikeProduction") {
+			if !more {
+				break
+			}
+			continue
+		}
+		if strings.Contains(fn, ".func") {
+			if fallback == "" {
+				fallback = fn
+			}
+			if !more {
+				break
+			}
+			continue
+		}
+		return fn
 	}
-	return frame.Function
+	if fallback != "" {
+		return fallback
+	}
+	return "unknown"
+}
+
+// closeConn closes c only when it is a usable (non-nil, non-typed-nil) Conn.
+// A plain `c != nil` check is true for typed-nil interfaces and Close panics.
+func closeConn(c net.Conn) {
+	if !isNilConn(c) {
+		_ = c.Close()
+	}
 }
 
 // isNilConn reports whether a dialed connection is unusable: either a nil

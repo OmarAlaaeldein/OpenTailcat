@@ -104,8 +104,10 @@ type netstackProxy struct {
 	closed atomic.Bool
 }
 
-// recoverFlow converts a per-flow panic into a fail-closed FAILED signal via
-// the existing bridge reportPumpDead path instead of aborting the process.
+// recoverFlow contains a panic in a netstack goroutine. Required pumps
+// ("gvisor output", "udp gc") still fail-closed via reportPumpDead. Per-flow
+// panics (tcp/udp proxy, dial, copy) are logged only: a single bad flow must
+// not tear down a healthy CONNECTED session (typed-nil Close historically did).
 func (p *netstackProxy) recoverFlow(name string) {
 	if r := recover(); r != nil {
 		err := fmt.Errorf("%s panic: %v @ %s", name, r, panicSite())
@@ -113,7 +115,12 @@ func (p *netstackProxy) recoverFlow(name string) {
 		if p == nil || p.bridge == nil {
 			return
 		}
-		p.bridge.reportPumpDead(err)
+		switch name {
+		case "gvisor output", "udp gc":
+			p.bridge.reportPumpDead(err)
+		default:
+			// Flow-local: keep pumps alive.
+		}
 	}
 }
 
@@ -303,9 +310,7 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest) {
 	if tcpErr != nil || endpoint == nil {
 		request.Complete(true)
 		res := <-dialed
-		if res.conn != nil {
-			_ = res.conn.Close()
-		}
+		closeConn(res.conn)
 		return
 	}
 	request.Complete(false)
@@ -317,9 +322,7 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest) {
 			p.bridge.policyRejections.Add(1)
 		}
 		_ = local.Close()
-		if res.conn != nil {
-			_ = res.conn.Close()
-		}
+		closeConn(res.conn)
 		return
 	}
 	remote := res.conn
@@ -579,9 +582,7 @@ func (p *netstackProxy) exchangeDNSOverTCP(ctx context.Context, dst netip.AddrPo
 		if err != nil && strings.Contains(err.Error(), "proxy destination not permitted") {
 			p.bridge.policyRejections.Add(1)
 		}
-		if conn != nil {
-			_ = conn.Close()
-		}
+		closeConn(conn)
 		if err == nil {
 			err = errors.New("gateway dial returned nil connection without error")
 		}
