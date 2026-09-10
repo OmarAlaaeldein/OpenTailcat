@@ -33,7 +33,7 @@ class TunnelEngineTest {
             "magicsock": false,
             "twoPhaseStart": true,
             "ipv4": false,
-            "ipv6": false,
+            "ipv6": true,
             "tcp": false,
             "udp": false,
             "dns": false,
@@ -57,7 +57,7 @@ class TunnelEngineTest {
             "magicsock": true,
             "twoPhaseStart": true,
             "ipv4": true,
-            "ipv6": false,
+            "ipv6": true,
             "tcp": true,
             "udp": true,
             "dns": true,
@@ -84,7 +84,7 @@ class TunnelEngineTest {
             "magicsock" to "true",
             "twoPhaseStart" to "true",
             "ipv4" to "true",
-            "ipv6" to "false",
+            "ipv6" to "true",
             "tcp" to "true",
             "udp" to "true",
             "dns" to "true",
@@ -97,12 +97,13 @@ class TunnelEngineTest {
             "\"${it.key}\": ${it.value}"
         }
         assertTrue(EngineCapabilities.fromJson(completeV2Json).satisfiesRouteRequirements(requireIpv6 = false))
-        assertFalse(EngineCapabilities.fromJson(completeV2Json).satisfiesRouteRequirements(requireIpv6 = true))
+        assertTrue(EngineCapabilities.fromJson(completeV2Json).satisfiesRouteRequirements(requireIpv6 = true))
+        assertTrue(EngineCapabilities.fromJson(completeV2Json).satisfiesRouteRequirements())
 
         // Each required flag turned to false must fail closed
         val requiredFlags = listOf(
             "dataPlane", "wireGuard", "magicsock", "twoPhaseStart",
-            "ipv4", "tcp", "udp", "dns", "liveStats", "cancelSafeLifecycle"
+            "ipv4", "ipv6", "tcp", "udp", "dns", "liveStats", "cancelSafeLifecycle"
         )
 
         for (flag in requiredFlags) {
@@ -258,8 +259,9 @@ class TunnelEngineTest {
         assertEquals(1L, metrics.dropCounters.mtuExceeded)
         assertEquals(0L, metrics.dropCounters.queueExhaustion)
         assertEquals(0L, metrics.dropCounters.policyRejections)
-        // discoStale absent in this payload must default to false
+        // discoStale / ipv6Egress absent in this payload must default to false
         assertFalse(metrics.discoStale)
+        assertFalse(metrics.ipv6Egress)
         assertEquals(1725301200L, metrics.egressAuditTimestampSec)
     }
 

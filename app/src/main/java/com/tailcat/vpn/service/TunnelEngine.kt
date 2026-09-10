@@ -25,10 +25,11 @@ data class EngineCapabilities(
     val cancelSafeLifecycle: Boolean
 ) {
     /**
-     * Verifies IPv4 default-route capabilities. IPv6 is required only when requireIpv6 is true.
+     * Verifies dual-stack default-route capabilities. OpenTailcat installs
+     * 0.0.0.0/0 and ::/0 after pumps, so requireIpv6 defaults to true.
      * Older API versions (< 2) or any false/missing required capability will fail closed.
      */
-    fun satisfiesRouteRequirements(requireIpv6: Boolean = false): Boolean {
+    fun satisfiesRouteRequirements(requireIpv6: Boolean = true): Boolean {
         if (apiVersion < REQUIRED_API_VERSION) return false
         if (!dataPlane || !wireGuard || !magicsock || !twoPhaseStart) return false
         if (!ipv4 || !tcp || !udp || !dns || !liveStats || !cancelSafeLifecycle) return false
@@ -225,6 +226,7 @@ class TunnelEngine : NativeEngine {
                 if (!caps.magicsock) missing.add("magicsock")
                 if (!caps.twoPhaseStart) missing.add("twoPhaseStart")
                 if (!caps.ipv4) missing.add("ipv4")
+                if (!caps.ipv6) missing.add("ipv6")
                 if (!caps.tcp) missing.add("tcp")
                 if (!caps.udp) missing.add("udp")
                 if (!caps.dns) missing.add("dns")

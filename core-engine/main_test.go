@@ -36,8 +36,8 @@ func TestGetCapabilitiesJSON(t *testing.T) {
 	if !caps.IPv4 || !caps.TCP || !caps.UDP || !caps.DNS || !caps.LiveStats || !caps.CancelSafeLifecycle {
 		t.Error("Expected IPv4 test-routing caps ipv4/tcp/udp/dns/liveStats/cancelSafeLifecycle true")
 	}
-	if caps.IPv6 {
-		t.Error("Expected ipv6 to stay false until dual-stack ::/0 evidence exists")
+	if !caps.IPv6 {
+		t.Error("Expected ipv6 true: client proxies IPv6 or fail-closes without gateway WAN")
 	}
 }
 

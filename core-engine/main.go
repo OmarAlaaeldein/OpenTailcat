@@ -283,6 +283,10 @@ type EngineStats struct {
 	HealthUnixSec int64  `json:"healthUnixSec,omitempty"`
 	Transport     string `json:"transport"`
 	TcpOnly       bool   `json:"tcpOnly"`
+	// Ipv6Egress is true when prepare measured working gateway IPv6 WAN.
+	// When false, public IPv6 flows are fail-closed (RST/drop) so Happy
+	// Eyeballs can use tunneled IPv4; ::/0 remains installed for no-bypass.
+	Ipv6Egress bool `json:"ipv6Egress"`
 	// DiscoStale reports whether the last live DiscoPing is stale while the
 	// pumps remain alive. Additive in schema v2; Kotlin health-freshness
 	// gating is unchanged.
@@ -372,8 +376,9 @@ type Capabilities struct {
 }
 
 // GetCapabilitiesJSON returns the capability contract.
-// IPv4-only test routing is enabled so a live token can Connect. ipv6 stays
-// false. This is not Phase 8 production acceptance.
+// Dual-stack client path is enabled: Android installs ::/0 after pumps, and the
+// engine proxies IPv6 when gateway WAN works or fail-closes when it does not.
+// Session stats expose ipv6Egress. This is not Phase 8 production acceptance.
 func GetCapabilitiesJSON() string {
 	caps := Capabilities{
 		APIVersion:          2,
@@ -382,7 +387,7 @@ func GetCapabilitiesJSON() string {
 		Magicsock:           true,
 		TwoPhaseStart:       true,
 		IPv4:                true,
-		IPv6:                false,
+		IPv6:                true,
 		TCP:                 true,
 		UDP:                 true,
 		DNS:                 true,

@@ -631,6 +631,7 @@ func TestDNSIPv4AndIPv6Resolvers(t *testing.T) {
 		client: mockClient,
 		token:  &ParsedToken{RegionID: 1},
 	}
+	bridge.ipv6Egress.Store(true)
 	proxy, err := newNetstackProxy(bridge)
 	if err != nil {
 		t.Fatalf("newNetstackProxy: %v", err)

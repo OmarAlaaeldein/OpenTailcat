@@ -35,6 +35,7 @@ const (
 	tcpDialTimeout             = 15 * time.Second
 	dnsTCPIOTimeout            = 10 * time.Second
 	udpDialTimeout             = 10 * time.Second
+	// Legacy short IPv6 budget (replaced by ipv6Egress fail-closed + full timeout).
 	ipv6DialTimeout            = 250 * time.Millisecond
 	udpIdleTimeout             = 30 * time.Second
 	maxActiveUDPFlowsTotal     = 1024
@@ -247,16 +248,39 @@ func (p *netstackProxy) resolveDNSDestination(dstAP netip.AddrPort) (netip.AddrP
 }
 
 func dialTimeoutFor(dst netip.AddrPort, v4Timeout time.Duration) time.Duration {
-	if dst.Addr().Is6() {
-		return ipv6DialTimeout
-	}
+	// Public IPv6 without measured gateway WAN is fail-closed before dial.
+	// When ipv6Egress is true, use the same budget as IPv4 (DERP-relayed
+	// dual-stack paths need more than the historical 250ms fail-fast).
+	_ = dst
 	return v4Timeout
+}
+
+// rejectPublicIPv6WithoutEgress RSTs/drops Internet IPv6 when prepare measured
+// no gateway IPv6 WAN. Prevents Happy Eyeballs from latching onto a tunnel TCP
+// that later blackholes for ~gateway DialTimeout while IPv4 would have worked.
+func (p *netstackProxy) rejectPublicIPv6WithoutEgress(dst netip.AddrPort) bool {
+	if p.bridge == nil || p.bridge.ipv6Egress.Load() {
+		return false
+	}
+	if !isPublicIPv6Destination(dst) {
+		return false
+	}
+	p.bridge.policyRejections.Add(1)
+	return true
 }
 
 func (p *netstackProxy) acceptTCP(request *tcp.ForwarderRequest) {
 	if p.closed.Load() || p.bridge == nil || p.bridge.client == nil {
 		request.Complete(true)
 		return
+	}
+	id := request.ID()
+	if dstIP, ok := netip.AddrFromSlice(id.LocalAddress.AsSlice()); ok {
+		dst := netip.AddrPortFrom(dstIP.Unmap(), id.LocalPort)
+		if p.rejectPublicIPv6WithoutEgress(dst) {
+			request.Complete(true) // RST — fail closed for Happy Eyeballs
+			return
+		}
 	}
 	if p.tcpActive.Load() >= tcpMaxEstablished {
 		request.Complete(true)
@@ -375,6 +399,9 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 
 	if p.bridge.tcpOnly.Load() && dstAP.Port() != 53 {
 		p.bridge.policyRejections.Add(1)
+		return false
+	}
+	if p.rejectPublicIPv6WithoutEgress(dstAP) {
 		return false
 	}
 

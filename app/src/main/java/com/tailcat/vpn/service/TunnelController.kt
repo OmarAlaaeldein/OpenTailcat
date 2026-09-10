@@ -263,7 +263,7 @@ class TunnelController(
         val drops = metrics.dropCounters
         val healthAge = (unixNow() - metrics.healthUnixSec).coerceAtLeast(0L)
         return base + " [debug state=${metrics.state}" +
-            " transport=${metrics.transportType} tcpOnly=${metrics.tcpOnly}" +
+            " transport=${metrics.transportType} tcpOnly=${metrics.tcpOnly} ipv6Egress=${metrics.ipv6Egress}" +
             " healthAge=${healthAge}s rtt=${metrics.rttLatencyMs}ms" +
             " dns=${metrics.dnsQueries} tcp=${metrics.tcpPackets} udp=${metrics.udpPackets}" +
             " drops=${drops.malformedIp}/${drops.mtuExceeded}/${drops.queueExhaustion}/${drops.policyRejections}" +

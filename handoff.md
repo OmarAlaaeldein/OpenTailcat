@@ -7,15 +7,15 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.2.11 on `main` (audit H1–H7 source fixes after 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep, strict interior-whitespace token error, 5s UDP capability probe with periodic re-probe, `tcpOnly` telemetry, private-DNS rejection, native pump panic containment, disco-failure transport downgrade with `discoStale`, dead `GATEWAY_RESOLVER` removal, structured data-plane failure reporting with a debug diagnostics flag, nil-dial hardening with panic call-site reporting, typed-nil Close fix and per-flow panic isolation). IPv4 test-routing capabilities are
-  true so Connect can be exercised with a live token. `ipv6` remains false.
+- Android repository: version 1.2.12 on `main` (audit H1–H7 source fixes after 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep, strict interior-whitespace token error, 5s UDP capability probe with periodic re-probe, `tcpOnly` telemetry, private-DNS rejection, native pump panic containment, disco-failure transport downgrade with `discoStale`, dead `GATEWAY_RESOLVER` removal, structured data-plane failure reporting with a debug diagnostics flag, nil-dial hardening with panic call-site reporting, typed-nil Close fix and per-flow panic isolation). IPv4 test-routing capabilities are
+  true so Connect can be exercised with a live token. `ipv6` is true; `ipv6Egress` is session-measured.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
 - Phase 1 reproducible-build checkpoint: `76563c9`.
 - Phase 2 unified token contract checkpoint: `dfce360`.
 - Phase 3 tunneled UDP data plane implementation complete; live physical acceptance pending; IPv4 `udp` is test-enabled.
 - Phase 4 DNS routing exists with pending-config and omit-means-preserve; IPv4 `dns` is test-enabled.
-- Phase 5 IPv6 TCP/UDP is proxied with a 250ms dial timeout; ICMPv6 echo is dropped; oversized IPv6 gets a local Packet Too Big; Android installs `::/0` only after pumps are live; `ipv6` remains false.
+- Phase 5 IPv6 TCP/UDP is proxied with a 250ms dial timeout; ICMPv6 echo is dropped; oversized IPv6 gets a local Packet Too Big; Android installs `::/0` only after pumps are live; `ipv6` is true; `ipv6Egress` is session-measured.
 - Phase 6 cancellable session context, readiness barriers, pump-failure `FAILED`, bounded `Stop`, `DetachTun`, and `DisarmPumps` exist. After `prepare`, Android establishes a host-only TUN (no VPN DNS), attaches pumps, `detachTun`, then installs `0.0.0.0/0` and `::/0` with VPN DNS and reattaches. The VPN service is `START_STICKY` with `stopWithTask=false`; shutdown closes the TUN before native `stop`. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
 - Phase 7 telemetry schema and WireGuard counters exist; RTT is sampled from live `DiscoPing` while a bridge is running; Kotlin rejects schema v1 and does not synthesize `RUNNING`; the measured `tcpOnly` latch (5s UDP probe at prepare, 30s re-probe while latched) is reported in stats and the UI; `liveStats` is test-enabled.
 - Upstream Tailcat base: signed `v0.4.0`, commit
@@ -34,7 +34,7 @@ establishes a full Android VPN or proves leak-free traffic.
 
 ## Release status
 
-The 1.2.11 tree uses versionCode 24. Rebuild the native AAR before shipping Android
+The 1.2.12 tree uses versionCode 25. Rebuild the native AAR before shipping Android
 binaries that need H2–H5 engine behavior. The prior 1.2.3 download rebuild used
 versionCode 16 and the `development` build type:
 release R8/resource optimization with the existing development certificate and
@@ -49,7 +49,7 @@ userspace netstack UDP proxy. DNS routing and telemetry code exist; IPv4 `dns`
 and `liveStats` are test-enabled, not Phase 8 accepted. It is not a production
 full-device VPN. Do not distribute the APK as a privacy or security product.
 
-IPv4-only Connect is enabled for live-token testing. `ipv6` remains false.
+IPv4-only Connect is enabled for live-token testing. `ipv6` is true; `ipv6Egress` is session-measured.
 Android installs `0.0.0.0/0` and `::/0` after pumps are live. This is not a
 production leak-free release. Remaining work is live IPv6 egress evidence,
 Phase 8 physical capture/signing, and honest promotion-table evidence for the
@@ -142,10 +142,10 @@ Checkpoint status:
 - Phase 2 — complete: Kotlin and Go share the strict upstream-compatible token contract.
 - Phase 3 — implementation complete: native userspace netstack UDP proxy using upstream `Client.DialUDP` / `OnUDPForward`; physical-device live acceptance pending; IPv4 `udp` is test-enabled.
 - Phase 4 — DNS routing code exists: pending DNS is stored before attach and applied on `attachTun`. Absent `dnsPolicy` in later `updateNetworkState` does not reset policy. `GATEWAY_RESOLVER` is unused (treated as PROFILE). The engine does not inspect DNS TC bits. IPv4 `dns` is test-enabled.
-- Phase 5 — IPv6 TCP/UDP proxied with a 250ms dial timeout; ICMPv6 echo dropped; oversized IPv6 gets Packet Too Big; Android installs `::/0` after pumps are live. `ipv6` remains false.
+- Phase 5 — IPv6 TCP/UDP proxied with a 250ms dial timeout; ICMPv6 echo dropped; oversized IPv6 gets Packet Too Big; Android installs `::/0` after pumps are live. `ipv6` is true; `ipv6Egress` is session-measured.
 - Phase 6 — session context, short mutex, always-Close previous client, readiness barriers, pump-exit `FAILED` + `healthUnixSec`, bounded `Stop`, `DetachTun`, `DisarmPumps`. After `prepare`, Android establishes a host-only TUN (no VPN DNS), attaches, `detachTun`, then installs `0.0.0.0/0`/`::/0` with VPN DNS and reattaches. Sticky VPN service; TUN closed before native `stop`. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
 - Phase 7 — telemetry code exists: schema version 2. RTT is sampled from `DiscoPing` about every 5s while a bridge is running; jitter is null until three samples. WireGuard peer Tx/Rx stay 0 because upstream `Client` has no Status API. Kotlin requires version 2, does not synthesize missing `state` as `RUNNING`, and CONNECTED requires live `RUNNING` + fresh `healthUnixSec`. `liveStats` is test-enabled.
-- Phase 8 — host gates and Wireshark/tshark pcap analyzer exist (`scripts/phase8`, `cmd/phase8-analyze`). Physical dual-capture on ARM64 and production signing remain. `ipv6` remains false.
+- Phase 8 — host gates and Wireshark/tshark pcap analyzer exist (`scripts/phase8`, `cmd/phase8-analyze`). Physical dual-capture on ARM64 and production signing remain. `ipv6` is true; `ipv6Egress` is session-measured.
 
 ### Phase 0: restore fail-closed behavior
 
@@ -343,11 +343,12 @@ Acceptance condition: configured policy and observed resolver destination match,
 
 ### Phase 5: complete or deliberately block IPv6
 
-**Checkpoint status: IPv6 TCP/UDP proxied with a 250ms dial timeout; `ipv6` remains false.**
+**Checkpoint status: IPv6 TCP/UDP proxied; `ipv6` capability true; prepare-time `ipv6Egress` probe with fail-closed public IPv6 when the gateway lacks IPv6 WAN.**
 Android installs `100.64.0.2/32` and `fd7a:115c:a1e0::2/128` on a warm TUN, then
 `0.0.0.0/0` and `::/0` after pumps are live. `handleIPv6` injects TCP/UDP into
-gVisor; ICMPv6 is dropped. Failed IPv6 dials RST/drop quickly so dual-stack apps
-can use tunneled IPv4. Live IPv6 internet depends on the gateway.
+gVisor; ICMPv6 is dropped. When `ipv6Egress` is false, public IPv6 is RST/dropped before DialTCP so
+Happy Eyeballs uses tunneled IPv4 (DialTCP alone can succeed to the gateway
+before the remote IPv6 dial fails). Live IPv6 internet depends on the gateway.
 
 The release definition requires working IPv6, not silent bypass.
 
@@ -527,8 +528,8 @@ gateway pcap. Uplink may contain only Tailcat/WireGuard/DERP (and Magicsock
 sockets protected via `VpnService.protect`). Force each native pump to fail
 and confirm routes are removed or Android lockdown blocks traffic.
 
-Do not commit pcaps or live tokens. `ipv6` stays false until this dual
-capture includes public IPv6. Host analyzer unit tests are not Phase 8
+Do not commit pcaps or live tokens. `ipv6` is true on the client; treat `ipv6Egress` and Phase 8 dual
+capture as the honesty bar for public IPv6 egress. Host analyzer unit tests are not Phase 8
 acceptance.
 
 #### Release artifacts
@@ -606,12 +607,12 @@ Live tokens, private signing keys, captures containing user traffic, and gateway
 secrets must never be committed or pasted into public logs.
 
 
-## IPv6 remaining blockers (capability stays false)
+## IPv6 remaining blockers (capability true; gateway WAN still required)
 
-`ipv6` must remain false until all of the following have evidence:
+Client `ipv6` is true with fail-closed HE behavior. Real IPv6 Internet still needs:
 
-1. Physical or emulator dual-stack uplink with working native IPv6 egress **before** VPN (this audit emulator timed out on IPv6 even offline-VPN).
-2. Connected Always-on session with `::/0` installed after pumps are live.
+1. Gateway / WARP path with working IPv6 WAN (`ipv6Egress=true` in stats).
+2. Connected Always-on session with `::/0` installed after pumps are live (already implemented).
 3. Second-UID IPv6 TCP/UDP probe succeeds only via gateway; simultaneous uplink+gateway classic PCAPs pass phase8-analyze (H7 fail-closed).
 4. PMTU / Packet Too Big path exercised; ICMPv6 echo remains local-drop.
 5. Gateway under test has IPv6 WAN. Client 250ms IPv6 dial timeout is intentional fail-fast toward tunneled IPv4 when the gateway lacks IPv6.

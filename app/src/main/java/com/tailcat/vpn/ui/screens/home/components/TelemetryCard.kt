@@ -188,6 +188,16 @@ fun TelemetryCard(
                             )
                         )
                     }
+                    if (tunnelActive && !metrics.ipv6Egress) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "IPv4 egress",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                color = TextSecondary,
+                                fontSize = 12.sp
+                            )
+                        )
+                    }
                 }
 
                 Text(

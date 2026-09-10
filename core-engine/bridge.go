@@ -37,8 +37,9 @@ type TunBridge struct {
 	token     *ParsedToken
 	transport string
 	rttMs     int64
-	mtu       int
-	tcpOnly   atomic.Bool
+	mtu        int
+	tcpOnly    atomic.Bool
+	ipv6Egress atomic.Bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -887,6 +888,7 @@ func (b *TunBridge) GetStats() EngineStats {
 		State:            "RUNNING",
 		Transport:        transport,
 		TcpOnly:          b.tcpOnly.Load(),
+		Ipv6Egress:       b.ipv6Egress.Load(),
 		DiscoStale:       !b.discoFresh.Load(),
 		DerpRegionID:     regionID,
 		TunnelEgressIP:   egressIP,

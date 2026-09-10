@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const androidUserAgent = "OpenTailcat-Android/1.2.0"
+const androidUserAgent = "OpenTailcat-Android/1.2.12"
 
 func tunnelLookupA(ctx context.Context, client TunnelClient, name string) (netip.Addr, error) {
 	query, err := encodeDNSQueryA(name)

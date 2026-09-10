@@ -11,19 +11,20 @@ Read this file and `handoff.md` completely before changing code.
 ## Current audited status
 
 The repository is **not production-ready**. IPv4 test-routing capabilities are
-true so a live token can Connect. `ipv6` stays false. Phase 8 physical leak
+true so a live token can Connect. `ipv6` is true (client dual-stack path;
+session `ipv6Egress` reports gateway WAN). Phase 8 physical leak
 acceptance is unimplemented.
 
 The checked-in AAR is built reproducibly with Go 1.27.1, NDK r29 (29.0.14206865),
 16 KB ELF load alignment, and verified Java signatures.
 
-Current version: 1.2.11, with audit H1–H7 source fixes after the 1.2.2/1.2.3 audits,
+Current version: 1.2.12, with audit H1–H7 source fixes after the 1.2.2/1.2.3 audits,
 an S+-aware startup instrumented expectation, a behavior-neutral dead-code sweep,
 a strict interior-whitespace token error, a 5s UDP capability probe with
 periodic re-probe, `tcpOnly` telemetry, structured data-plane failure
 reporting with a debug diagnostics flag, and nil-dial hardening with panic
 call-site reporting.
-IPv4 Connect is test-enabled. `ipv6` is false.
+IPv4 Connect is test-enabled. `ipv6` is true; `ipv6Egress` is measured per session.
 
 Critical current behavior:
 
@@ -37,7 +38,8 @@ Critical current behavior:
   pumps are live. Native `handleIPv6` proxies TCP/UDP with a 250ms dial timeout so
   dual-stack apps can fall back to tunneled IPv4; ICMPv6 echo is dropped;
   oversized IPv6 gets a local Packet Too Big; oversized IPv4 gets Fragmentation
-  Needed. `ipv6` stays false.
+  Needed. Capability `ipv6` is true; without gateway IPv6 WAN, public IPv6 is
+  fail-closed (RST/drop) so Happy Eyeballs uses tunneled IPv4.
 - ICMP echo: IPv4 answered locally. ICMPv6 echo is dropped.
 - Speed test: when CONNECTED, ping/download/upload use `Client.DialTCP` through
   the gateway (`speed.cloudflare.com` is resolved with DNS-over-TCP via
@@ -48,7 +50,7 @@ Critical current behavior:
   WireGuard peer Tx/Rx stay 0 because upstream `Client` has no Status API.
   Kotlin rejects v1 and requires `RUNNING` plus fresh `healthUnixSec` for
   CONNECTED. `liveStats` is test-enabled.
-- Capabilities: API v2 IPv4 test-routing flags true; `ipv6` false. After
+- Capabilities: API v2 dual-stack flags true including `ipv6`. After
   `prepare`, Android attaches a host-only TUN (no VPN DNS), `detachTun`, then
   installs `0.0.0.0/0` and `::/0` with VPN DNS and reattaches.
 - Tests: unit, integration, race, lint, and build tests pass; complete live
@@ -59,8 +61,9 @@ leak-free. Do not publish or sign it as a VPN release.
 
 ## Active implementation focus
 
-1. Phase 5 dual-stack: live IPv6 internet egress, or keep `ipv6` false. Do not
-   promote `ipv6` yet.
+1. Phase 5 dual-stack: client `ipv6` promoted with prepare-time egress probe and
+   fail-closed public IPv6 when the gateway has no IPv6 WAN. Gateway IPv6 WAN
+   remains a deployment dependency for true dual-stack egress.
 2. Phase 6 promotion: two-phase start exists; promote `twoPhaseStart` and
    `cancelSafeLifecycle` only after the evidence in `handoff.md`.
 3. Phase 4/7 promotion: keep DNS preserve and telemetry honesty; promote `dns`
@@ -102,7 +105,8 @@ Follow the detailed methods and acceptance conditions in `handoff.md`:
 3. [x] Phase 2: Align Kotlin and Go token parsing and reject connect-time legacy tokens lacking disco keys.
 4. [x] Phase 3: Add native Tailcat UDP using userspace netstack; delete application-flow `net.DialUDP`.
 5. [ ] Phase 4: DNS routing code exists; IPv4 `dns` is test-enabled until Phase 8 evidence.
-6. [ ] Phase 5: IPv6 TCP/UDP is proxied with `::/0` after pumps; `ipv6` stays false until live egress evidence.
+6. [x] Phase 5: IPv6 TCP/UDP proxied with `::/0` after pumps; `ipv6` capability true;
+      session `ipv6Egress` + fail-closed HE fix. Gateway IPv6 WAN still required for real IPv6 internet.
 7. [ ] Phase 6: Cancellable machine and two-phase routes exist; live roam/leak evidence pending.
 8. [ ] Phase 7: Schema, WG counters, and live `DiscoPing` RTT exist; `liveStats` is test-enabled until Phase 8 evidence.
 9. [ ] Phase 8: Pass automated, local-gateway, physical-device, packet-capture, signing, 16 KB, R8/JNI, SBOM, and license gates.

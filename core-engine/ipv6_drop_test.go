@@ -30,7 +30,7 @@ func TestIPv4TCPPort80UsesDialTCP(t *testing.T) {
 	}
 }
 
-func TestIPv6TCPDialUsesShortDeadline(t *testing.T) {
+func TestIPv6TCPDialUsesFullDeadlineWhenEgress(t *testing.T) {
 	var deadline time.Duration
 	bridge, dialTCP, _, cleanup := newIPv6DropTestBridge(t)
 	defer cleanup()
@@ -40,7 +40,7 @@ func TestIPv6TCPDialUsesShortDeadline(t *testing.T) {
 			deadline = time.Until(dl)
 		}
 		dialTCP.Add(1)
-		return nil, errors.New("no ipv6 egress")
+		return nil, errors.New("dial fail after measuring deadline")
 	}
 
 	pkt := buildIPv6TCPSyn(
@@ -48,9 +48,50 @@ func TestIPv6TCPDialUsesShortDeadline(t *testing.T) {
 		netip.MustParseAddrPort("[2606:4700:4700::1111]:443"),
 	)
 	bridge.handleOutboundPacket(pkt)
-	waitAtomic(t, dialTCP, 1, 2*time.Second, "DialTCP for IPv6 timeout")
-	if deadline > time.Second || deadline < 50*time.Millisecond {
-		t.Fatalf("expected ~250ms IPv6 dial deadline, got %v", deadline)
+	waitAtomic(t, dialTCP, 1, 2*time.Second, "DialTCP for IPv6 with egress")
+	if deadline < 10*time.Second {
+		t.Fatalf("expected ~15s IPv6 dial deadline when ipv6Egress, got %v", deadline)
+	}
+}
+
+func TestPublicIPv6TCPRejectedWithoutEgress(t *testing.T) {
+	bridge, dialTCP, dialUDP, cleanup := newIPv6DropTestBridge(t)
+	defer cleanup()
+	bridge.ipv6Egress.Store(false)
+
+	before := bridge.policyRejections.Load()
+	pkt := buildIPv6TCPSyn(
+		netip.MustParseAddrPort("[fd7a:115c:a1e0::2]:54321"),
+		netip.MustParseAddrPort("[2606:4700:4700::1111]:443"),
+	)
+	bridge.handleOutboundPacket(pkt)
+	time.Sleep(200 * time.Millisecond)
+	if dialTCP.Load() != 0 || dialUDP.Load() != 0 {
+		t.Fatalf("public IPv6 without egress must not dial, tcp=%d udp=%d", dialTCP.Load(), dialUDP.Load())
+	}
+	if bridge.policyRejections.Load() <= before {
+		t.Fatal("expected policy rejection for public IPv6 without egress")
+	}
+}
+
+func TestPublicIPv6UDPRejectedWithoutEgress(t *testing.T) {
+	bridge, dialTCP, dialUDP, cleanup := newIPv6DropTestBridge(t)
+	defer cleanup()
+	bridge.ipv6Egress.Store(false)
+
+	before := bridge.policyRejections.Load()
+	pkt := buildIPv6UDPPacket(
+		netip.MustParseAddrPort("[fd7a:115c:a1e0::2]:54321"),
+		netip.MustParseAddrPort("[2606:4700:4700::1111]:443"),
+		[]byte("quic"),
+	)
+	bridge.handleOutboundPacket(pkt)
+	time.Sleep(200 * time.Millisecond)
+	if dialTCP.Load() != 0 || dialUDP.Load() != 0 {
+		t.Fatalf("public IPv6 UDP without egress must not dial, tcp=%d udp=%d", dialTCP.Load(), dialUDP.Load())
+	}
+	if bridge.policyRejections.Load() <= before {
+		t.Fatal("expected policy rejection for public IPv6 UDP without egress")
 	}
 }
 
@@ -414,6 +455,7 @@ func newIPv6DropTestBridge(t *testing.T) (*TunBridge, *atomic.Int64, *atomic.Int
 		ctx:       ctx,
 		cancel:    cancel,
 	}
+	bridge.ipv6Egress.Store(true)
 	netstack, err := newNetstackProxy(bridge)
 	if err != nil {
 		cancel()

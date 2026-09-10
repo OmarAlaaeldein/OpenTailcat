@@ -68,8 +68,13 @@ func TestLifecycleHappyPathPrepareAttachStop(t *testing.T) {
 	if st != StatePrepared || stats.State != "PREPARED" {
 		t.Fatalf("expected PREPARED, got state=%s json=%s", st, stats.State)
 	}
-	if stats.Transport != "DISCONNECTED" {
-		t.Fatalf("expected DISCONNECTED transport while prepared, got %s", stats.Transport)
+	// Prepare now surfaces measured transport + capability latches (tcpOnly /
+	// ipv6Egress) before attach so the UI can show IPv4-egress / TCP-only early.
+	if stats.Transport != "DERP_RELAY" {
+		t.Fatalf("expected DERP_RELAY transport after prepare Ping, got %s", stats.Transport)
+	}
+	if stats.Ipv6Egress {
+		t.Fatal("fake prepare client has no IPv6 WAN; ipv6Egress must be false")
 	}
 
 	r, w, err := os.Pipe()

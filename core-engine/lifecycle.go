@@ -46,16 +46,17 @@ func (s EngineState) String() string {
 }
 
 type session struct {
-	id        int64
-	ctx       context.Context
-	cancel    context.CancelFunc
-	token     *ParsedToken
-	client    preparedClient
-	bridge    *TunBridge
-	transport string
-	rttMs     int64
-	tcpOnly   bool
-	closeOnce sync.Once
+	id         int64
+	ctx        context.Context
+	cancel     context.CancelFunc
+	token      *ParsedToken
+	client     preparedClient
+	bridge     *TunBridge
+	transport  string
+	rttMs      int64
+	tcpOnly    bool
+	ipv6Egress bool
+	closeOnce  sync.Once
 }
 
 type TailcatCore struct {
@@ -181,6 +182,12 @@ func Prepare(tokenStr string) error {
 		udpCancel()
 	}
 
+	// End-to-end IPv6 WAN probe. DialTCP alone is insufficient: it returns when
+	// the tunnel TCP to the gateway is up, before the gateway's remote dial.
+	// Without this latch, dual-stack apps Happy-Eyeball onto a blackholed IPv6
+	// path while IPv4 (and TCP-only sites) still work.
+	ipv6Egress := probeIPv6Egress(sess.ctx, client)
+
 	if sess.ctx.Err() != nil {
 		_ = client.Close()
 		abandonPrepare(sess)
@@ -199,6 +206,7 @@ func Prepare(tokenStr string) error {
 	sess.transport = transport
 	sess.rttMs = rttMs
 	sess.tcpOnly = tcpOnly
+	sess.ipv6Egress = ipv6Egress
 	globalCore.state = StatePrepared
 	globalCore.mu.Unlock()
 
@@ -244,6 +252,7 @@ func AttachTun(tunFD int) error {
 	rttMs := sess.rttMs
 	sessionID := sess.id
 	tcpOnly := sess.tcpOnly
+	ipv6Egress := sess.ipv6Egress
 	dns := globalCore.pendingDNS.Load()
 	globalCore.mu.Unlock()
 
@@ -262,6 +271,7 @@ func AttachTun(tunFD int) error {
 		return fmt.Errorf("create tun bridge: %w", err)
 	}
 	bridge.tcpOnly.Store(tcpOnly)
+	bridge.ipv6Egress.Store(ipv6Egress)
 	if dns != nil {
 		bridge.SetDNSConfig(*dns)
 	}
@@ -449,6 +459,13 @@ func GetStatsJSON() string {
 			SessionID: sessionID,
 			State:     state.String(),
 			Transport: "DISCONNECTED",
+		}
+		if sess != nil && (state == StatePrepared || state == StateAttaching) {
+			stats.TcpOnly = sess.tcpOnly
+			stats.Ipv6Egress = sess.ipv6Egress
+			if sess.transport != "" {
+				stats.Transport = sess.transport
+			}
 		}
 		b, err := json.Marshal(stats)
 		if err != nil {
