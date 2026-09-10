@@ -103,7 +103,7 @@ fun SpeedTestScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 24.dp)
+                .padding(horizontal = 20.dp)
         ) {
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -111,10 +111,10 @@ fun SpeedTestScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(10.dp))
                     .background(SurfaceElevated)
-                    .border(1.dp, BorderSubtle, RoundedCornerShape(12.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .border(1.dp, BorderSubtle, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 12.dp, vertical = 7.dp)
             ) {
                 Text(
                     text = if (testState.viaGateway) {
@@ -223,10 +223,10 @@ fun SpeedTestScreen(
                     containerColor = AccentCyan,
                     disabledContainerColor = SurfaceElevated
                 ),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(54.dp)
+                    .height(50.dp)
             ) {
                 Icon(
                     imageVector = if (testState.stage == SpeedTestStage.COMPLETED) Icons.Default.Refresh else Icons.Default.PlayArrow,
@@ -266,10 +266,10 @@ private fun MetricTile(
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(SurfaceDark)
-            .border(1.dp, borderColor, RoundedCornerShape(14.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {

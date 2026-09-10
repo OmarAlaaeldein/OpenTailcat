@@ -12,23 +12,23 @@ Android client for Tailcat. Paste a `tc…` token and connect to **your** gatewa
   <img src="docs/screenshots/network-benchmark.png" alt="Network benchmark" width="280" />
 </p>
 
-## What’s new in 1.3.1
+## What’s new in 1.3.2
 
-- Screenshots work again on the Connected UI
-- Always-on VPN + block-without-VPN is recommended, not required
-- Split-tunnel exclusions are still refused
+- Leaner dark UI: tighter cards/spacing, softer glows, refined accents
+- Still dark theme (no light mode)
+- Screenshots work on Connected UI; always-on VPN remains recommended
 
 ## Install
 
 1. Grab the [latest release](https://github.com/OmarAlaaeldein/OpenTailcat/releases/latest).
 2. APKs:
-   - **Phone:** `OpenTailcat-1.3.1-arm64-v8a.apk`
-   - **Emulator (x86_64):** `OpenTailcat-1.3.1-x86_64.apk`
+   - **Phone:** `OpenTailcat-1.3.2-arm64-v8a.apk`
+   - **Emulator (x86_64):** `OpenTailcat-1.3.2-x86_64.apk`
 3. Install it (allow installs from your browser/file manager if asked).
 4. Optional: enable **Always-on VPN** and **Block connections without VPN** for OpenTailcat — better if the tunnel drops. Connect still works without them.
 5. Paste your `tc…` token and tap Connect.
 
-Checksums are in `OpenTailcat-1.3.1-SHA256SUMS.txt`.
+Checksums are in `OpenTailcat-1.3.2-SHA256SUMS.txt`.
 
 ## How it works
 

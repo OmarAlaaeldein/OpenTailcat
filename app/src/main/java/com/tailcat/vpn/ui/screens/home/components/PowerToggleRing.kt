@@ -39,6 +39,7 @@ import com.tailcat.vpn.ui.theme.BorderSubtle
 import com.tailcat.vpn.ui.theme.EmeraldConnected
 import com.tailcat.vpn.ui.theme.EmeraldGlow
 import com.tailcat.vpn.ui.theme.RedDegraded
+import com.tailcat.vpn.ui.theme.RedGlow
 import com.tailcat.vpn.ui.theme.SurfaceDark
 import com.tailcat.vpn.ui.theme.SurfaceElevated
 import com.tailcat.vpn.ui.theme.TextMuted
@@ -58,7 +59,7 @@ fun PowerToggleRing(
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = if (isConnecting) 1.08f else 1f,
+        targetValue = if (isConnecting) 1.04f else 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(1500, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
@@ -81,7 +82,7 @@ fun PowerToggleRing(
             TunnelState.DISCONNECTED -> Color.Transparent
             TunnelState.CONNECTING, TunnelState.RECONNECTING -> AmberGlow
             TunnelState.CONNECTED -> if (transportType == TransportType.DERP_RELAY) VioletGlow else EmeraldGlow
-            TunnelState.DEGRADED -> Color(0x33FF5252)
+            TunnelState.DEGRADED -> RedGlow
         },
         label = "glowColor"
     )
@@ -89,7 +90,6 @@ fun PowerToggleRing(
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .size(240.dp)
             .clip(CircleShape)
             .semantics {
                 role = Role.Button
@@ -105,7 +105,7 @@ fun PowerToggleRing(
         // Outer Glow Layer
         Box(
             modifier = Modifier
-                .size(220.dp)
+                .size(208.dp)
                 .scale(pulseScale)
                 .clip(CircleShape)
                 .background(glowColor)
@@ -114,17 +114,17 @@ fun PowerToggleRing(
         // Middle Ring
         Box(
             modifier = Modifier
-                .size(190.dp)
+                .size(184.dp)
                 .clip(CircleShape)
                 .background(SurfaceDark)
-                .border(width = 3.dp, color = activeColor, shape = CircleShape)
+                .border(width = 2.dp, color = activeColor, shape = CircleShape)
         )
 
         // Center Button
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(150.dp)
+                .size(148.dp)
                 .clip(CircleShape)
                 .background(SurfaceElevated)
                 .border(width = 1.dp, color = BorderSubtle, shape = CircleShape)
@@ -133,7 +133,7 @@ fun PowerToggleRing(
                 imageVector = Icons.Default.PowerSettingsNew,
                 contentDescription = null,
                 tint = if (isConnected || isConnecting) activeColor else TextMuted,
-                modifier = Modifier.size(64.dp)
+                modifier = Modifier.size(56.dp)
             )
         }
     }

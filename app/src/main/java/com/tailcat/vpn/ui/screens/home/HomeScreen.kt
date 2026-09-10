@@ -201,14 +201,14 @@ fun HomeScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 16.dp)
+                    .padding(top = 12.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 16.dp)
+                        .padding(horizontal = 20.dp, vertical = 12.dp)
                 ) {
                     Column {
                         Text(
@@ -225,9 +225,9 @@ fun HomeScreen(
                         IconButton(
                             onClick = onNavigateToSpeedTest,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(SurfaceDark)
-                                .border(1.dp, BorderSubtle, RoundedCornerShape(12.dp))
+                                .border(1.dp, BorderSubtle, RoundedCornerShape(10.dp))
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Speed,
@@ -239,9 +239,9 @@ fun HomeScreen(
                         IconButton(
                             onClick = onNavigateToSettings,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(SurfaceDark)
-                                .border(1.dp, BorderSubtle, RoundedCornerShape(12.dp))
+                                .border(1.dp, BorderSubtle, RoundedCornerShape(10.dp))
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Settings,
@@ -320,7 +320,7 @@ fun HomeScreen(
                 .padding(horizontal = 20.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Profile Selector Dropdown Chip
             Box {
@@ -421,17 +421,17 @@ fun HomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(36.dp))
 
             // Center Power Toggle Button
             PowerToggleRing(
                 state = tunnelState,
                 transportType = metrics.transportType,
                 onClick = onToggleClicked,
-                modifier = Modifier.size(240.dp)
+                modifier = Modifier.size(220.dp)
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Connection Subtitle Status
             val statusLabel = when {
@@ -462,7 +462,7 @@ fun HomeScreen(
                 )
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Bottom Telemetry Card with Public Egress IP
             TelemetryCard(
@@ -473,7 +473,7 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Spacer(modifier = Modifier.height(36.dp))
+            Spacer(modifier = Modifier.height(28.dp))
         }
     }
 

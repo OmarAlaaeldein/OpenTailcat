@@ -141,11 +141,11 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
 
             if (selectedTab == 0) {
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
-                        .padding(20.dp)
+                        .padding(16.dp)
                 ) {
                     SettingsCard(
                         icon = Icons.Default.SettingsEthernet,
@@ -356,10 +356,10 @@ private fun SettingsCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(SurfaceDark)
-            .border(1.dp, BorderSubtle, RoundedCornerShape(16.dp))
-            .padding(16.dp)
+            .border(1.dp, BorderSubtle, RoundedCornerShape(14.dp))
+            .padding(14.dp)
     ) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -367,7 +367,7 @@ private fun SettingsCard(
                 Spacer(Modifier.width(10.dp))
                 Text(title, style = MaterialTheme.typography.titleMedium.copy(color = TextPrimary))
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             content()
         }
     }

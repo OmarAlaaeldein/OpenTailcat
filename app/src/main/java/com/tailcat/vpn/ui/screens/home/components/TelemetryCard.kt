@@ -61,10 +61,10 @@ fun TelemetryCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(SurfaceDark)
-            .border(1.dp, BorderSubtle, RoundedCornerShape(18.dp))
-            .padding(16.dp)
+            .border(1.dp, BorderSubtle, RoundedCornerShape(16.dp))
+            .padding(14.dp)
     ) {
         Column {
             // The app UID bypasses the Android VPN. Connected-mode egress must therefore
@@ -74,9 +74,9 @@ fun TelemetryCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(10.dp))
                     .background(SurfaceElevated)
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 10.dp, vertical = 7.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -132,7 +132,7 @@ fun TelemetryCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Transport header (Direct P2P vs DERP)
             Row(

@@ -53,10 +53,10 @@ fun SpeedometerGauge(
 
     Box(
         contentAlignment = Alignment.Center,
-        modifier = modifier.size(260.dp)
+        modifier = modifier.size(240.dp)
     ) {
-        Canvas(modifier = Modifier.size(240.dp)) {
-            val strokeWidth = 14.dp.toPx()
+        Canvas(modifier = Modifier.size(220.dp)) {
+            val strokeWidth = 11.dp.toPx()
             val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
             val topLeft = Offset(strokeWidth / 2, strokeWidth / 2)
 
@@ -154,7 +154,7 @@ fun SpeedometerGauge(
                 text = String.format(java.util.Locale.US, "%.1f", currentSpeedMbps),
                 style = MaterialTheme.typography.displayLarge.copy(
                     color = TextPrimary,
-                    fontSize = 42.sp,
+                    fontSize = 38.sp,
                     fontWeight = FontWeight.Bold
                 )
             )
