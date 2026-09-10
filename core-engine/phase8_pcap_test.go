@@ -137,3 +137,48 @@ func TestProbeIPsDetectsLeakOnLinuxSLL2(t *testing.T) {
 		t.Fatalf("expected SLL2 leak of %v, got %v", probe, leaked)
 	}
 }
+
+func writeEthernetIPv4UDPDNS(dst netip.Addr) []byte {
+	// IPv4 + UDP dport 53 (DNS) to probe IP — control-plane resolver traffic.
+	ip := make([]byte, 20+8)
+	ip[0] = 0x45
+	binary.BigEndian.PutUint16(ip[2:4], uint16(len(ip)))
+	ip[8] = 64
+	ip[9] = 17 // UDP
+	copy(ip[12:16], netip.MustParseAddr("10.0.0.2").AsSlice())
+	copy(ip[16:20], dst.AsSlice())
+	binary.BigEndian.PutUint16(ip[20:22], 53000) // sport
+	binary.BigEndian.PutUint16(ip[22:24], 53)    // dport DNS
+	binary.BigEndian.PutUint16(ip[24:26], 8)     // ulen
+	eth := make([]byte, 14+len(ip))
+	eth[12] = 0x08
+	eth[13] = 0x00
+	copy(eth[14:], ip)
+	return eth
+}
+
+func TestProbeIPsOnUplinkIgnoresDNSToProbeIP(t *testing.T) {
+	probe := netip.MustParseAddr("1.1.1.1")
+	pcap := writePCAPEthernet(writeEthernetIPv4UDPDNS(probe))
+	leaked, err := ProbeIPsOnUplink(bytes.NewReader(pcap), []netip.Addr{probe})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leaked) != 0 {
+		t.Fatalf("DNS-only traffic to probe IP should not count as uplink leak, got %v", leaked)
+	}
+}
+
+func TestProbeIPsOnUplinkStillFlagsNonDNSToProbeIP(t *testing.T) {
+	probe := netip.MustParseAddr("1.1.1.1")
+	// Existing helper writes UDP proto without ports — treated as non-DNS leak.
+	pcap := writePCAPEthernet(writeEthernetIPv4(probe))
+	leaked, err := ProbeIPsOnUplink(bytes.NewReader(pcap), []netip.Addr{probe})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leaked) != 1 || leaked[0] != probe {
+		t.Fatalf("expected non-DNS leak of %v, got %v", probe, leaked)
+	}
+}
+

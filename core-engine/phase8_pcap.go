@@ -185,6 +185,111 @@ func destIPsFromNetwork(ethertype uint16, pkt []byte) []netip.Addr {
 	}
 }
 
+
+// packetIsDNS reports whether the network-layer payload is DNS (UDP/TCP port 53).
+// Tailscale/Tailcat control-plane resolvers often use public DNS IPs such as
+// 1.1.1.1; those packets are not second-UID probe leaks (Phase 8 uplink).
+func packetIsDNS(ethertype uint16, pkt []byte) bool {
+	if len(pkt) < 1 {
+		return false
+	}
+	if ethertype == 0 {
+		v := pkt[0] >> 4
+		if v == 4 {
+			ethertype = 0x0800
+		} else if v == 6 {
+			ethertype = 0x86dd
+		} else {
+			return false
+		}
+	}
+	switch ethertype {
+	case 0x0800:
+		if len(pkt) < 20 {
+			return false
+		}
+		ihl := int(pkt[0]&0x0f) * 4
+		if ihl < 20 || len(pkt) < ihl+4 {
+			return false
+		}
+		proto := pkt[9]
+		if proto != 6 && proto != 17 { // TCP / UDP
+			return false
+		}
+		sport := binary.BigEndian.Uint16(pkt[ihl : ihl+2])
+		dport := binary.BigEndian.Uint16(pkt[ihl+2 : ihl+4])
+		return sport == 53 || dport == 53
+	case 0x86dd:
+		if len(pkt) < 40+4 {
+			return false
+		}
+		proto := pkt[6]
+		// Skip one level of common extension headers is out of scope; fail open
+		// (treat as non-DNS) if not UDP/TCP directly.
+		if proto != 6 && proto != 17 {
+			return false
+		}
+		sport := binary.BigEndian.Uint16(pkt[40:42])
+		dport := binary.BigEndian.Uint16(pkt[42:44])
+		return sport == 53 || dport == 53
+	default:
+		return false
+	}
+}
+
+func packetIsDNSFromLink(linkType uint32, pkt []byte) bool {
+	switch linkType {
+	case dltEN10MB:
+		if len(pkt) < 14 {
+			return false
+		}
+		et := binary.BigEndian.Uint16(pkt[12:14])
+		off := 14
+		if et == 0x8100 && len(pkt) >= 18 {
+			et = binary.BigEndian.Uint16(pkt[16:18])
+			off = 18
+		}
+		return packetIsDNS(et, pkt[off:])
+	case dltNULL, dltLOOP:
+		if len(pkt) < 4 {
+			return false
+		}
+		af := binary.LittleEndian.Uint32(pkt[0:4])
+		if linkType == dltLOOP {
+			af = binary.BigEndian.Uint32(pkt[0:4])
+		}
+		switch af {
+		case 2:
+			return packetIsDNS(0x0800, pkt[4:])
+		case 30, 24, 28:
+			return packetIsDNS(0x86dd, pkt[4:])
+		default:
+			return false
+		}
+	case dltRAW, dltRAW2:
+		return packetIsDNS(0, pkt)
+	case dltLINUXSLL:
+		if len(pkt) < 16 {
+			return false
+		}
+		et := binary.BigEndian.Uint16(pkt[14:16])
+		return packetIsDNS(et, pkt[16:])
+	case dltLINUXSLL2:
+		if len(pkt) < 20 {
+			return false
+		}
+		et := binary.BigEndian.Uint16(pkt[0:2])
+		addrLen := int(pkt[11])
+		off := 12 + addrLen
+		if off > len(pkt) {
+			return false
+		}
+		return packetIsDNS(et, pkt[off:])
+	default:
+		return false
+	}
+}
+
 func ProbeIPsOnUplink(r io.Reader, probes []netip.Addr) ([]netip.Addr, error) {
 	want := make(map[netip.Addr]struct{}, len(probes))
 	for _, p := range probes {
@@ -208,6 +313,9 @@ func ProbeIPsOnUplink(r io.Reader, probes []netip.Addr) ([]netip.Addr, error) {
 		}
 		if len(ips) > 0 {
 			decoded++
+		}
+		if packetIsDNSFromLink(cap.linkType, pkt.payload) {
+			continue
 		}
 		for _, ip := range ips {
 			if _, ok := want[ip]; ok {
