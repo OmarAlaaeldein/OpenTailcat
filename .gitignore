@@ -11,6 +11,7 @@ codex.md
 *.dex
 *.idsig
 Tailcat-*.apk
+*-SHA256SUMS.txt
 
 # Gradle files & Build Caches
 .gradle/
