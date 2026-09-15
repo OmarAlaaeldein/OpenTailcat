@@ -54,7 +54,12 @@ fun TelemetryCard(
     onRefreshIp: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val tunnelActive = metrics.transportType != TransportType.UNKNOWN
+    // Use authoritative liveness (RUNNING + fresh health) not just transport presence.
+    // A stale transport (DIRECT_P2P) with old health would previously keep showing
+    // the last tunnelEgressIp (which could be a 200.x exit) even after the data
+    // plane failed and metrics were stale. Now we require live RUNNING.
+    val nowSec = System.currentTimeMillis() / 1000L
+    val tunnelActive = metrics.isLiveRunning(nowSec)
     val displayedIp = if (tunnelActive) metrics.tunnelEgressIp ?: "Checking…" else egressInfo.ip
     val ipLabel = if (tunnelActive) "Exit IP" else "Device IP"
 

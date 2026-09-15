@@ -12,23 +12,26 @@ Android client for Tailcat. Paste a `tc…` token and connect to **your** gatewa
   <img src="docs/screenshots/network-benchmark.png" alt="Network benchmark" width="280" />
 </p>
 
-## What’s new in 1.3.2
+## What’s new in 1.3.3
 
-- Leaner dark UI: tighter cards/spacing, softer glows, refined accents
-- Still dark theme (no light mode)
-- Screenshots work on Connected UI; always-on VPN remains recommended
+- Fixes a networking corruption that could force a stale `200.x` DNS/exit (e.g.
+  `200.160.0.8` or an embedded DERP `200.111.5.10`) for ~30s after a failed
+  `Connect` — `pendingDNS` is now cleared on `abandonPrepare`
+  (`core-engine/lifecycle.go:225`) and the telemetry card no longer shows a
+  stale `Exit IP: 200.x` (`TelemetryCard.kt:60` now `isLiveRunning`).
+- Still dark theme only; leaner chrome from 1.3.2 remains.
 
 ## Install
 
 1. Grab the [latest release](https://github.com/OmarAlaaeldein/OpenTailcat/releases/latest).
 2. APKs:
-   - **Phone:** `OpenTailcat-1.3.2-arm64-v8a.apk`
-   - **Emulator (x86_64):** `OpenTailcat-1.3.2-x86_64.apk`
+   - **Phone:** `OpenTailcat-1.3.3-arm64-v8a.apk`
+   - **Emulator (x86_64):** `OpenTailcat-1.3.3-x86_64.apk`
 3. Install it (allow installs from your browser/file manager if asked).
 4. Optional: enable **Always-on VPN** and **Block connections without VPN** for OpenTailcat — better if the tunnel drops. Connect still works without them.
 5. Paste your `tc…` token and tap Connect.
 
-Checksums are in `OpenTailcat-1.3.2-SHA256SUMS.txt`.
+Checksums are in `OpenTailcat-1.3.3-SHA256SUMS.txt` (AAR `aa0fa1bd…`).
 
 ## How it works
 

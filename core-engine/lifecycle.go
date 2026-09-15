@@ -221,6 +221,12 @@ func abandonPrepare(sess *session) {
 	if globalCore.sess == sess && globalCore.state == StatePreparing {
 		globalCore.sess = nil
 		globalCore.state = StateStopped
+		// Clear any DNS that was staged for this failed prepare. Without this,
+		// a subsequent prepare with a different profile could still see the
+		// previous FORCED_RESOLVER (e.g. a 200.x public resolver) via
+		// pendingDNS.Load() in AttachTun, effectively forcing the user onto
+		// the previous profile's resolver after a handshake failure.
+		globalCore.pendingDNS.Store(nil)
 	}
 	globalCore.mu.Unlock()
 	if sess != nil {

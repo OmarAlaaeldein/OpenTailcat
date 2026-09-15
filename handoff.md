@@ -7,7 +7,7 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.2.14 on `main` (audit H1–H7 source fixes after 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep, strict interior-whitespace token error, 5s UDP capability probe with periodic re-probe, `tcpOnly` telemetry, private-DNS rejection, native pump panic containment, disco-failure transport downgrade with `discoStale`, dead `GATEWAY_RESOLVER` removal, structured data-plane failure reporting with a debug diagnostics flag, nil-dial hardening with panic call-site reporting, typed-nil Close fix and per-flow panic isolation, HealthStale 15s/3-poll grace for intermittent 6s auto-close, notification/TelemetryCard live TUN rates instead of always-zero WG txBytes). IPv4 test-routing capabilities are
+- Android repository: version 1.3.3 on `main` (audit H1–H7 source fixes after 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep, strict interior-whitespace token error, 5s UDP capability probe with periodic re-probe, `tcpOnly` telemetry, private-DNS rejection, native pump panic containment, disco-failure transport downgrade with `discoStale`, dead `GATEWAY_RESOLVER` removal, structured data-plane failure reporting with a debug diagnostics flag, nil-dial hardening with panic call-site reporting, typed-nil Close fix and per-flow panic isolation, HealthStale 15s/3-poll grace for intermittent 6s auto-close, notification/TelemetryCard live TUN rates instead of always-zero WG txBytes, and 200.x stale-DNS networking-corruption fix (`pendingDNS` cleared on `abandonPrepare`, `TelemetryCard` now `isLiveRunning`)). IPv4 test-routing capabilities are
   true so Connect can be exercised with a live token. `ipv6` is true; `ipv6Egress` is session-measured.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
@@ -24,7 +24,9 @@ unsafe shortcuts already found in the tree.
   unmodified `0c31395bfd1ae0c0ef2917c0ec20432466087417` (application-layer UDP).
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.1 and NDK 29.0.14206865. Current SHA-256:
-   `e60e2433e1c03ff836c2cc89e643606fb34ef3925cbf540cc783ad7acbba8c01`.
+   `aa0fa1bdda9ae102d3ef7a7153c2d1ceca3f5165c8c707e8b490d97997a75999`
+  (previous 1.3.2 SHA `a03e832082535bc4f8f860147bd1fa523e42d1c716e24d71a26c0041034b0976`
+  before the 200.x pendingDNS fix).
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
@@ -32,9 +34,56 @@ unsafe shortcuts already found in the tree.
 Passing these build checks is not a data-plane release gate. No current test
 establishes a full Android VPN or proves leak-free traffic.
 
+### Networking corruption on failed Connect — fixed in tree (200.x forced resolver)
+
+In 1.3.2 and earlier (including the 1.2.14 checkpoint above) a failed `prepare`
+— e.g. `gateway handshake failed: context deadline exceeded` after dialing a
+`200.111.5.10:443`/`[2001:db8::1]:443` DERP or a user `FORCED_RESOLVER`
+`200.160.0.8:53` — corrupted networking for **some time** (observed as “forces
+me to use an IP that starts with 200”):
+
+* `core-engine/lifecycle.go:219` `abandonPrepare()` cleared `sess/state` but
+  left `globalCore.pendingDNS` (`core-engine/main.go:214`
+  `globalCore.pendingDNS.Store(&cfg)`) from the `TailcatVpnService.kt:126`
+  `updateNetworkState` that ran **before** `prepare`. The next `AttachTun`
+  (`lifecycle.go:256` `dns := globalCore.pendingDNS.Load()`) therefore `Load()`ed
+  the stale `FORCED_RESOLVER` (`app/libs/libtailcat.aar:19509312` build) and
+  `bridge.go:97` `SetDNSConfig` forced subsequent port-53 flows through
+  `Client.DialUDP` to the stale `200.x:53` (`netstack_proxy.go:resolveDNSDestination`).
+  When that `200.x` was unreachable, `policyRejections`/`queueExhaustion`
+  dropped DNS and, with the 5s `udpProbeTimeout` (`bridge.go:697`) latched
+  `tcpOnly=true`, non-DNS UDP was also dropped until the 30s
+  `udpReprobeInterval` (`bridge.go:701`) or an explicit `Stop()` finally cleared
+  `pendingDNS` (`lifecycle.go:408`). The window was typically 30s + the 15s
+  `HealthStale` grace (`service/EngineHealth.kt:13` `STALE_TEARDOWN_POLLS=3`) —
+  i.e. “for some time” after a single failed tap.
+* `app/src/main/java/com/tailcat/vpn/ui/screens/home/components/TelemetryCard.kt:57`
+  used `tunnelActive = transportType != UNKNOWN`. After `FAILED`/`HealthStale`,
+  `NetworkMetrics.kt:50` `isLiveRunning()` was already false (`state != "RUNNING"`
+  or `healthUnixSec` stale) but `transportType` could remain `DIRECT_P2P`/`DERP_RELAY`,
+  so the card kept showing `Exit IP: 200.x` (`metrics.tunnelEgressIp` from the
+  previous session’s `bridge.go:894` `egressIP`) instead of `Device IP:`.
+  Users saw a stale `200.` exit and perceived a forced `200.` route.
+
+Fix in this tree (AAR `aa0fa1bd...`, `app/src/main/java/com/tailcat/vpn/ui/screens/home/components/TelemetryCard.kt:60`
+now `isLiveRunning(nowSec)`; `core-engine/lifecycle.go:225` `pendingDNS.Store(nil)`
+on `abandonPrepare`): a failed `prepare` no longer leaves a stale
+`FORCED_RESOLVER`. Verified: `go test -race ./...`, `testDebugUnitTest`/`lintDebug`,
+and `VpnStartupInstrumentedTest` (synthetic `tc…` with embedded `200.111.5.10`
+DERP) now goes `CONNECTING (10s) → DISCONNECTED` with `lastError=gateway handshake
+failed: context deadline exceeded`, `networkMetrics=UNKNOWN`/`tunnelEgressIp=null`,
+`ip route` shows no `200.` TUN route, and a subsequent profile with `1.1.1.1`
+correctly uses `1.1.1.1` — no forced `200.`.
+
+Documented here per `AGENTS.md:Documentation rule` — `README.md`/`docs/releases/`
+describe verified shipped behavior only; this handoff records the corrected
+failure path.
+
 ## Release status
 
-The 1.2.14 tree uses versionCode 27. Rebuild the native AAR before shipping Android
+The current tree is **1.3.3** versionCode **33** (AAR `aa0fa1bdda9ae102d3ef7a7153c2d1ceca3f5165c8c707e8b490d97997a75999`,
+Go 1.27.1, NDK 29.0.14206865, 16 KB) with the 200.x stale-DNS fix above. The 1.2.14
+checkpoint used versionCode 27. Rebuild the native AAR before shipping Android
 binaries that need H2–H5 engine behavior. The prior 1.2.3 download rebuild used
 versionCode 16 and the `development` build type:
 release R8/resource optimization with the existing development certificate and

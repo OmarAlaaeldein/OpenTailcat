@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -517,4 +518,56 @@ func TestAttachTunRejectsDeadReader(t *testing.T) {
 	if st == StateRunning && stats.HealthUnixSec > 0 {
 		t.Fatal("RUNNING with fresh health after dead reader")
 	}
+}
+
+func TestAbandonPrepareClearsPendingDNS(t *testing.T) {
+	_ = Stop()
+	// Simulate user with a 200.x forced resolver that then fails to connect.
+	// The pendingDNS must not survive the failed prepare and corrupt the next session.
+	if err := UpdateNetworkState(`{"isOnline":true,"networkType":"WIFI","interfaces":[],"dnsPolicy":"FORCED_RESOLVER","forcedDns":"200.160.0.8"}`); err != nil {
+		t.Fatalf("set pendingDNS to 200.160.0.8: %v", err)
+	}
+	if pending := globalCore.pendingDNS.Load(); pending == nil || pending.ForcedDNS.Addr().String() != "200.160.0.8" {
+		t.Fatalf("expected pending 200.160.0.8 before prepare, got %+v", pending)
+	}
+	failing := &failingPingClient{}
+	installClient(t, failing)
+	token := officialTestToken(t)
+	if err := Prepare(token); err == nil {
+		t.Fatal("expected Prepare to fail with failing Ping")
+	}
+	if pending := globalCore.pendingDNS.Load(); pending != nil {
+		t.Fatalf("expected pendingDNS cleared after failed prepare (was 200.160.0.8), got %+v", pending)
+	}
+	// Next session with a different resolver must not inherit the stale 200.x.
+	_ = Stop()
+	if err := UpdateNetworkState(`{"isOnline":true,"networkType":"WIFI","interfaces":[],"dnsPolicy":"FORCED_RESOLVER","forcedDns":"1.1.1.1"}`); err != nil {
+		t.Fatalf("set new pending 1.1.1.1: %v", err)
+	}
+	succeeding := &prepareTestClient{}
+	installClient(t, succeeding)
+	if err := Prepare(token); err != nil {
+		t.Fatalf("second Prepare should succeed: %v", err)
+	}
+	r, w, _ := os.Pipe()
+	defer r.Close()
+	defer w.Close()
+	if err := AttachTun(int(r.Fd())); err != nil {
+		t.Fatalf("AttachTun with new DNS: %v", err)
+	}
+	globalCore.mu.Lock()
+	bridge := globalCore.sess.bridge
+	globalCore.mu.Unlock()
+	cfg := bridge.GetDNSConfig()
+	if cfg == nil || cfg.ForcedDNS.Addr().String() != "1.1.1.1" {
+		t.Fatalf("expected bridge to use fresh 1.1.1.1, not stale 200.160.0.8, got %+v", cfg)
+	}
+}
+
+type failingPingClient struct {
+	prepareTestClient
+}
+
+func (c *failingPingClient) Ping(ctx context.Context) (tailcat.PingResult, error) {
+	return tailcat.PingResult{}, errors.New("simulated gateway handshake failure")
 }
