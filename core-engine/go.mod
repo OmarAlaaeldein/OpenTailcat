@@ -5,7 +5,7 @@ go 1.27.1
 replace github.com/tailscale/tailcat => ../third_party/tailcat
 
 require (
-	github.com/fxamacker/cbor/v2 v2.9.3
+	github.com/fxamacker/cbor/v2 v2.9.4
 	github.com/tailscale/tailcat v0.0.0-00010101000000-000000000000
 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745
 	gvisor.dev/gvisor v0.0.0-20260224225140-573d5e7127a8
