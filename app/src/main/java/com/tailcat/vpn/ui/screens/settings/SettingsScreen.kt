@@ -170,7 +170,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
 
                     SettingsCard(icon = Icons.Default.Security, title = "Always-on & kill switch") {
                         Text(
-                            "Recommended on Android 10+: turn on Always-on VPN and ‘Block connections without VPN’ for stronger leak protection. Connect still works without them. Split-tunnel exclusions are refused.",
+                            "Recommended on Android 10+: turn on Always-on VPN and ‘Block connections without VPN’ for stronger leak protection. Connect still works without them. Note: with lockdown on, Android blocks checked apps from using the network entirely.",
                             style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary)
                         )
                         Spacer(Modifier.height(10.dp))
@@ -288,7 +288,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                 ) {
                     item {
                         Text(
-                            "Checked apps bypass the VPN. Changes apply the next time the tunnel starts.",
+                            "Checked apps bypass the VPN and use the device network directly. Changes apply the next time the tunnel starts. The tunnel is not leak-free while any app is checked.",
                             style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary),
                             modifier = Modifier.padding(bottom = 12.dp, top = 6.dp)
                         )

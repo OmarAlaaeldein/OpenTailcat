@@ -94,7 +94,6 @@ class TunnelController(
         val profile = profileRepository.activeProfile.value
             ?: return "Pair a gateway token before connecting"
         if (!networkMonitor.isOnline) return "No validated internet connection is available"
-        if (preferences.splitTunnelExcludedApps.isNotEmpty()) return LeakGuard.SPLIT_TUNNEL_BLOCKED
 
         return when (val validation = TokenParser.validate(profile.token)) {
             is TokenValidationState.Valid -> {

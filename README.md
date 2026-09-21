@@ -12,6 +12,15 @@ Android client for Tailcat. Paste a `tc…` token and connect to **your** gatewa
   <img src="docs/screenshots/network-benchmark.png" alt="Network benchmark" width="280" />
 </p>
 
+## What’s new in 1.3.4
+
+- Split-tunnel exclusions now work: apps checked under **Settings > Apps**
+  bypass the VPN (standard Android `addDisallowedApplication`). Connect no
+  longer refuses when the list is non-empty.
+- Bypassing apps use the device network directly, so the tunnel is not
+  leak-free while any app is checked — the UI says so. With Always-on VPN +
+  "Block connections without VPN", Android blocks checked apps entirely.
+
 ## What’s new in 1.3.3
 
 - Fixes a networking corruption that could force a stale `200.x` DNS/exit (e.g.
@@ -25,13 +34,13 @@ Android client for Tailcat. Paste a `tc…` token and connect to **your** gatewa
 
 1. Grab the [latest release](https://github.com/OmarAlaaeldein/OpenTailcat/releases/latest).
 2. APKs:
-   - **Phone:** `OpenTailcat-1.3.3-arm64-v8a.apk`
-   - **Emulator (x86_64):** `OpenTailcat-1.3.3-x86_64.apk`
+   - **Phone:** `OpenTailcat-1.3.4-arm64-v8a.apk`
+   - **Emulator (x86_64):** `OpenTailcat-1.3.4-x86_64.apk`
 3. Install it (allow installs from your browser/file manager if asked).
 4. Optional: enable **Always-on VPN** and **Block connections without VPN** for OpenTailcat — better if the tunnel drops. Connect still works without them.
 5. Paste your `tc…` token and tap Connect.
 
-Checksums are in `OpenTailcat-1.3.3-SHA256SUMS.txt` (AAR `aa0fa1bd…`).
+Checksums are in `OpenTailcat-1.3.4-SHA256SUMS.txt` (AAR `aa0fa1bd…`).
 
 ## How it works
 

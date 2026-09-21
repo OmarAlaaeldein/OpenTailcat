@@ -16,6 +16,9 @@ import android.provider.Settings
  * corroborating OR after a warm TUN exists.
  */
 object LockdownProbe {
+    /** API level where Always-on + block-without-VPN settings exist and are recommended. */
+    const val LOCKDOWN_REQUIRED_API = 29
+
     const val SECURE_ALWAYS_ON_VPN_APP = "always_on_vpn_app"
     const val SECURE_ALWAYS_ON_VPN_LOCKDOWN = "always_on_vpn_lockdown"
 
@@ -23,7 +26,7 @@ object LockdownProbe {
      * @return true when this package is the Always-on VPN with lockdown;
      * false when Settings are readable and lockdown is not configured;
      * null when the secure settings cannot be read (fall back to framework).
-     * Below [LeakGuard.LOCKDOWN_REQUIRED_API] returns true (lockdown settings N/A).
+     * Below [LOCKDOWN_REQUIRED_API] returns true (lockdown settings N/A).
      */
     fun alwaysOnLockdownConfigured(
         resolver: ContentResolver?,
@@ -40,7 +43,7 @@ object LockdownProbe {
             }
         }
     ): Boolean? {
-        if (sdkInt < LeakGuard.LOCKDOWN_REQUIRED_API) return true
+        if (sdkInt < LOCKDOWN_REQUIRED_API) return true
         return try {
             val app = readString(resolver, SECURE_ALWAYS_ON_VPN_APP)
             val lockdown = readInt(resolver, SECURE_ALWAYS_ON_VPN_LOCKDOWN, 0)
@@ -52,7 +55,7 @@ object LockdownProbe {
 
     /**
      * True when Always-on + block-without-VPN appears enabled (status only).
-     * Does not gate Connect or default routes — see [LeakGuard].
+     * Lockdown is recommended but never gates Connect or default routes.
      * Settings.Secure=true wins even if [frameworkLockdownEnabled] is still false
      * after a host-only warm TUN (framework UnderlyingNetworkInfo race / quirk).
      */
@@ -61,7 +64,7 @@ object LockdownProbe {
         settingsLockdown: Boolean?,
         frameworkLockdownEnabled: Boolean
     ): Boolean {
-        if (sdkInt < LeakGuard.LOCKDOWN_REQUIRED_API) return true
+        if (sdkInt < LOCKDOWN_REQUIRED_API) return true
         return settingsLockdown == true || frameworkLockdownEnabled
     }
 }

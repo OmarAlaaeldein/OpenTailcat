@@ -144,20 +144,15 @@ class TailcatVpnService : VpnService() {
             currentCoroutineContext().ensureActive()
             checkNotShuttingDown()
 
-            val warm = vpnBuilder(profile, dnsValidation.ip, defaultRoutes = false).establish()
+            // Snapshot once so warm and routed interfaces exclude the same apps.
+            val excludedApps = resolveExcludedApplications()
+
+            val warm = vpnBuilder(profile, dnsValidation.ip, defaultRoutes = false, excludedApps)
+                .establish()
                 ?: throw IllegalStateException("Android could not establish the VPN interface")
             warmOwned = warm
             adoptInterface(warm)
             warmOwned = null
-
-            // Split-tunnel exclusions still refuse default routes. Lockdown is optional.
-            LeakGuard.refusalReasonForStartup(
-                sdkInt = Build.VERSION.SDK_INT,
-                settingsLockdown = null,
-                frameworkLockdownEnabled = false,
-                splitTunnelEmpty = app.preferencesStore.splitTunnelExcludedApps.isEmpty()
-            )?.let { throw IllegalStateException(it) }
-
             attachLive(app, warm, networkState)
             // Warm attach may open more transport sockets; protect before default routes.
             protectOpenTransportSockets(excludeTun = warm)
@@ -167,7 +162,8 @@ class TailcatVpnService : VpnService() {
             app.tunnelEngine.ensureTransportProtect()
             protectOpenTransportSockets()
 
-            val routed = vpnBuilder(profile, dnsValidation.ip, defaultRoutes = true).establish()
+            val routed = vpnBuilder(profile, dnsValidation.ip, defaultRoutes = true, excludedApps)
+                .establish()
                 ?: throw IllegalStateException("Android could not establish the VPN interface")
             routedOwned = routed
             if (routed.fd != warm.fd) {
@@ -240,10 +236,22 @@ class TailcatVpnService : VpnService() {
         return metrics
     }
 
+    /**
+     * Excluded apps bypass the VPN by design (split tunneling, not leak-free);
+     * see [SplitTunnelExclusions]. Stale package entries are skipped.
+     */
+    private fun resolveExcludedApplications(): List<String> =
+        SplitTunnelExclusions.validPackages(
+            TailcatApplication.instance.preferencesStore.splitTunnelExcludedApps
+        ) { pkg ->
+            runCatching { packageManager.getPackageInfo(pkg, 0) }.isSuccess
+        }
+
     private fun vpnBuilder(
         profile: GatewayProfile,
         dnsIp: String,
-        defaultRoutes: Boolean
+        defaultRoutes: Boolean,
+        excludedApps: List<String>
     ): Builder {
         val builder = Builder()
             .setSession("OpenTailcat - ${profile.name}")
@@ -253,6 +261,9 @@ class TailcatVpnService : VpnService() {
             .setBlocking(true)
         if (Build.VERSION.SDK_INT >= 29) {
             builder.setMetered(false)
+        }
+        for (pkg in excludedApps) {
+            builder.addDisallowedApplication(pkg)
         }
         if (defaultRoutes) {
             builder.addDnsServer(dnsIp)

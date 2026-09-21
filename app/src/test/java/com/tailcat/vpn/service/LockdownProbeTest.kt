@@ -18,14 +18,6 @@ class LockdownProbeTest {
                 frameworkLockdownEnabled = false
             )
         )
-        assertNull(
-            LeakGuard.refusalReasonForStartup(
-                sdkInt = 29,
-                settingsLockdown = true,
-                frameworkLockdownEnabled = false,
-                splitTunnelEmpty = true
-            )
-        )
     }
 
     @Test
@@ -46,15 +38,6 @@ class LockdownProbeTest {
                 sdkInt = 29,
                 settingsLockdown = false,
                 frameworkLockdownEnabled = false
-            )
-        )
-        // Status may show lockdown off; Connect / default routes are still allowed.
-        assertNull(
-            LeakGuard.refusalReasonForStartup(
-                sdkInt = 29,
-                settingsLockdown = false,
-                frameworkLockdownEnabled = false,
-                splitTunnelEmpty = true
             )
         )
     }
