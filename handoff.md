@@ -126,7 +126,6 @@ release R8/resource optimization with the existing development certificate and
 no debug UI tooling. `release` signing remains separate. To reproduce these
 APKs, run `./gradlew assembleDevelopment`. The existing instrumentation suite
 targets debug; optimized APKs are checked directly through the emulator UI.
-See `docs/verification/1.2.3-optimized.md` for the minified test-runner limitation.
 This packaging correction promotes no VPN capabilities.
 
 The current tree is a development prototype with verified token parsing and a
