@@ -7,7 +7,7 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.3.4 on `main` (all 1.3.3 changes — audit H1–H7 source fixes after 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep, strict interior-whitespace token error, 5s UDP capability probe with periodic re-probe, `tcpOnly` telemetry, private-DNS rejection, native pump panic containment, disco-failure transport downgrade with `discoStale`, dead `GATEWAY_RESOLVER` removal, structured data-plane failure reporting with a debug diagnostics flag, nil-dial hardening with panic call-site reporting, typed-nil Close fix and per-flow panic isolation, HealthStale 15s/3-poll grace for intermittent 6s auto-close, notification/TelemetryCard live TUN rates instead of always-zero WG txBytes, and 200.x stale-DNS networking-corruption fix (`pendingDNS` cleared on `abandonPrepare`, `TelemetryCard` now `isLiveRunning`) — plus working split-tunnel exclusions applied with `addDisallowedApplication`; see the dated section below). IPv4 test-routing capabilities are
+- Android repository: version 1.3.5 on `main` (all 1.3.3 changes — audit H1–H7 source fixes after 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep, strict interior-whitespace token error, 5s UDP capability probe with periodic re-probe, `tcpOnly` telemetry, private-DNS rejection, native pump panic containment, disco-failure transport downgrade with `discoStale`, dead `GATEWAY_RESOLVER` removal, structured data-plane failure reporting with a debug diagnostics flag, nil-dial hardening with panic call-site reporting, typed-nil Close fix and per-flow panic isolation, HealthStale 15s/3-poll grace for intermittent 6s auto-close, notification/TelemetryCard live TUN rates instead of always-zero WG txBytes, and 200.x stale-DNS networking-corruption fix (`pendingDNS` cleared on `abandonPrepare`, `TelemetryCard` now `isLiveRunning`) — plus working split-tunnel exclusions applied with `addDisallowedApplication` and an all-apps picker with search; see the dated sections below). IPv4 test-routing capabilities are
   true so Connect can be exercised with a live token. `ipv6` is true; `ipv6Egress` is session-measured.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
@@ -114,11 +114,24 @@ Still pending: the Phase 8 split-tunnel acceptance evidence above (second-UID
 probe traffic must appear directly on the uplink pcap and be absent from the
 gateway pcap while exclusions are set). Pass locally only after that capture.
 
+## Settings > Apps picker now lists all installed apps (2026-09-21)
+
+Through 1.3.4 the split-tunnel picker used `LauncherApps.getActivityList`,
+which returns only apps with a launcher icon. Background and headless apps
+never appeared. In 1.3.5 the picker enumerates every package installed for
+the user via `PackageManager.getInstalledApplications` (`SettingsScreen.kt`),
+adds a search field filtering by app name or package name, and declares
+`QUERY_ALL_PACKAGES` in the manifest (required on API 30+ for full package
+enumeration; lint advisory suppressed with `tools:ignore`). Exclusion
+application, leak-by-design copy, and the Phase 8 split-tunnel packet-capture
+acceptance are unchanged.
+
 ## Release status
 
-The current tree is **1.3.4** versionCode **34** (AAR `aa0fa1bdda9ae102d3ef7a7153c2d1ceca3f5165c8c707e8b490d97997a75999`,
-Go 1.27.1, NDK 29.0.14206865, 16 KB) with the 200.x stale-DNS fix above and the
-split-tunnel exclusion fix. 1.3.3 used versionCode 33; the 1.2.14
+The current tree is **1.3.5** versionCode **35** (AAR `aa0fa1bdda9ae102d3ef7a7153c2d1ceca3f5165c8c707e8b490d97997a75999`,
+Go 1.27.1, NDK 29.0.14206865, 16 KB) with the 200.x stale-DNS fix, the
+split-tunnel exclusion fix, and the all-apps picker fix above. 1.3.4 used
+versionCode 34; the 1.2.14
 checkpoint used versionCode 27. Rebuild the native AAR before shipping Android
 binaries that need H2–H5 engine behavior. The prior 1.2.3 download rebuild used
 versionCode 16 and the `development` build type:

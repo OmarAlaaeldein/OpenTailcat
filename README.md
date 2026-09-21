@@ -12,6 +12,14 @@ Android client for Tailcat. Paste a `tc…` token and connect to **your** gatewa
   <img src="docs/screenshots/network-benchmark.png" alt="Network benchmark" width="280" />
 </p>
 
+## What’s new in 1.3.5
+
+- The Settings > Apps picker now lists **every app installed on the phone** —
+  not only apps with a launcher icon — via `PackageManager.getInstalledApplications`
+  and the `QUERY_ALL_PACKAGES` permission, so background/headless apps can be
+  excluded too.
+- New search field filters the list by app name or package name.
+
 ## What’s new in 1.3.4
 
 - Split-tunnel exclusions now work: apps checked under **Settings > Apps**
@@ -34,13 +42,13 @@ Android client for Tailcat. Paste a `tc…` token and connect to **your** gatewa
 
 1. Grab the [latest release](https://github.com/OmarAlaaeldein/OpenTailcat/releases/latest).
 2. APKs:
-   - **Phone:** `OpenTailcat-1.3.4-arm64-v8a.apk`
-   - **Emulator (x86_64):** `OpenTailcat-1.3.4-x86_64.apk`
+   - **Phone:** `OpenTailcat-1.3.5-arm64-v8a.apk`
+   - **Emulator (x86_64):** `OpenTailcat-1.3.5-x86_64.apk`
 3. Install it (allow installs from your browser/file manager if asked).
 4. Optional: enable **Always-on VPN** and **Block connections without VPN** for OpenTailcat — better if the tunnel drops. Connect still works without them.
 5. Paste your `tc…` token and tap Connect.
 
-Checksums are in `OpenTailcat-1.3.4-SHA256SUMS.txt` (AAR `aa0fa1bd…`).
+Checksums are in `OpenTailcat-1.3.5-SHA256SUMS.txt` (AAR `aa0fa1bd…`).
 
 ## How it works
 

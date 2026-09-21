@@ -1,8 +1,8 @@
 package com.tailcat.vpn.ui.screens.settings
 
 import android.content.Intent
-import android.content.pm.LauncherApps
-import android.os.Process
+import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -87,20 +87,37 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
     var mtuText by remember { mutableStateOf(store.defaultMtu.toString()) }
     var dnsText by remember { mutableStateOf(store.defaultDns) }
     var excludedApps by remember { mutableStateOf(store.splitTunnelExcludedApps) }
+    var appQuery by remember { mutableStateOf("") }
     var debugMode by remember { mutableStateOf(store.debugMode) }
 
+    // Every package installed for this user, not only apps with a launcher
+    // icon; headless/background apps must be selectable for exclusions.
     val installedApps = remember {
-        val launcherApps = context.getSystemService(LauncherApps::class.java)
-        launcherApps.getActivityList(null, Process.myUserHandle())
-            .map { activity ->
-                AppInfoItem(
-                    packageName = activity.applicationInfo.packageName,
-                    appName = activity.label.toString()
-                )
-            }
+        val pm = context.packageManager
+        val apps = if (Build.VERSION.SDK_INT >= 33) {
+            pm.getInstalledApplications(
+                PackageManager.ApplicationInfoFlags.of(PackageManager.GET_META_DATA.toLong())
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            pm.getInstalledApplications(PackageManager.GET_META_DATA)
+        }
+        apps.map { info ->
+            AppInfoItem(
+                packageName = info.packageName,
+                appName = runCatching { info.loadLabel(pm).toString() }
+                    .getOrDefault(info.packageName)
+            )
+        }
             .filterNot { it.packageName == context.packageName }
+            .filter { it.appName.isNotBlank() }
             .distinctBy { it.packageName }
             .sortedBy { it.appName.lowercase() }
+    }
+    val visibleApps = installedApps.filter { item ->
+        appQuery.isBlank() ||
+            item.appName.contains(appQuery, ignoreCase = true) ||
+            item.packageName.contains(appQuery, ignoreCase = true)
     }
 
     Scaffold(
@@ -281,11 +298,24 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                     }
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                Column(
+                    modifier = Modifier.fillMaxSize()
                 ) {
+                    OutlinedTextField(
+                        value = appQuery,
+                        onValueChange = { appQuery = it },
+                        singleLine = true,
+                        placeholder = { Text("Search apps", color = TextMuted) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                    )
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(horizontal = 16.dp, vertical = 0.dp)
+                    ) {
                     item {
                         Text(
                             "Checked apps bypass the VPN and use the device network directly. Changes apply the next time the tunnel starts. The tunnel is not leak-free while any app is checked.",
@@ -294,7 +324,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         )
                     }
 
-                    items(installedApps, key = { it.packageName }) { item ->
+                    items(visibleApps, key = { it.packageName }) { item ->
                         val isExcluded = item.packageName in excludedApps
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -340,6 +370,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                                 )
                             )
                         }
+                    }
                     }
                 }
             }

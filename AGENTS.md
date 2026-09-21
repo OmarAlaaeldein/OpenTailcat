@@ -18,13 +18,16 @@ acceptance is unimplemented.
 The checked-in AAR is built reproducibly with Go 1.27.1, NDK r29 (29.0.14206865),
 16 KB ELF load alignment, and verified Java signatures.
 
-Current version: 1.3.3, with audit H1–H7 source fixes after the 1.2.2/1.2.3 audits,
+Current version: 1.3.5, with audit H1–H7 source fixes after the 1.2.2/1.2.3 audits,
 an S+-aware startup instrumented expectation, a behavior-neutral dead-code sweep,
 a strict interior-whitespace token error, a 5s UDP capability probe with
 periodic re-probe, `tcpOnly` telemetry, structured data-plane failure
 reporting with a debug diagnostics flag, nil-dial hardening with panic
-call-site reporting, and a 200.x stale-DNS networking-corruption fix
-(`pendingDNS` cleared on `abandonPrepare`, `TelemetryCard` now `isLiveRunning`).
+call-site reporting, a 200.x stale-DNS networking-corruption fix
+(`pendingDNS` cleared on `abandonPrepare`, `TelemetryCard` now `isLiveRunning`),
+working split-tunnel exclusions applied with `addDisallowedApplication`, and a
+Settings > Apps picker that lists every installed package (not only launcher
+apps) with `QUERY_ALL_PACKAGES` plus a search field.
 IPv4 Connect is test-enabled. `ipv6` is true; `ipv6Egress` is measured per session.
 
 Critical current behavior:
