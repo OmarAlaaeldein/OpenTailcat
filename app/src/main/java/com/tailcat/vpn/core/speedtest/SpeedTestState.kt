@@ -1,5 +1,8 @@
 package com.tailcat.vpn.core.speedtest
 
+import com.tailcat.vpn.core.model.NetworkMetrics
+import com.tailcat.vpn.core.model.TunnelState
+
 enum class SpeedTestStage {
     IDLE,
     MEASURING_PING,
@@ -21,5 +24,7 @@ data class SpeedTestResult(
     val viaGateway: Boolean = false,
     val failedStage: SpeedTestStage? = null,
     val stageDetail: String? = null,
-    val findings: List<TroubleshootFinding> = emptyList()
+    val findings: List<TroubleshootFinding> = emptyList(),
+    val metricsSnapshot: NetworkMetrics? = null,
+    val tunnelState: TunnelState = TunnelState.DISCONNECTED
 )

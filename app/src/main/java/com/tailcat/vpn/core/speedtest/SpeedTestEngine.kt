@@ -120,8 +120,9 @@ class SpeedTestEngine {
 
             // Stage 4: Completed
             val metrics = snapshotMetrics(viaGateway)
+            val tunnel = tunnelState()
             val findings = SpeedTroubleshooter.diagnose(
-                tunnelState = tunnelState(),
+                tunnelState = tunnel,
                 metrics = metrics,
                 stage = SpeedTestStage.COMPLETED,
                 errorMessage = null,
@@ -138,7 +139,9 @@ class SpeedTestEngine {
                 failedStage = null,
                 stageDetail = stageDetail,
                 findings = findings,
-                errorMessage = null
+                errorMessage = null,
+                metricsSnapshot = metrics,
+                tunnelState = tunnel
             )
 
         } catch (error: CancellationException) {
@@ -146,8 +149,9 @@ class SpeedTestEngine {
         } catch (e: Exception) {
             val failed = currentStage
             val metrics = snapshotMetrics(viaGateway)
+            val tunnel = tunnelState()
             val findings = SpeedTroubleshooter.diagnose(
-                tunnelState = tunnelState(),
+                tunnelState = tunnel,
                 metrics = metrics,
                 stage = SpeedTestStage.FAILED,
                 errorMessage = e.message,
@@ -162,7 +166,9 @@ class SpeedTestEngine {
                 ).ifBlank { "Speed test encountered an error" },
                 failedStage = failed,
                 stageDetail = stageDetail,
-                findings = findings
+                findings = findings,
+                metricsSnapshot = metrics,
+                tunnelState = tunnel
             )
         }
     }

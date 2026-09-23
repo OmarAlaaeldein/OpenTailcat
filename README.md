@@ -19,6 +19,12 @@ Android client for Tailcat. Paste a `tc…` token and connect to **your** gatewa
   on real gateway captures (`addr_len=0`).
 - Phase 8 run log for the 2026-09-23 dual capture (gateway + Colima outer)
   in `handoff.md`; phone-side uplink capture still required for acceptance.
+- **Troubleshooter report**: after a benchmark completes or fails, the
+  Network Benchmark top bar can copy a plain-text report (stage, metrics,
+  tunnel state, findings) for a GitHub issue. Public IPs in free text are
+  redacted.
+- **Settings → Updates**: check the latest GitHub release, download the
+  APK for your ABI, verify signature against the installed app, then install.
 - No data-plane capability promotions; `testRouting: true` unchanged.
 
 ## What’s new in 1.3.6

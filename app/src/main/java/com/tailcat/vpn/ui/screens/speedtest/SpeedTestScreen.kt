@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Timer
@@ -30,22 +31,32 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.tailcat.vpn.BuildConfig
 import com.tailcat.vpn.core.speedtest.FindingSeverity
+import com.tailcat.vpn.core.speedtest.SpeedTestReport
 import com.tailcat.vpn.core.speedtest.SpeedTestStage
 import com.tailcat.vpn.ui.screens.speedtest.components.SpeedometerGauge
+import kotlinx.coroutines.launch
 import com.tailcat.vpn.ui.theme.AccentCyan
 import com.tailcat.vpn.ui.theme.BgDark
 import com.tailcat.vpn.ui.theme.BorderSubtle
@@ -70,9 +81,15 @@ fun SpeedTestScreen(
         SpeedTestStage.TESTING_DOWNLOAD,
         SpeedTestStage.TESTING_UPLOAD
     )
+    val canCopyReport = testState.stage in listOf(SpeedTestStage.COMPLETED, SpeedTestStage.FAILED)
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
 
     Scaffold(
         containerColor = BgDark,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Network Benchmark", color = TextPrimary) },
@@ -86,6 +103,27 @@ fun SpeedTestScreen(
                     }
                 },
                 actions = {
+                    if (canCopyReport) {
+                        IconButton(
+                            onClick = {
+                                val report = SpeedTestReport.build(
+                                    result = testState,
+                                    nowUnixSec = System.currentTimeMillis() / 1000L,
+                                    appVersion = BuildConfig.VERSION_NAME
+                                )
+                                clipboard.setText(AnnotatedString(report))
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("Report copied to clipboard")
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy troubleshooter report",
+                                tint = AccentCyan
+                            )
+                        }
+                    }
                     if (testState.stage == SpeedTestStage.COMPLETED) {
                         IconButton(onClick = { viewModel.reset() }) {
                             Icon(

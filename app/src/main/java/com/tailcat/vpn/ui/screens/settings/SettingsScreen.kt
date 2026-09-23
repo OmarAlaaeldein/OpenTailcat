@@ -33,11 +33,16 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SettingsEthernet
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -64,6 +69,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tailcat.vpn.BuildConfig
 import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.ui.theme.AccentCyan
@@ -76,6 +82,11 @@ import com.tailcat.vpn.ui.theme.TextMuted
 import com.tailcat.vpn.ui.theme.TextPrimary
 import com.tailcat.vpn.ui.theme.TextSecondary
 import com.tailcat.vpn.ui.theme.YellowWarning
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 data class AppInfoItem(val packageName: String, val appName: String)
 
@@ -86,6 +97,15 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
     val app = remember { TailcatApplication.instance }
     val store = app.preferencesStore
     val engineAvailability = app.tunnelEngine.availability
+    val updatesViewModel: SettingsViewModel = viewModel()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(updatesViewModel) {
+        updatesViewModel.uiEvent.collect { message ->
+            scope.launch { snackbarHostState.showSnackbar(message) }
+        }
+    }
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var mtuText by remember { mutableStateOf(store.defaultMtu.toString()) }
@@ -126,6 +146,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
 
     Scaffold(
         containerColor = BgDark,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Settings", color = TextPrimary) },
@@ -399,6 +420,8 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         }
                     }
 
+                    SettingsUpdatesCard(viewModel = updatesViewModel)
+
                     SettingsCard(icon = Icons.Default.Info, title = "About & legal") {
                         Text(
                             "OpenTailcat • v${BuildConfig.VERSION_NAME}",
@@ -505,6 +528,133 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                             )
                         }
                     }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsUpdatesCard(
+    viewModel: SettingsViewModel
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val state by viewModel.updateState.collectAsState()
+
+    SettingsCard(icon = Icons.Default.SystemUpdate, title = "Updates") {
+        when (val s = state) {
+            is UpdateState.Idle -> {
+                Text(
+                    "Current: v${BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { viewModel.checkForUpdate() },
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentCyan)
+                    ) { Text("Check for update") }
+                    OutlinedButton(onClick = { viewModel.openReleasePage(context) }) {
+                        Text("Release page")
+                    }
+                }
+            }
+            is UpdateState.Checking -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = AccentCyan
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text("Checking GitHub releases…", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            is UpdateState.UpToDate -> {
+                Text(
+                    "You're up to date (v${s.current}).",
+                    style = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary)
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { viewModel.resetUpdate() }) { Text("Check again") }
+                    OutlinedButton(onClick = { viewModel.openReleasePage(context) }) {
+                        Text("Release page")
+                    }
+                }
+            }
+            is UpdateState.Available -> {
+                Text(
+                    "Update available: ${s.release.normalizedVersion()} (installed v${BuildConfig.VERSION_NAME})",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        color = AccentCyan,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                )
+                if (s.release.notes.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        s.release.notes.take(400),
+                        style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary),
+                        maxLines = 6,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { viewModel.downloadUpdate(context) },
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentCyan)
+                    ) { Text("Download") }
+                    OutlinedButton(onClick = { viewModel.openReleasePage(context) }) {
+                        Text("Open on GitHub")
+                    }
+                    OutlinedButton(onClick = { viewModel.resetUpdate() }) { Text("Dismiss") }
+                }
+            }
+            is UpdateState.Downloading -> {
+                LinearProgressIndicator(
+                    progress = { s.fraction },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = AccentCyan,
+                    trackColor = BorderSubtle
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Downloading ${s.release.normalizedVersion()}… ${(s.fraction * 100).toInt()}%",
+                    style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
+                )
+            }
+            is UpdateState.Ready -> {
+                Text(
+                    "APK ready. Install ${s.release.normalizedVersion()}?",
+                    style = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary)
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Android will ask you to allow installs from this source if needed.",
+                    style = MaterialTheme.typography.bodySmall.copy(color = TextMuted)
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { viewModel.openInstall(context) },
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentCyan)
+                    ) { Text("Install") }
+                    OutlinedButton(onClick = { viewModel.resetUpdate() }) { Text("Cancel") }
+                }
+            }
+            is UpdateState.Error -> {
+                Text(
+                    s.message,
+                    style = MaterialTheme.typography.bodyMedium.copy(color = YellowWarning)
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { viewModel.checkForUpdate() }) { Text("Retry") }
+                    OutlinedButton(onClick = { viewModel.openReleasePage(context) }) {
+                        Text("Release page")
                     }
                 }
             }
