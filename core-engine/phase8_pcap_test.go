@@ -123,18 +123,27 @@ func TestProbeIPsDetectsLeakOnLinuxSLL2(t *testing.T) {
 	ip[9] = 17
 	copy(ip[12:16], netip.MustParseAddr("10.0.0.2").AsSlice())
 	copy(ip[16:20], probe.AsSlice())
-	// SLL2 header: proto(2) + reserved(2) + ifindex(4) + hatype(2) + pkttype(1) + addrlen(1) + addr(8)
-	sll2 := make([]byte, 20+len(ip))
-	binary.BigEndian.PutUint16(sll2[0:2], 0x0800)
-	sll2[11] = 8
-	copy(sll2[20:], ip)
-	pcap := writePCAPWithLinkType(dltLINUXSLL2, sll2)
-	leaked, err := ProbeIPsOnUplink(bytes.NewReader(pcap), []netip.Addr{probe})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(leaked) != 1 || leaked[0] != probe {
-		t.Fatalf("expected SLL2 leak of %v, got %v", probe, leaked)
+	// SLL2 is a fixed 20-byte header; addr_len is often 0 on tcpdump -i any.
+	for _, addrLen := range []byte{0, 8} {
+		sll2 := make([]byte, 20+len(ip))
+		binary.BigEndian.PutUint16(sll2[0:2], 0x0800)
+		sll2[11] = addrLen
+		copy(sll2[20:], ip)
+		pcap := writePCAPWithLinkType(dltLINUXSLL2, sll2)
+		leaked, err := ProbeIPsOnUplink(bytes.NewReader(pcap), []netip.Addr{probe})
+		if err != nil {
+			t.Fatalf("addrLen=%d: %v", addrLen, err)
+		}
+		if len(leaked) != 1 || leaked[0] != probe {
+			t.Fatalf("addrLen=%d: expected SLL2 leak of %v, got %v", addrLen, probe, leaked)
+		}
+		found, err := ProbeIPsPresent(bytes.NewReader(pcap), []netip.Addr{probe})
+		if err != nil {
+			t.Fatalf("present addrLen=%d: %v", addrLen, err)
+		}
+		if !found[probe] {
+			t.Fatalf("present addrLen=%d: expected %v", addrLen, probe)
+		}
 	}
 }
 

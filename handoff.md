@@ -653,6 +653,79 @@ Do not commit pcaps or live tokens. `ipv6` is true on the client; treat `ipv6Egr
 capture as the honesty bar for public IPv6 egress. Host analyzer unit tests and
 `e2e-analyze.sh` synthetic fixtures are tooling checks, not Phase 8 acceptance.
 
+#### Phase 8 dual-capture run log (2026-09-23)
+
+Physical phone + live Tailcat gateway (nullexit stack in Colima/Docker on the
+same Mac). Phone app connected (token from `~/.opentailcat-private/live-token.txt`);
+user opened `https://1.1.1.1`, `https://8.8.8.8`, `https://9.9.9.9` on the phone
+during the capture window. Pcaps are gitignored under `captures/`.
+
+**What was captured**
+
+| File | Where | How |
+|---|---|---|
+| `captures/gateway.pcap` | Inside the `warp` / tailcat container network namespace (after WireGuard decrypt, before WARP encapsulation) | `colima ssh` → `sudo nsenter -t $(docker inspect -f '{{.State.Pid}}' warp) -n tcpdump -i any -s 0 -w /tmp/p8cap/gateway.pcap` |
+| `captures/outer.pcap` | Colima **host** namespace (outer view: DERP/WARP/docker bridge — **not** the phone radio) | `colima ssh` → `sudo tcpdump -i any -s 0 -w /tmp/p8cap/outer.pcap` |
+
+Classic pcap (magic `a1b2c3d4`), link type LINUX_SLL2 (276). Sizes ~104 MB /
+~166 MB, ~136k / ~234k packets. Stopped with `pkill tcpdump`, copied out via
+`colima ssh cat`.
+
+**Counts (non-DNS probe dests only; DNS:53 to those IPs is ignored by the analyzer)**
+
+| File | `1.1.1.1` | `8.8.8.8` | `9.9.9.9` |
+|---|---|---|---|
+| gateway | 297 | 40 | 26 |
+| outer | 0 | 0 | 0 |
+
+Gateway flows are mostly `172.16.0.2 → 1.1.1.1/8.8.8.8/9.9.9.9:443` (TCP) plus
+ICMP to `1.1.1.1`. `172.16.0.2` is the WARP `tun0` address inside the netns —
+i.e. decrypted phone traffic being forwarded out the gateway path.
+
+**Analyzer (after SLL2 fix)**
+
+```bash
+scripts/phase8/analyze-uplink.sh \
+  captures/outer.pcap 1.1.1.1,8.8.8.8,9.9.9.9 captures/gateway.pcap
+# PASS uplink: probe destinations absent
+# PASS gateway: probe destinations present
+# exit 0
+
+# Control: gateway misused as uplink must fail
+scripts/phase8/analyze-uplink.sh \
+  captures/gateway.pcap 1.1.1.1,8.8.8.8,9.9.9.9 captures/gateway.pcap
+# FAIL uplink leak dests: [1.1.1.1 8.8.8.8 9.9.9.9]  exit 1
+```
+
+SLL2 bug fixed in `core-engine/phase8_pcap.go`: payload offset is a fixed
+header of 20 bytes; `12+addr_len` is wrong when `addr_len=0` (common on
+`tcpdump -i any` — all 463 probe packets in this gateway pcap had `addr_len=0`).
+Test covers `addr_len` 0 and 8. AAR rebuilt: sha256
+`986c21150a4da2890b78023523a9b2bd6415ddc68de301000e792af6c16a2436`,
+sourcehash `1916945b42a9ae78ffa2ad070752c1d60063f1276eaa5d968e2fb8af2764a075`.
+`scripts/phase8/run-host-gates.sh` green after the fix.
+
+**Scope (plain)**
+
+- Proven for this run: phone probe traffic reached the gateway and left toward
+  the probe destinations on the gateway path; cleartext probe dests were not
+  seen on the Colima host outer capture taken at the same time.
+- Not proven: that the **phone’s own radio / home AP** never saw cleartext
+  `1.1.1.1`. `outer.pcap` is this Mac’s outer interfaces, not the phone’s
+  Wi‑Fi hop. Session path was **DERP relay** (`path=relay nyc`, 0 direct peers),
+  so the phone’s first hop is Cloudflare, not this Mac. Full Phase 8 still needs
+  a simultaneous capture on the phone’s actual uplink (AP/next hop, or rooted
+  `wlan0`) paired with the gateway pcap, then the same analyzer invocation.
+- Synthetic `e2e-analyze.sh` and host gates are tooling only (see above).
+
+Commands used for host gates after the fix:
+
+```bash
+cd core-engine && GOPROXY=off go test ./... && GOPROXY=off go vet ./...
+bash core-engine/build-aar.sh
+scripts/phase8/run-host-gates.sh
+```
+
 #### Release artifacts
 
 1. Rebuild the AAR from the audited source and archive its metadata/hash.

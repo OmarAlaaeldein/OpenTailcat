@@ -130,18 +130,13 @@ func destIPsFromPacket(linkType uint32, pkt []byte) ([]netip.Addr, error) {
 		et := binary.BigEndian.Uint16(pkt[14:16])
 		return destIPsFromNetwork(et, pkt[16:]), nil
 	case dltLINUXSLL2:
-		// Linux SLL2: protocol at offset 0 (2 bytes), packet type at 10, address length at 11,
-		// address at 12 for addr_len bytes, then network payload.
+		// Linux SLL2 is a fixed 20-byte header (addr is always 8 bytes at 12:20);
+		// the addr_len field does not change payload offset.
 		if len(pkt) < 20 {
 			return nil, nil
 		}
 		et := binary.BigEndian.Uint16(pkt[0:2])
-		addrLen := int(pkt[11])
-		off := 12 + addrLen
-		if off > len(pkt) {
-			return nil, nil
-		}
-		return destIPsFromNetwork(et, pkt[off:]), nil
+		return destIPsFromNetwork(et, pkt[20:]), nil
 	default:
 		return nil, fmt.Errorf("%w: %d", errUnsupportedLinkType, linkType)
 	}
@@ -279,12 +274,7 @@ func packetIsDNSFromLink(linkType uint32, pkt []byte) bool {
 			return false
 		}
 		et := binary.BigEndian.Uint16(pkt[0:2])
-		addrLen := int(pkt[11])
-		off := 12 + addrLen
-		if off > len(pkt) {
-			return false
-		}
-		return packetIsDNS(et, pkt[off:])
+		return packetIsDNS(et, pkt[20:])
 	default:
 		return false
 	}
