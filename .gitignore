@@ -67,3 +67,6 @@ Thumbs.db
 *.pcap
 *.token
 .env
+
+__pycache__/
+*.py[cod]

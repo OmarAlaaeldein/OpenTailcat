@@ -40,7 +40,6 @@ fi
 
 echo "==> second-UID probes from adb shell (not com.tailcat.vpn)"
 echo "    probes: $PROBES port $PORT rounds $ROUNDS"
-fail=0
 for ip in $PROBES; do
   ok=0
   for _ in $(seq "$ROUNDS"); do
@@ -52,7 +51,6 @@ for ip in $PROBES; do
   done
   echo "    $ip: $ok/$ROUNDS connects"
   if [[ $ok -eq 0 ]]; then
-    fail=1
     echo "    warning: no successful connect to $ip (gateway/path may be down)" >&2
   fi
 done
