@@ -12,6 +12,17 @@ Android client for Tailcat. Paste a `tc…` token and connect to **your** gatewa
   <img src="docs/screenshots/network-benchmark.png" alt="Network benchmark" width="280" />
 </p>
 
+## What’s new in 1.4.0
+
+- **Troubleshooter report**: after a benchmark completes or fails, the
+  Network Benchmark top bar can copy a plain-text report (stage, metrics,
+  tunnel state, findings) for a GitHub issue. Public IPs in free text are
+  redacted.
+- **Settings → Updates**: check the latest GitHub release, download the
+  APK for your ABI, verify SHA-256 when the release provides a digest and
+  signature against the installed app, then install via the system installer.
+- No data-plane capability promotions; `testRouting: true` unchanged.
+
 ## What’s new in 1.3.7
 
 - Phase 8 **analyzer fix**: Linux SLL2 (`tcpdump -i any`) frames are parsed
@@ -19,12 +30,6 @@ Android client for Tailcat. Paste a `tc…` token and connect to **your** gatewa
   on real gateway captures (`addr_len=0`).
 - Phase 8 run log for the 2026-09-23 dual capture (gateway + Colima outer)
   in `handoff.md`; phone-side uplink capture still required for acceptance.
-- **Troubleshooter report**: after a benchmark completes or fails, the
-  Network Benchmark top bar can copy a plain-text report (stage, metrics,
-  tunnel state, findings) for a GitHub issue. Public IPs in free text are
-  redacted.
-- **Settings → Updates**: check the latest GitHub release, download the
-  APK for your ABI, verify signature against the installed app, then install.
 - No data-plane capability promotions; `testRouting: true` unchanged.
 
 ## What’s new in 1.3.6
@@ -66,13 +71,13 @@ Android client for Tailcat. Paste a `tc…` token and connect to **your** gatewa
 
 1. Grab the [latest release](https://github.com/OmarAlaaeldein/OpenTailcat/releases/latest).
 2. APKs:
-   - **Phone:** `OpenTailcat-1.3.7-arm64-v8a.apk`
-   - **Emulator (x86_64):** `OpenTailcat-1.3.7-x86_64.apk`
+   - **Phone:** `OpenTailcat-1.4.0-arm64-v8a.apk`
+   - **Emulator (x86_64):** `OpenTailcat-1.4.0-x86_64.apk`
 3. Install it (allow installs from your browser/file manager if asked).
 4. Optional: enable **Always-on VPN** and **Block connections without VPN** for OpenTailcat — better if the tunnel drops. Connect still works without them.
 5. Paste your `tc…` token and tap Connect.
 
-Checksums are in `OpenTailcat-1.3.7-SHA256SUMS.txt`.
+Checksums are in `OpenTailcat-1.4.0-SHA256SUMS.txt`.
 
 ## How it works
 
