@@ -2,13 +2,16 @@
 
 ## Release status
 
-OpenTailcat 1.2.12 in the current source tree is a development build. It has an
+OpenTailcat 1.3.6 in the current source tree is a development build. It has an
 integrated Go Mobile Tailcat engine with Phase 0 fail-closed capability gates,
 Phase 1 reproducible builds, Phase 2 official token validation, and Phase 3
 tunneled UDP userspace netstack code. IPv4 test-routing capabilities are true so
-a live token can Connect. `ipv6` is false. Physical-device leak acceptance and
-full release gates are pending; it must not be relied on as a production
-privacy VPN.
+a live token can Connect. `ipv6` is true (client dual-stack path; session
+`ipv6Egress` depends on gateway WAN). The capability JSON also reports
+`testRouting: true`, which marks that Phase 8 physical leak acceptance has not
+passed; Kotlin surfaces this in Settings and does not gate Connect on it.
+Physical-device leak acceptance and full release gates are pending; it must not
+be relied on as a production privacy VPN.
 
 ### Implemented security controls
 
@@ -18,8 +21,10 @@ privacy VPN.
   IPv4 default-route installation requires `dataPlane`, `wireGuard`,
   `magicsock`, `twoPhaseStart`, `ipv4`, `tcp`, `udp`, `dns`, `liveStats`, and
   `cancelSafeLifecycle`. `requireIpv6` exists but production Connect uses
-  `requireIpv6 = false`, so `::/0` is installed while `ipv6` stays false.
-  Unknown capability JSON fields fail closed.
+  `requireIpv6 = false`, so `::/0` is installed while dual-stack egress still
+  depends on the gateway. Unknown capability JSON fields fail closed.
+  `testRouting` is an optional non-gating field that signals Phase 8 acceptance
+  is still pending.
 - Token validation in Android and Go strictly enforces official token structures,
   rejects legacy/synthetic disco keys, rejects duplicate CBOR keys, rejects
   surrounding and interior whitespace, and rejects
@@ -48,12 +53,21 @@ privacy VPN.
 
 ### Remaining release blockers & pending gates
 
-- **Audit H1–H7 code fixes** are in 1.2.7 source (lockdown-after-warm-TUN, transport protect re-enable, dead-reader attach, DNS TCP stop bound, DiscoPing health honesty, FD lifecycle serialization, phase8 fail-closed). Host Go tests cover the native pieces. Android still needs a rebuilt AAR (Go 1.27.1 + NDK 29.0.14206865), Always-on emulator/device run, and Phase 8 dual capture before any production claim.
+- **Audit H1–H7 code fixes** shipped in 1.3.5 source and the checked-in AAR
+  (lockdown-after-warm-TUN, transport protect re-enable, dead-reader attach,
+  DNS TCP stop bound, DiscoPing health honesty, FD lifecycle serialization,
+  phase8 fail-closed). Host Go tests cover the native pieces. Always-on
+  emulator/device run and Phase 8 dual capture remain before any production
+  claim.
 - **IPv4 flags are test-enabled, not Phase 8 accepted**: leak capture still pending.
 - **IPv6 dual-stack egress**: Android installs `::/0` after pumps are live.
   Native proxies IPv6 TCP/UDP with a 250ms dial timeout; ICMPv6 echo is dropped;
   oversized IPv6 gets a local Packet Too Big. Live IPv6 internet depends on the
-  gateway. `ipv6` stays false.
+  gateway. Capability `ipv6` is true; without gateway IPv6 WAN, public IPv6 is
+  fail-closed (RST/drop) so Happy Eyeballs can fall back to tunneled IPv4.
+- **Test-routing marker**: capability JSON includes `testRouting: true` while
+  Phase 8 physical leak acceptance has not passed. Settings surfaces this; it
+  does not gate Connect.
 - **Lifecycle / telemetry promotion**: two-phase start (host-only TUN, then
   default routes after pumps), sticky VPN service, TUN closed before native stop,
   plus live `DiscoPing` RTT. `twoPhaseStart`, `cancelSafeLifecycle`, and

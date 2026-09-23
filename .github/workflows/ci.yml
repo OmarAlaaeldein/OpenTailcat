@@ -28,6 +28,25 @@ jobs:
             echo "AAR hash $got does not match app/libs/libtailcat.aar.sha256 ($want)"
             exit 1
           fi
+      - name: Verify AAR matches native source tree
+        run: |
+          got="$(find core-engine third_party \
+            -type f \
+            ! -path '*/.git/*' \
+            ! -name '*.aar' \
+            ! -name '*.aar.sha256' \
+            ! -path '*/build/*' \
+            -print0 |
+            sort -z |
+            xargs -0 sha256sum |
+            sha256sum |
+            awk '{print $1}')"
+          want="$(tr -d ' \n' < app/libs/libtailcat.aar.sourcehash)"
+          if [ "$got" != "$want" ]; then
+            echo "Native source hash $got does not match app/libs/libtailcat.aar.sourcehash ($want)."
+            echo "Rebuild with core-engine/build-aar.sh so the checked-in AAR tracks its source."
+            exit 1
+          fi
 
   android:
     runs-on: ubuntu-latest

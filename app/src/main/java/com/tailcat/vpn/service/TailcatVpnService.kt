@@ -125,6 +125,7 @@ class TailcatVpnService : VpnService() {
             // Provide current validated Android LinkProperties, interface state, and DNS policy to native engine
             val networkState = org.json.JSONObject(app.networkMonitor.getNetworkStateJSON()).apply {
                 put("dnsPolicy", profile.dnsPolicy.name)
+                put("tunnelMtu", profile.mtu)
                 if (profile.dnsPolicy == com.tailcat.vpn.core.model.DnsPolicy.FORCED_RESOLVER) {
                     put("forcedDns", dnsValidation.ip)
                 }
@@ -158,6 +159,9 @@ class TailcatVpnService : VpnService() {
             protectOpenTransportSockets(excludeTun = warm)
             currentCoroutineContext().ensureActive()
             checkNotShuttingDown()
+            // Intentional two-phase rebind: disarm pump-failure so the planned
+            // detach cannot race a FAILED mark before the routed TUN attaches.
+            app.tunnelEngine.disarmPumps()
             app.tunnelEngine.detachTun()
             app.tunnelEngine.ensureTransportProtect()
             protectOpenTransportSockets()

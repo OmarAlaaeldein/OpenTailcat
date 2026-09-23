@@ -42,6 +42,9 @@ const (
 	maxActiveUDPFlowsPerSource = 128
 	tcpMaxEstablished          = 1024
 	maxUDPPacketSize           = 65535
+	// tcpCopyBufSize reduces per-syscall overhead on bulk transfers through
+	// the userspace TCP proxy (default io.Copy buffer is 32KB).
+	tcpCopyBufSize = 256 * 1024
 )
 
 type udpFlowKey struct {
@@ -143,7 +146,13 @@ func newNetstackProxy(bridge *TunBridge) (*netstackProxy, error) {
 		return nil, fmt.Errorf("enable TCP SACK: %v", err)
 	}
 
-	linkEP := channel.New(netstackQueueSize, netstackMTU, "")
+	// Prefer the bridge MTU (profile-driven, clamped) over the historical
+	// fixed 1280 so a raised profile MTU is not silently truncated here.
+	stackMTU := uint32(netstackMTU)
+	if bridge != nil && bridge.mtu >= minTunnelMTU {
+		stackMTU = uint32(bridge.mtu)
+	}
+	linkEP := channel.New(netstackQueueSize, stackMTU, "")
 	linkEP.LinkEPCapabilities |= stack.CapabilityRXChecksumOffload
 	if err := ipStack.CreateNIC(netstackNIC, linkEP); err != nil {
 		ipStack.Destroy()
@@ -359,9 +368,12 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest) {
 	defer remote.Close()
 
 	copyDone := make(chan struct{}, 2)
+	// Large dedicated buffers: two directions must not share one pool slice.
+	bufUp := make([]byte, tcpCopyBufSize)
+	bufDown := make([]byte, tcpCopyBufSize)
 	go func() {
 		defer p.recoverFlow("tcp copy")
-		_, _ = io.Copy(remote, local)
+		_, _ = io.CopyBuffer(remote, local, bufUp)
 		if closeWriter, ok := remote.(interface{ CloseWrite() error }); ok {
 			_ = closeWriter.CloseWrite()
 		}
@@ -369,7 +381,7 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest) {
 	}()
 	go func() {
 		defer p.recoverFlow("tcp copy")
-		_, _ = io.Copy(local, remote)
+		_, _ = io.CopyBuffer(local, remote, bufDown)
 		_ = local.CloseWrite()
 		copyDone <- struct{}{}
 	}()

@@ -4,18 +4,12 @@ package engine
 
 import (
 	"encoding/json"
-	"os"
-	"strings"
 	"testing"
 	"time"
 )
 
 func TestLiveIPv6EgressProbe(t *testing.T) {
-	raw, err := os.ReadFile("/workspace/.opentailcat-private/live-token.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	token := strings.TrimSpace(string(raw))
+	token := loadLiveToken(t)
 	t.Log("capabilities:", GetCapabilitiesJSON())
 	start := time.Now()
 	if err := Prepare(token); err != nil {

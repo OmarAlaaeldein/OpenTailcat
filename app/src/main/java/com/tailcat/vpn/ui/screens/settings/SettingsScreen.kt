@@ -41,6 +41,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -48,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -72,6 +75,7 @@ import com.tailcat.vpn.ui.theme.SurfaceDark
 import com.tailcat.vpn.ui.theme.TextMuted
 import com.tailcat.vpn.ui.theme.TextPrimary
 import com.tailcat.vpn.ui.theme.TextSecondary
+import com.tailcat.vpn.ui.theme.YellowWarning
 
 data class AppInfoItem(val packageName: String, val appName: String)
 
@@ -176,6 +180,13 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                                 fontWeight = FontWeight.SemiBold
                             )
                         )
+                        if (engineAvailability.testRouting) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Test-routing build: data-plane capabilities are implemented and enabled for Connect. Phase 8 physical leak acceptance is still pending — not a production/leak-free claim.",
+                                style = MaterialTheme.typography.bodySmall.copy(color = YellowWarning)
+                            )
+                        }
                         if (!engineAvailability.isAvailable) {
                             Spacer(Modifier.height(6.dp))
                             Text(
@@ -186,6 +197,23 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                     }
 
                     SettingsCard(icon = Icons.Default.Security, title = "Always-on & kill switch") {
+                        val lockdown = remember(context) {
+                            com.tailcat.vpn.service.LockdownProbe.alwaysOnLockdownConfigured(
+                                context.contentResolver,
+                                context.packageName
+                            )
+                        }
+                        Text(
+                            when (lockdown) {
+                                true -> "Status: Always-on VPN with ‘Block connections without VPN’ appears ON for this app."
+                                false -> "Status: Always-on lockdown is not enabled for this app."
+                                null -> "Status: Lockdown settings could not be read on this device."
+                            },
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = if (lockdown == true) EmeraldConnected else TextSecondary
+                            )
+                        )
+                        Spacer(Modifier.height(8.dp))
                         Text(
                             "Recommended on Android 10+: turn on Always-on VPN and ‘Block connections without VPN’ for stronger leak protection. Connect still works without them. Note: with lockdown on, Android blocks checked apps from using the network entirely.",
                             style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary)
@@ -282,6 +310,95 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         )
                     }
 
+                    SettingsCard(icon = Icons.Default.Dns, title = "Active profile DNS") {
+                        val activeProfile by app.profileRepository.activeProfile.collectAsState()
+                        var activeDnsText by remember(activeProfile?.id) {
+                            mutableStateOf(activeProfile?.customDns ?: store.defaultDns)
+                        }
+                        var activePolicy by remember(activeProfile?.id) {
+                            mutableStateOf(
+                                activeProfile?.dnsPolicy
+                                    ?: com.tailcat.vpn.core.model.DnsPolicy.PROFILE_RESOLVER
+                            )
+                        }
+                        var activeDnsMessage by remember { mutableStateOf<String?>(null) }
+
+                        if (activeProfile == null) {
+                            Text(
+                                "Pair a gateway profile first.",
+                                style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
+                            )
+                        } else {
+                            Text(
+                                activeProfile!!.name,
+                                style = MaterialTheme.typography.bodySmall.copy(color = TextMuted)
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            val activeDnsValidation = remember(activeDnsText) {
+                                com.tailcat.vpn.core.dns.DnsValidator.validate(activeDnsText)
+                            }
+                            OutlinedTextField(
+                                value = activeDnsText,
+                                onValueChange = { activeDnsText = it; activeDnsMessage = null },
+                                label = { Text("Resolver IP") },
+                                isError = activeDnsValidation is com.tailcat.vpn.core.dns.DnsValidationResult.Invalid,
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            listOf(
+                                com.tailcat.vpn.core.model.DnsPolicy.PROFILE_RESOLVER to "Profile resolver",
+                                com.tailcat.vpn.core.model.DnsPolicy.FORCED_RESOLVER to "Forced resolver"
+                            ).forEach { (policy, label) ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { activePolicy = policy }
+                                ) {
+                                    RadioButton(
+                                        selected = activePolicy == policy,
+                                        onClick = { activePolicy = policy },
+                                        colors = RadioButtonDefaults.colors(
+                                            selectedColor = AccentCyan,
+                                            unselectedColor = BorderSubtle
+                                        )
+                                    )
+                                    Text(label, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                enabled = activeDnsValidation is com.tailcat.vpn.core.dns.DnsValidationResult.Valid,
+                                onClick = {
+                                    val result = app.profileRepository.updateProfileDns(
+                                        profileId = activeProfile!!.id,
+                                        customDns = activeDnsText,
+                                        dnsPolicy = activePolicy
+                                    )
+                                    activeDnsMessage = result.fold(
+                                        onSuccess = {
+                                            val reconnect = app.tunnelController.tunnelState.value !=
+                                                com.tailcat.vpn.core.model.TunnelState.DISCONNECTED
+                                            if (reconnect) {
+                                                "DNS saved. Reconnect for the new resolver to apply."
+                                            } else {
+                                                "DNS saved for ${activeProfile!!.name}."
+                                            }
+                                        },
+                                        onFailure = { it.message ?: "Could not save DNS settings" }
+                                    )
+                                }
+                            ) {
+                                Text("Save profile DNS")
+                            }
+                            activeDnsMessage?.let { msg ->
+                                Spacer(Modifier.height(6.dp))
+                                Text(msg, style = MaterialTheme.typography.bodySmall.copy(color = AccentCyan))
+                            }
+                        }
+                    }
+
                     SettingsCard(icon = Icons.Default.Info, title = "About & legal") {
                         Text(
                             "OpenTailcat • v${BuildConfig.VERSION_NAME}",
@@ -317,11 +434,28 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                             .padding(horizontal = 16.dp, vertical = 0.dp)
                     ) {
                     item {
+                        val originalExclusions = remember { store.splitTunnelExcludedApps }
                         Text(
                             "Checked apps bypass the VPN and use the device network directly. Changes apply the next time the tunnel starts. The tunnel is not leak-free while any app is checked.",
                             style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary),
                             modifier = Modifier.padding(bottom = 12.dp, top = 6.dp)
                         )
+                        val tunnelState by app.tunnelController.tunnelState.collectAsState()
+                        if (tunnelState != com.tailcat.vpn.core.model.TunnelState.DISCONNECTED &&
+                            excludedApps != originalExclusions
+                        ) {
+                            Text(
+                                "Exclusion list changed while the tunnel is up. Disconnect and Connect again for it to apply.",
+                                style = MaterialTheme.typography.bodySmall.copy(color = YellowWarning),
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            )
+                        } else if (tunnelState != com.tailcat.vpn.core.model.TunnelState.DISCONNECTED) {
+                            Text(
+                                "Tunnel is running. New exclusions take effect on the next Connect.",
+                                style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            )
+                        }
                     }
 
                     items(visibleApps, key = { it.packageName }) { item ->

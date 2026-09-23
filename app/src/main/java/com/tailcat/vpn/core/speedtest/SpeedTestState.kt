@@ -18,5 +18,8 @@ data class SpeedTestResult(
     val progress: Float = 0f, // 0.0 to 1.0
     val currentSpeedGauge: Double = 0.0,
     val errorMessage: String? = null,
-    val viaGateway: Boolean = false
+    val viaGateway: Boolean = false,
+    val failedStage: SpeedTestStage? = null,
+    val stageDetail: String? = null,
+    val findings: List<TroubleshootFinding> = emptyList()
 )

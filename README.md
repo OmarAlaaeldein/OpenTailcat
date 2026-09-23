@@ -12,6 +12,15 @@ Android client for Tailcat. Paste a `tc…` token and connect to **your** gatewa
   <img src="docs/screenshots/network-benchmark.png" alt="Network benchmark" width="280" />
 </p>
 
+## What’s new in 1.3.6
+
+- Speed test **troubleshooter**: failed or slow gateway benchmarks now list
+  concrete causes (stale discovery RTT, DERP relay, TCP-only gateway, elevated
+  RTT, data-plane drops, dead tunnel health) instead of a silent generic error.
+- Stage attribution (ping/download/upload) and private-IP redaction in
+  free-form diagnostic text.
+- Doc/cleanup pass for 1.3.6; no data-plane capability promotions.
+
 ## What’s new in 1.3.5
 
 - The Settings > Apps picker now lists **every app installed on the phone** —
@@ -42,13 +51,13 @@ Android client for Tailcat. Paste a `tc…` token and connect to **your** gatewa
 
 1. Grab the [latest release](https://github.com/OmarAlaaeldein/OpenTailcat/releases/latest).
 2. APKs:
-   - **Phone:** `OpenTailcat-1.3.5-arm64-v8a.apk`
-   - **Emulator (x86_64):** `OpenTailcat-1.3.5-x86_64.apk`
+   - **Phone:** `OpenTailcat-1.3.6-arm64-v8a.apk`
+   - **Emulator (x86_64):** `OpenTailcat-1.3.6-x86_64.apk`
 3. Install it (allow installs from your browser/file manager if asked).
 4. Optional: enable **Always-on VPN** and **Block connections without VPN** for OpenTailcat — better if the tunnel drops. Connect still works without them.
 5. Paste your `tc…` token and tap Connect.
 
-Checksums are in `OpenTailcat-1.3.5-SHA256SUMS.txt` (AAR `aa0fa1bd…`).
+Checksums are in `OpenTailcat-1.3.6-SHA256SUMS.txt`.
 
 ## How it works
 

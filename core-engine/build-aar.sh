@@ -10,6 +10,21 @@ OUTPUT_AAR="${ROOT_DIR}/app/libs/libtailcat.aar"
 CANONICAL_BUILD_DIR="/tmp/opentailcat-build"
 
 echo "==> Resolving Android NDK..."
+PIN_NDK="29.0.14206865"
+if [[ -z "${ANDROID_NDK_HOME:-}" ]]; then
+    # Prefer the pinned SDK install over a newer Homebrew NDK that would
+    # fail the version check below.
+    if [[ -n "${ANDROID_HOME:-}" && -d "${ANDROID_HOME}/ndk/${PIN_NDK}" ]]; then
+        export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${PIN_NDK}"
+    elif [[ -n "${ANDROID_SDK_ROOT:-}" && -d "${ANDROID_SDK_ROOT}/ndk/${PIN_NDK}" ]]; then
+        export ANDROID_NDK_HOME="${ANDROID_SDK_ROOT}/ndk/${PIN_NDK}"
+    elif [[ -f "${ROOT_DIR}/local.properties" ]]; then
+        SDK_DIR="$(sed -n 's/^sdk.dir=//p' "${ROOT_DIR}/local.properties" | head -n1 | tr -d '\r')"
+        if [[ -n "${SDK_DIR}" && -d "${SDK_DIR}/ndk/${PIN_NDK}" ]]; then
+            export ANDROID_NDK_HOME="${SDK_DIR}/ndk/${PIN_NDK}"
+        fi
+    fi
+fi
 if [[ -z "${ANDROID_NDK_HOME:-}" ]]; then
     if [[ -d "/opt/homebrew/share/android-ndk" ]]; then
         export ANDROID_NDK_HOME="/opt/homebrew/share/android-ndk"
@@ -70,6 +85,26 @@ rm -rf "${CANONICAL_BUILD_DIR}"
 mkdir -p "${CANONICAL_BUILD_DIR}"
 cp -R "${ROOT_DIR}/core-engine" "${CANONICAL_BUILD_DIR}/core-engine"
 cp -R "${ROOT_DIR}/third_party" "${CANONICAL_BUILD_DIR}/third_party"
+
+# Record the exact native source tree the AAR was built from so CI can fail
+# when Go/third_party changes land without a rebuild (AAR must not lag source).
+echo "==> Hashing native source inputs..."
+SOURCE_HASH="$(
+    cd "${ROOT_DIR}" &&
+    find core-engine third_party \
+        -type f \
+        ! -path '*/.git/*' \
+        ! -name '*.aar' \
+        ! -name '*.aar.sha256' \
+        ! -path '*/build/*' \
+        -print0 |
+        sort -z |
+        xargs -0 shasum -a 256 |
+        shasum -a 256 |
+        awk '{print $1}'
+)"
+printf '%s\n' "${SOURCE_HASH}" > "${ROOT_DIR}/app/libs/libtailcat.aar.sourcehash"
+echo "==> Native source hash: ${SOURCE_HASH}"
 
 cd "${CANONICAL_BUILD_DIR}/core-engine"
 

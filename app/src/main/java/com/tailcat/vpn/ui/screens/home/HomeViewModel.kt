@@ -65,10 +65,13 @@ class HomeViewModel : ViewModel() {
 
     fun toggleVpn(): Boolean {
         when (tunnelState.value) {
-            TunnelState.DISCONNECTED, TunnelState.DEGRADED -> {
+            TunnelState.DISCONNECTED -> {
                 return tunnelController.startTunnel()
             }
-            TunnelState.CONNECTED, TunnelState.CONNECTING, TunnelState.RECONNECTING -> {
+            TunnelState.CONNECTED,
+            TunnelState.CONNECTING,
+            TunnelState.RECONNECTING,
+            TunnelState.DEGRADED -> {
                 tunnelController.stopTunnel()
             }
         }
@@ -92,6 +95,15 @@ class HomeViewModel : ViewModel() {
         dnsPolicy: com.tailcat.vpn.core.model.DnsPolicy = com.tailcat.vpn.core.model.DnsPolicy.PROFILE_RESOLVER
     ): Result<GatewayProfile> {
         return profileRepository.addOrUpdateFromToken(name, token, customDns, dnsPolicy)
+    }
+
+    fun updateActiveProfileDns(
+        customDns: String,
+        dnsPolicy: com.tailcat.vpn.core.model.DnsPolicy
+    ): Result<GatewayProfile> {
+        val profile = activeProfile.value
+            ?: return Result.failure(IllegalArgumentException("No gateway profile is selected"))
+        return profileRepository.updateProfileDns(profile.id, customDns, dnsPolicy)
     }
 
     fun deleteProfile(id: String) {

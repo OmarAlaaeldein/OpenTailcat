@@ -49,7 +49,10 @@ class IpAuditor {
             connection.readTimeout = REQUEST_TIMEOUT_MS
             connection.requestMethod = "GET"
             connection.useCaches = false
-            connection.setRequestProperty("User-Agent", "OpenTailcat-Android/1.2.4")
+            connection.setRequestProperty(
+                "User-Agent",
+                "OpenTailcat-Android/${com.tailcat.vpn.BuildConfig.VERSION_NAME}"
+            )
             check(connection.responseCode in 200..299) {
                 "Endpoint returned HTTP ${connection.responseCode}"
             }

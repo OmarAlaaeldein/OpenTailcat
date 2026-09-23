@@ -74,6 +74,9 @@ func TestLifecycleHappyPathPrepareAttachStop(t *testing.T) {
 	if stats.Transport != "DERP_RELAY" {
 		t.Fatalf("expected DERP_RELAY transport after prepare Ping, got %s", stats.Transport)
 	}
+	if stats.RTTMs <= 0 {
+		t.Fatalf("expected rttMs > 0 at PREPARED, got %d", stats.RTTMs)
+	}
 	if stats.Ipv6Egress {
 		t.Fatal("fake prepare client has no IPv6 WAN; ipv6Egress must be false")
 	}

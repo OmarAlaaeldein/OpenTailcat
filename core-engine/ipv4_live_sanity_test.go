@@ -6,18 +6,12 @@ import (
 	"context"
 	"crypto/tls"
 	"net/netip"
-	"os"
-	"strings"
 	"testing"
 	"time"
 )
 
 func TestLiveIPv4EgressStillWorks(t *testing.T) {
-	raw, err := os.ReadFile("/workspace/.opentailcat-private/live-token.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	token := strings.TrimSpace(string(raw))
+	token := loadLiveToken(t)
 	if err := Prepare(token); err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}

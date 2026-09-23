@@ -7,7 +7,7 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.3.5 on `main` (all 1.3.3 changes — audit H1–H7 source fixes after 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep, strict interior-whitespace token error, 5s UDP capability probe with periodic re-probe, `tcpOnly` telemetry, private-DNS rejection, native pump panic containment, disco-failure transport downgrade with `discoStale`, dead `GATEWAY_RESOLVER` removal, structured data-plane failure reporting with a debug diagnostics flag, nil-dial hardening with panic call-site reporting, typed-nil Close fix and per-flow panic isolation, HealthStale 15s/3-poll grace for intermittent 6s auto-close, notification/TelemetryCard live TUN rates instead of always-zero WG txBytes, and 200.x stale-DNS networking-corruption fix (`pendingDNS` cleared on `abandonPrepare`, `TelemetryCard` now `isLiveRunning`) — plus working split-tunnel exclusions applied with `addDisallowedApplication` and an all-apps picker with search; see the dated sections below). IPv4 test-routing capabilities are
+- Android repository: version 1.3.6 on `main` (all 1.3.3–1.3.5 changes — audit H1–H7 source fixes after 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep, strict interior-whitespace token error, 5s UDP capability probe with periodic re-probe, `tcpOnly` telemetry, private-DNS rejection, native pump panic containment, disco-failure transport downgrade with `discoStale`, dead `GATEWAY_RESOLVER` removal, structured data-plane failure reporting with a debug diagnostics flag, nil-dial hardening with panic call-site reporting, typed-nil Close fix and per-flow panic isolation, HealthStale 15s/3-poll grace for intermittent 6s auto-close, notification/TelemetryCard live TUN rates instead of always-zero WG txBytes, 200.x stale-DNS networking-corruption fix (`pendingDNS` cleared on `abandonPrepare`, `TelemetryCard` now `isLiveRunning`), working split-tunnel exclusions with `addDisallowedApplication`, all-apps picker with search, PREPARED `rttMs` reporting, and a speed-test troubleshooter that surfaces silent stage failures and tunnel diagnostics — see the dated sections below). IPv4 test-routing capabilities are
   true so Connect can be exercised with a live token. `ipv6` is true; `ipv6Egress` is session-measured.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
@@ -24,12 +24,21 @@ unsafe shortcuts already found in the tree.
   unmodified `0c31395bfd1ae0c0ef2917c0ec20432466087417` (application-layer UDP).
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.1 and NDK 29.0.14206865. Current SHA-256:
-   `aa0fa1bdda9ae102d3ef7a7153c2d1ceca3f5165c8c707e8b490d97997a75999`
-  (previous 1.3.2 SHA `a03e832082535bc4f8f860147bd1fa523e42d1c716e24d71a26c0041034b0976`
-  before the 200.x pendingDNS fix).
+   `9e3256a9449347159913215cad258acbd528601a39175d310dda0e3bfd6b311c`
+  (previous source-fixed AAR SHAs `c5b479c0b5710ed926804cb0b827472e5648b6bd356679195815ac888fa1b606`,
+  `aa0fa1bdda9ae102d3ef7a7153c2d1ceca3f5165c8c707e8b490d97997a75999`, and
+  1.3.2 SHA `a03e832082535bc4f8f860147bd1fa523e42d1c716e24d71a26c0041034b0976`).
+  Sidecars: `app/libs/libtailcat.aar.sha256`, `app/libs/libtailcat.aar.sourcehash`.
+  Liveprobe token for host tests is read from `OPENTAILCAT_LIVE_TOKEN` or
+  `~/.opentailcat-private/live-token.txt` (never committed).
 - ARM64 and x86-64 ELF load segments are 16 KB aligned.
 - Audit verification passed: `go test -race ./...`, `go vet ./...`, Android unit
   tests, lint with zero errors, `assembleRelease`, and `bundleRelease`.
+- Host liveprobe (`go test -tags liveprobe`, token via `OPENTAILCAT_LIVE_TOKEN`
+  or `~/.opentailcat-private/live-token.txt`): IPv4 TLS via gateway OK; short
+  DialTCP download sample ~10.8 Mbps; transport observed as DERP_RELAY with
+  later direct path contact; `ipv6Egress=false` (gateway WAN / probe fail);
+  one prepare sample latched `tcpOnly=true` (UDP probe) and one `tcpOnly=false`.
 
 Passing these build checks is not a data-plane release gate. No current test
 establishes a full Android VPN or proves leak-free traffic.
@@ -128,14 +137,13 @@ acceptance are unchanged.
 
 ## Release status
 
-The current tree is **1.3.5** versionCode **35** (AAR `aa0fa1bdda9ae102d3ef7a7153c2d1ceca3f5165c8c707e8b490d97997a75999`,
+The current tree is **1.3.6** versionCode **36** (AAR `9e3256a9449347159913215cad258acbd528601a39175d310dda0e3bfd6b311c`,
 Go 1.27.1, NDK 29.0.14206865, 16 KB) with the 200.x stale-DNS fix, the
-split-tunnel exclusion fix, and the all-apps picker fix above. 1.3.4 used
-versionCode 34; the 1.2.14
-checkpoint used versionCode 27. Rebuild the native AAR before shipping Android
-binaries that need H2–H5 engine behavior. The prior 1.2.3 download rebuild used
-versionCode 16 and the `development` build type:
-release R8/resource optimization with the existing development certificate and
+split-tunnel exclusion fix, the all-apps picker fix, PREPARED `rttMs`
+reporting, and the speed-test troubleshooter above. 1.3.5 used
+versionCode 35; 1.3.4 used versionCode 34; the 1.2.14
+checkpoint used versionCode 27. The `development` build type is release
+R8/resource optimization with the existing development certificate and
 no debug UI tooling. `release` signing remains separate. To reproduce these
 APKs, run `./gradlew assembleDevelopment`. The existing instrumentation suite
 targets debug; optimized APKs are checked directly through the emulator UI.
@@ -143,7 +151,9 @@ This packaging correction promotes no VPN capabilities.
 
 The current tree is a development prototype with verified token parsing and a
 userspace netstack UDP proxy. DNS routing and telemetry code exist; IPv4 `dns`
-and `liveStats` are test-enabled, not Phase 8 accepted. It is not a production
+and `liveStats` are test-enabled, not Phase 8 accepted. Capability JSON also
+reports `testRouting: true` (optional, non-gating); Settings surfaces it while
+Phase 8 physical leak acceptance is pending. It is not a production
 full-device VPN. Do not distribute the APK as a privacy or security product.
 
 IPv4-only Connect is enabled for live-token testing. `ipv6` is true; `ipv6Egress` is session-measured.
@@ -170,8 +180,9 @@ IPv4 flags now set true.
 ## Non-negotiable invariants
 
 1. Until every required release gate passes, do not claim production readiness.
-   IPv4 test-routing flags are currently true so Connect can run; `ipv6` stays
-   false. Unknown capability fields still fail closed. A bundled AAR is not
+   IPv4 test-routing flags are currently true so Connect can run; client
+   `ipv6` is true (`ipv6Egress` is session-measured and needs gateway WAN).
+   Unknown capability fields still fail closed. A bundled AAR is not
    Phase 8 acceptance.
 2. Never install `0.0.0.0/0` or `::/0` around an incomplete or unhealthy packet
    pump.
@@ -420,13 +431,17 @@ only Tailcat transport between client and gateway.
      - Under `PROFILE_RESOLVER` (default), preserves the destination IP from the TUN datagram verbatim and forwards it through `Client.DialUDP` or `Client.DialTCP`.
      - Under `FORCED_RESOLVER`, redirects port 53 queries exclusively to the configured `ForcedDNS` endpoint.
      - Any other policy string, including Kotlin `GATEWAY_RESOLVER`, is treated as `PROFILE_RESOLVER`.
-   - Preserves full datagram boundaries up to 65,535 bytes to prevent truncation of large EDNS0 / DNSSEC responses. Bridge MTU is hardcoded 1280 and can still drop larger outbound packets before inject.
+     - Preserves full datagram boundaries up to 65,535 bytes to prevent truncation of large EDNS0 / DNSSEC responses. Bridge MTU is profile-driven (`updateNetworkState` `tunnelMtu`, clamped 1280–1500) and matches `VpnService.Builder`.
    - The engine does **not** inspect DNS TC bits. `TestDNSTruncationAndTCPRetryFallback` forwards the TC=1 UDP answer, then the test itself calls `DialTCP`. If Android/libc retries over TCP/53, that flow is a normal TCP proxy.
    - Do not promote `dns` until the evidence in the capability table exists.
 
 2. **Android DNS validation and policy (`app`):**
    - Created `DnsValidator` with strict IPv4 and IPv6 validation. Rejects loopback (`127.0.0.0/8`, `::1`), multicast (`224.0.0.0/4`, `ff00::/8`), broadcast (`255.255.255.255`), unspecified (`0.0.0.0`, `::`), leading-zero octets, hostnames, URLs, and ports.
-    - Added `DnsPolicy` enum (`PROFILE_RESOLVER`, `FORCED_RESOLVER`, `GATEWAY_RESOLVER`). There is no UI policy picker; add-profile defaults to `PROFILE_RESOLVER`. `GATEWAY_RESOLVER` is never selected. Settings default DNS is a free-form IP (examples 1.1.1.1, 9.9.9.9).
+    - `DnsPolicy` is `PROFILE_RESOLVER` or `FORCED_RESOLVER` (legacy
+      `GATEWAY_RESOLVER` migrates via `fromString` to `PROFILE_RESOLVER`).
+      Add-profile dialog and Settings "Active profile DNS" expose radios for
+      profile vs forced; Settings default DNS is a free-form IP (examples
+      1.1.1.1, 9.9.9.9).
    - Added `PreferencesStorage` interface and `defaultDns` setting.
    - Integrated DNS validation and policy persistence in `ProfileRepository` (`addOrUpdateFromToken`, `updateProfileDns`) with fallback for corrupt legacy data.
    - Enforced DNS validation in `TailcatVpnService` before calling `Builder.addDnsServer`. Native omit-means-preserve keeps pending DNS across roam `updateNetworkState` payloads that lack `dnsPolicy`.

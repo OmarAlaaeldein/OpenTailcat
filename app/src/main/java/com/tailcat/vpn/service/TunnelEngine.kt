@@ -7,7 +7,8 @@ import java.lang.reflect.Method
 
 data class EngineAvailability(
     val isAvailable: Boolean,
-    val message: String
+    val message: String,
+    val testRouting: Boolean = false
 )
 
 data class EngineCapabilities(
@@ -22,7 +23,13 @@ data class EngineCapabilities(
     val udp: Boolean,
     val dns: Boolean,
     val liveStats: Boolean,
-    val cancelSafeLifecycle: Boolean
+    val cancelSafeLifecycle: Boolean,
+    /**
+     * True while native flags advertise an implemented test-routing data plane
+     * that has not passed Phase 8 physical leak acceptance. Display-only; does
+     * not gate Connect.
+     */
+    val testRouting: Boolean = false
 ) {
     /**
      * Verifies dual-stack default-route capabilities. OpenTailcat installs
@@ -52,7 +59,8 @@ data class EngineCapabilities(
             "udp",
             "dns",
             "liveStats",
-            "cancelSafeLifecycle"
+            "cancelSafeLifecycle",
+            "testRouting"
         )
 
         fun fromJson(raw: String): EngineCapabilities {
@@ -73,7 +81,8 @@ data class EngineCapabilities(
                 udp = json.optBoolean("udp", false),
                 dns = json.optBoolean("dns", false),
                 liveStats = json.optBoolean("liveStats", false),
-                cancelSafeLifecycle = json.optBoolean("cancelSafeLifecycle", false)
+                cancelSafeLifecycle = json.optBoolean("cancelSafeLifecycle", false),
+                testRouting = json.optBoolean("testRouting", false)
             )
         }
     }
@@ -239,7 +248,7 @@ class TunnelEngine : NativeEngine {
             requireMethod("attachTun", parameterCount = 1)
             requireMethod("getStatsJSON", parameterCount = 0)
             requireMethod("stop", parameterCount = 0)
-            EngineAvailability(true, "VPN engine ready")
+            EngineAvailability(true, "VPN engine ready", testRouting = caps.testRouting)
         }.getOrElse { EngineAvailability(false, it.message ?: "VPN engine is unavailable") }
     }
 

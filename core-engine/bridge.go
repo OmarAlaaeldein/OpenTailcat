@@ -103,7 +103,16 @@ func (b *TunBridge) GetDNSConfig() *DNSConfig {
 	return b.dnsConfig.Load()
 }
 
+// defaultTunnelMTU is the fail-closed TUN/netstack MTU when Android does not
+// supply a profile MTU. 1280 is the IPv6 minimum and the safe mobile default.
+const (
+	defaultTunnelMTU = 1280
+	minTunnelMTU     = 1280
+	maxTunnelMTU     = 1500
+)
+
 // newTunBridge creates a new packet bridge using a duplicated TUN file descriptor.
+// mtu <= 0 selects defaultTunnelMTU.
 func newTunBridge(
 	tunFD int,
 	client TunnelClient,
@@ -112,6 +121,7 @@ func newTunBridge(
 	rttMs int64,
 	sessionID int64,
 	parentCtx context.Context,
+	mtu int,
 ) (*TunBridge, error) {
 	if tunFD < 0 {
 		return nil, errors.New("invalid tun file descriptor")
@@ -133,6 +143,13 @@ func newTunBridge(
 	}
 	ctx, cancel := context.WithCancel(parentCtx)
 
+	if mtu < minTunnelMTU {
+		mtu = defaultTunnelMTU
+	}
+	if mtu > maxTunnelMTU {
+		mtu = maxTunnelMTU
+	}
+
 	b := &TunBridge{
 		sessionID: sessionID,
 		tunFile:   tunFile,
@@ -140,13 +157,16 @@ func newTunBridge(
 		token:     token,
 		transport: transport,
 		rttMs:     rttMs,
-		mtu:       1280,
+		mtu:       mtu,
 		ctx:       ctx,
 		cancel:    cancel,
 		lastTime:  time.Now(),
 	}
 	if rttMs > 0 {
 		b.rttSamples = []int64{rttMs}
+		// prepare already completed a live DiscoPing; seed freshness so the
+		// first stats sample does not report a false discoStale/DEGRADED flap.
+		b.discoFresh.Store(true)
 	}
 
 	netstack, err := newNetstackProxy(b)

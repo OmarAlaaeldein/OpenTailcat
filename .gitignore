@@ -18,6 +18,7 @@ Tailcat-*.apk
 build/
 app/build/
 core-engine/build/
+.kotlin/
 
 # Go Binaries & Native Libraries
 bin/

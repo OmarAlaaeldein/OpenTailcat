@@ -67,6 +67,8 @@ type TailcatCore struct {
 	lastErr    string
 	healthUnix atomic.Int64
 	pendingDNS atomic.Pointer[DNSConfig]
+	// pendingMTU is the profile TUN MTU staged by UpdateNetworkState (0 = default).
+	pendingMTU atomic.Int64
 	stopping   bool
 	stopWait   chan struct{}
 }
@@ -227,6 +229,7 @@ func abandonPrepare(sess *session) {
 		// pendingDNS.Load() in AttachTun, effectively forcing the user onto
 		// the previous profile's resolver after a handshake failure.
 		globalCore.pendingDNS.Store(nil)
+		globalCore.pendingMTU.Store(0)
 	}
 	globalCore.mu.Unlock()
 	if sess != nil {
@@ -260,6 +263,7 @@ func AttachTun(tunFD int) error {
 	tcpOnly := sess.tcpOnly
 	ipv6Egress := sess.ipv6Egress
 	dns := globalCore.pendingDNS.Load()
+	tunnelMTU := int(globalCore.pendingMTU.Load())
 	globalCore.mu.Unlock()
 
 	if oldBridge != nil {
@@ -271,7 +275,7 @@ func AttachTun(tunFD int) error {
 		return parentCtx.Err()
 	}
 
-	bridge, err := newTunBridge(tunFD, client, token, transport, rttMs, sessionID, parentCtx)
+	bridge, err := newTunBridge(tunFD, client, token, transport, rttMs, sessionID, parentCtx, tunnelMTU)
 	if err != nil {
 		abandonAttach(sess)
 		return fmt.Errorf("create tun bridge: %w", err)
@@ -469,6 +473,7 @@ func GetStatsJSON() string {
 		if sess != nil && (state == StatePrepared || state == StateAttaching) {
 			stats.TcpOnly = sess.tcpOnly
 			stats.Ipv6Egress = sess.ipv6Egress
+			stats.RTTMs = sess.rttMs
 			if sess.transport != "" {
 				stats.Transport = sess.transport
 			}

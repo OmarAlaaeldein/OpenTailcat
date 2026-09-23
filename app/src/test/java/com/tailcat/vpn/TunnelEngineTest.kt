@@ -75,6 +75,45 @@ class TunnelEngineTest {
     }
 
     @Test
+    fun testEngineCapabilitiesTestRoutingIsParsedAndOptional() {
+        val withFlag = """{
+            "apiVersion": 2,
+            "dataPlane": true,
+            "wireGuard": true,
+            "magicsock": true,
+            "twoPhaseStart": true,
+            "ipv4": true,
+            "ipv6": true,
+            "tcp": true,
+            "udp": true,
+            "dns": true,
+            "liveStats": true,
+            "cancelSafeLifecycle": true,
+            "testRouting": true
+        }"""
+        val caps = EngineCapabilities.fromJson(withFlag)
+        assertTrue(caps.testRouting)
+        assertTrue(caps.satisfiesRouteRequirements())
+
+        val legacy = """{
+            "apiVersion": 2,
+            "dataPlane": true,
+            "wireGuard": true,
+            "magicsock": true,
+            "twoPhaseStart": true,
+            "ipv4": true,
+            "ipv6": true,
+            "tcp": true,
+            "udp": true,
+            "dns": true,
+            "liveStats": true,
+            "cancelSafeLifecycle": true
+        }"""
+        assertFalse(EngineCapabilities.fromJson(legacy).testRouting)
+        assertTrue(EngineCapabilities.fromJson(legacy).satisfiesRouteRequirements())
+    }
+
+    @Test
     fun testEngineCapabilitiesIndividualMissingFlagsFailClosed() {
         // Base complete map
         val baseFlags = mutableMapOf(

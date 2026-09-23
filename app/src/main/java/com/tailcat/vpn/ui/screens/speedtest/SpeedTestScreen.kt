@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.tailcat.vpn.core.speedtest.FindingSeverity
 import com.tailcat.vpn.core.speedtest.SpeedTestStage
 import com.tailcat.vpn.ui.screens.speedtest.components.SpeedometerGauge
 import com.tailcat.vpn.ui.theme.AccentCyan
@@ -55,6 +56,7 @@ import com.tailcat.vpn.ui.theme.SurfaceElevated
 import com.tailcat.vpn.ui.theme.TextPrimary
 import com.tailcat.vpn.ui.theme.TextSecondary
 import com.tailcat.vpn.ui.theme.VioletDerp
+import com.tailcat.vpn.ui.theme.YellowWarning
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -206,13 +208,45 @@ fun SpeedTestScreen(
             Spacer(modifier = Modifier.weight(1f))
 
             if (testState.stage == SpeedTestStage.FAILED) {
-                Text(
-                    text = testState.errorMessage ?: "The benchmark could not complete",
-                    style = MaterialTheme.typography.bodyMedium.copy(color = RedDegraded),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 12.dp)
-                )
+                Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                    Text(
+                        text = testState.errorMessage ?: "The benchmark could not complete",
+                        style = MaterialTheme.typography.bodyMedium.copy(color = RedDegraded),
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    testState.findings.filter { it.severity != FindingSeverity.ERROR }
+                        .forEach { finding ->
+                            Text(
+                                text = "• ${finding.message}",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = if (finding.severity == FindingSeverity.WARNING) {
+                                        YellowWarning
+                                    } else {
+                                        TextSecondary
+                                    },
+                                    fontSize = 11.sp
+                                ),
+                                modifier = Modifier.padding(bottom = 2.dp)
+                            )
+                        }
+                }
+            } else if (testState.stage == SpeedTestStage.COMPLETED && testState.findings.isNotEmpty()) {
+                Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                    testState.findings.forEach { finding ->
+                        Text(
+                            text = "• ${finding.message}",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = if (finding.severity == FindingSeverity.WARNING) {
+                                    YellowWarning
+                                } else {
+                                    TextSecondary
+                                },
+                                fontSize = 11.sp
+                            ),
+                            modifier = Modifier.padding(bottom = 2.dp)
+                        )
+                    }
+                }
             }
 
             // Start / Retest Action Button

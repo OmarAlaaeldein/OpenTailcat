@@ -208,7 +208,14 @@ class TunnelController(
                             stopTunnel()
                             return@launch
                         }
-                        if (_tunnelState.value == TunnelState.RECONNECTING &&
+                        if (reason == EngineHealth.TeardownReason.Healthy) {
+                            // Pumps live but live DiscoPing is stale: degraded, still usable.
+                            _tunnelState.value = if (metrics.discoStale) {
+                                TunnelState.DEGRADED
+                            } else {
+                                TunnelState.CONNECTED
+                            }
+                        } else if (_tunnelState.value == TunnelState.RECONNECTING &&
                             networkMonitor.isOnline &&
                             EngineHealth.shouldConnect(metrics, unixNow())
                         ) {

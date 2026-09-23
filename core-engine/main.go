@@ -105,6 +105,9 @@ type NetworkStatePayload struct {
 	DNSServers  []string               `json:"dnsServers,omitempty"`
 	DNSPolicy   *string                `json:"dnsPolicy,omitempty"`
 	ForcedDNS   *string                `json:"forcedDns,omitempty"`
+	// TunnelMtu is the Android VpnService.Builder MTU for the active profile
+	// (1280–1500). Omitted/invalid values leave the engine default (1280).
+	TunnelMtu *int `json:"tunnelMtu,omitempty"`
 }
 
 // UpdateNetworkState receives dynamic network changes from Android (LinkProperties, active network type,
@@ -180,6 +183,13 @@ func UpdateNetworkState(networkStateJSON string) error {
 
 	if payload.DNSPolicy != nil {
 		applyDNSPolicy(*payload.DNSPolicy, payload.ForcedDNS)
+	}
+	if payload.TunnelMtu != nil {
+		mtu := *payload.TunnelMtu
+		if mtu < minTunnelMTU || mtu > maxTunnelMTU {
+			mtu = 0
+		}
+		globalCore.pendingMTU.Store(int64(mtu))
 	}
 
 	// Notify active netmon monitor to trigger Magicsock path and endpoint re-evaluation
@@ -373,6 +383,10 @@ type Capabilities struct {
 	DNS                 bool `json:"dns"`
 	LiveStats           bool `json:"liveStats"`
 	CancelSafeLifecycle bool `json:"cancelSafeLifecycle"`
+	// TestRouting is true while capability flags advertise an implemented
+	// test-routing data plane that has not passed Phase 8 physical leak
+	// acceptance. Kotlin surfaces this; it does not gate Connect.
+	TestRouting bool `json:"testRouting"`
 }
 
 // GetCapabilitiesJSON returns the capability contract.
@@ -393,6 +407,7 @@ func GetCapabilitiesJSON() string {
 		DNS:                 true,
 		LiveStats:           true,
 		CancelSafeLifecycle: true,
+		TestRouting:         true,
 	}
 	bytes, err := json.Marshal(caps)
 	if err != nil {

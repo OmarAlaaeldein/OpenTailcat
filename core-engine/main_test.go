@@ -39,6 +39,9 @@ func TestGetCapabilitiesJSON(t *testing.T) {
 	if !caps.IPv6 {
 		t.Error("Expected ipv6 true: client proxies IPv6 or fail-closes without gateway WAN")
 	}
+	if !caps.TestRouting {
+		t.Error("Expected testRouting true: Phase 8 acceptance is still pending for this build")
+	}
 }
 
 func TestParseTokenOfficialVectors(t *testing.T) {

@@ -1,6 +1,7 @@
 package com.tailcat.vpn.core.speedtest
 
 import com.tailcat.vpn.TailcatApplication
+import com.tailcat.vpn.core.model.TunnelState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -20,7 +21,12 @@ class SpeedTestEngine {
     private val _testState = MutableStateFlow(SpeedTestResult())
     val testState: StateFlow<SpeedTestResult> = _testState.asStateFlow()
 
+    private var currentStage: SpeedTestStage = SpeedTestStage.IDLE
+    private var stageDetail: String? = null
+
     suspend fun runSpeedTest(viaGateway: Boolean = false) = withContext(Dispatchers.IO) {
+        currentStage = SpeedTestStage.MEASURING_PING
+        stageDetail = null
         _testState.value = SpeedTestResult(
             stage = SpeedTestStage.MEASURING_PING,
             progress = 0.05f,
@@ -30,12 +36,17 @@ class SpeedTestEngine {
         try {
             // Stage 1: Ping & Jitter Measurement
             val pingSamples = mutableListOf<Long>()
+            var lastPingError: String? = null
             for (i in 1..5) {
                 if (!isActive) return@withContext
                 val ping = if (viaGateway) {
-                    runCatching { TailcatApplication.instance.tunnelEngine.measureTunnelPingMs() }.getOrDefault(-1L)
+                    runCatching { TailcatApplication.instance.tunnelEngine.measureTunnelPingMs() }
+                        .onFailure { lastPingError = it.message ?: "Tunnel ping failed" }
+                        .getOrDefault(-1L)
                 } else {
-                    measureSinglePing()
+                    measureSinglePing().also { if (it <= 0L && lastPingError == null) {
+                        lastPingError = "Latency endpoint unreachable"
+                    } }
                 }
                 if (ping > 0) {
                     pingSamples.add(ping)
@@ -47,7 +58,9 @@ class SpeedTestEngine {
                 delay(150)
             }
 
-            check(pingSamples.isNotEmpty()) { "The latency endpoint did not respond" }
+            check(pingSamples.isNotEmpty()) {
+                lastPingError ?: "The latency endpoint did not respond"
+            }
             val finalPing = pingSamples.average().toLong()
             val jitter = if (pingSamples.size > 1) {
                 val diffs = pingSamples.zipWithNext { a, b -> abs(a - b) }
@@ -56,6 +69,8 @@ class SpeedTestEngine {
                 0L
             }
 
+            currentStage = SpeedTestStage.TESTING_DOWNLOAD
+            stageDetail = if (viaGateway) "gateway download via Client.DialTCP" else "physical download via app UID"
             _testState.value = _testState.value.copy(
                 stage = SpeedTestStage.TESTING_DOWNLOAD,
                 pingMs = finalPing,
@@ -64,14 +79,16 @@ class SpeedTestEngine {
             )
 
             val downloadSpeed = if (viaGateway) {
-                val mbps = TailcatApplication.instance.tunnelEngine.measureTunnelDownloadMbps()
-                check(mbps > 0.0) { "Download test returned no data" }
-                _testState.value = _testState.value.copy(
-                    downloadMbps = mbps,
-                    currentSpeedGauge = mbps,
-                    progress = 0.60f
-                )
-                mbps
+                runCatching { TailcatApplication.instance.tunnelEngine.measureTunnelDownloadMbps() }
+                    .getOrElse { throw IllegalStateException(it.message ?: "Tunnel download failed", it) }
+                    .also { mbps ->
+                        check(mbps > 0.0) { "Download test returned no data" }
+                        _testState.value = _testState.value.copy(
+                            downloadMbps = mbps,
+                            currentSpeedGauge = mbps,
+                            progress = 0.60f
+                        )
+                    }
             } else measureDownloadSpeed { currentMbps, stageProgress ->
                 _testState.value = _testState.value.copy(
                     downloadMbps = currentMbps,
@@ -80,6 +97,8 @@ class SpeedTestEngine {
                 )
             }
 
+            currentStage = SpeedTestStage.TESTING_UPLOAD
+            stageDetail = if (viaGateway) "gateway upload via Client.DialTCP" else "physical upload via app UID"
             _testState.value = _testState.value.copy(
                 stage = SpeedTestStage.TESTING_UPLOAD,
                 downloadMbps = downloadSpeed,
@@ -88,9 +107,9 @@ class SpeedTestEngine {
             )
 
             val uploadSpeed = if (viaGateway) {
-                val mbps = TailcatApplication.instance.tunnelEngine.measureTunnelUploadMbps()
-                check(mbps > 0.0) { "Upload test returned no data" }
-                mbps
+                runCatching { TailcatApplication.instance.tunnelEngine.measureTunnelUploadMbps() }
+                    .getOrElse { throw IllegalStateException(it.message ?: "Tunnel upload failed", it) }
+                    .also { mbps -> check(mbps > 0.0) { "Upload test returned no data" } }
             } else measureUploadSpeed { currentMbps, stageProgress ->
                 _testState.value = _testState.value.copy(
                     uploadMbps = currentMbps,
@@ -100,22 +119,63 @@ class SpeedTestEngine {
             }
 
             // Stage 4: Completed
+            val metrics = snapshotMetrics(viaGateway)
+            val findings = SpeedTroubleshooter.diagnose(
+                tunnelState = tunnelState(),
+                metrics = metrics,
+                stage = SpeedTestStage.COMPLETED,
+                errorMessage = null,
+                viaGateway = viaGateway,
+                nowUnixSec = System.currentTimeMillis() / 1000L,
+                stageDetail = stageDetail
+            )
             _testState.value = _testState.value.copy(
                 stage = SpeedTestStage.COMPLETED,
                 downloadMbps = downloadSpeed,
                 uploadMbps = uploadSpeed,
                 currentSpeedGauge = downloadSpeed,
-                progress = 1.0f
+                progress = 1.0f,
+                failedStage = null,
+                stageDetail = stageDetail,
+                findings = findings,
+                errorMessage = null
             )
 
         } catch (error: CancellationException) {
             throw error
         } catch (e: Exception) {
+            val failed = currentStage
+            val metrics = snapshotMetrics(viaGateway)
+            val findings = SpeedTroubleshooter.diagnose(
+                tunnelState = tunnelState(),
+                metrics = metrics,
+                stage = SpeedTestStage.FAILED,
+                errorMessage = e.message,
+                viaGateway = viaGateway,
+                nowUnixSec = System.currentTimeMillis() / 1000L,
+                stageDetail = stageDetail
+            )
             _testState.value = _testState.value.copy(
                 stage = SpeedTestStage.FAILED,
-                errorMessage = e.message ?: "Speed test encountered an error"
+                errorMessage = SpeedTroubleshooter.sanitizeMessage(
+                    e.message ?: "Speed test encountered an error"
+                ).ifBlank { "Speed test encountered an error" },
+                failedStage = failed,
+                stageDetail = stageDetail,
+                findings = findings
             )
         }
+    }
+
+    private fun tunnelState(): TunnelState = runCatching {
+        TailcatApplication.instance.tunnelController.tunnelState.value
+    }.getOrDefault(TunnelState.DISCONNECTED)
+
+    private fun snapshotMetrics(viaGateway: Boolean): com.tailcat.vpn.core.model.NetworkMetrics? {
+        if (!viaGateway && tunnelState() != TunnelState.CONNECTED) return null
+        return runCatching {
+            TailcatApplication.instance.tunnelEngine.getStats()
+        }.getOrNull()
     }
 
     private fun measureSinglePing(): Long {

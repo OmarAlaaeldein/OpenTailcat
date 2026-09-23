@@ -166,7 +166,8 @@ fun HomeScreen(
     }
 
     val onToggleClicked: () -> Unit = {
-        if (tunnelState != TunnelState.DISCONNECTED && tunnelState != TunnelState.DEGRADED) {
+        if (tunnelState != TunnelState.DISCONNECTED) {
+            // CONNECTED / DEGRADED / CONNECTING / RECONNECTING all stop on tap.
             viewModel.toggleVpn()
         } else if (activeProfile == null && profiles.isEmpty()) {
             showAddDialog = true
@@ -484,6 +485,9 @@ fun HomeScreen(
         var dnsInput by remember {
             mutableStateOf(com.tailcat.vpn.TailcatApplication.instance.preferencesStore.defaultDns)
         }
+        var dnsPolicy by remember {
+            mutableStateOf(com.tailcat.vpn.core.model.DnsPolicy.PROFILE_RESOLVER)
+        }
         var errorMessage by remember { mutableStateOf<String?>(null) }
 
         val validationState = remember(tokenInput) {
@@ -576,13 +580,46 @@ fun HomeScreen(
                             if (dnsValidation is com.tailcat.vpn.core.dns.DnsValidationResult.Invalid) {
                                 Text(dnsValidation.reason, color = RedDegraded, fontSize = 11.sp)
                             } else {
-                                Text("Default: 1.1.1.1 (Cloudflare)", color = TextMuted, fontSize = 11.sp)
+                                Text(
+                                    if (dnsPolicy == com.tailcat.vpn.core.model.DnsPolicy.FORCED_RESOLVER) {
+                                        "Forced resolver: all tunnel DNS goes here"
+                                    } else {
+                                        "Profile resolver: DNS follows the TUN destination"
+                                    },
+                                    color = TextMuted,
+                                    fontSize = 11.sp
+                                )
                             }
                         },
                         isError = dnsValidation is com.tailcat.vpn.core.dns.DnsValidationResult.Invalid,
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        listOf(
+                            com.tailcat.vpn.core.model.DnsPolicy.PROFILE_RESOLVER to "Profile resolver",
+                            com.tailcat.vpn.core.model.DnsPolicy.FORCED_RESOLVER to "Forced resolver"
+                        ).forEach { (policy, label) ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.clickable { dnsPolicy = policy }
+                            ) {
+                                androidx.compose.material3.RadioButton(
+                                    selected = dnsPolicy == policy,
+                                    onClick = { dnsPolicy = policy },
+                                    colors = androidx.compose.material3.RadioButtonDefaults.colors(
+                                        selectedColor = AccentCyan,
+                                        unselectedColor = BorderSubtle
+                                    )
+                                )
+                                Text(label, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                            }
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(8.dp))
 
@@ -715,7 +752,7 @@ fun HomeScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        val result = viewModel.addProfileFromToken(nameInput, tokenInput, dnsInput)
+                        val result = viewModel.addProfileFromToken(nameInput, tokenInput, dnsInput, dnsPolicy)
                         if (result.isSuccess) {
                             showAddDialog = false
                         } else {

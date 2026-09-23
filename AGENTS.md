@@ -18,7 +18,7 @@ acceptance is unimplemented.
 The checked-in AAR is built reproducibly with Go 1.27.1, NDK r29 (29.0.14206865),
 16 KB ELF load alignment, and verified Java signatures.
 
-Current version: 1.3.5, with audit H1–H7 source fixes after the 1.2.2/1.2.3 audits,
+Current version: 1.3.6, with audit H1–H7 source fixes after the 1.2.2/1.2.3 audits,
 an S+-aware startup instrumented expectation, a behavior-neutral dead-code sweep,
 a strict interior-whitespace token error, a 5s UDP capability probe with
 periodic re-probe, `tcpOnly` telemetry, structured data-plane failure
@@ -54,9 +54,14 @@ Critical current behavior:
   WireGuard peer Tx/Rx stay 0 because upstream `Client` has no Status API.
   Kotlin rejects v1 and requires `RUNNING` plus fresh `healthUnixSec` for
   CONNECTED. `liveStats` is test-enabled.
-- Capabilities: API v2 dual-stack flags true including `ipv6`. After
+- Capabilities: API v2 dual-stack flags true including `ipv6`. The JSON also
+  includes `testRouting: true`, which marks that Phase 8 physical leak
+  acceptance has not passed; Kotlin surfaces this in Settings and does not
+  gate Connect on it. After
   `prepare`, Android attaches a host-only TUN (no VPN DNS), `detachTun`, then
-  installs `0.0.0.0/0` and `::/0` with VPN DNS and reattaches.
+  installs `0.0.0.0/0` and `::/0` with VPN DNS and reattaches. Profile
+  `tunnelMtu` is forwarded in `updateNetworkState` so the native bridge and
+  netstack use the same MTU as `VpnService.Builder`.
 - Tests: unit, integration, race, lint, and build tests pass; complete live
   physical hardware tunnel test pending.
 
@@ -228,7 +233,9 @@ cd ..
 After native changes, rebuild and inspect `app/libs/libtailcat.aar`, including
 Java signatures, ARM64/x86-64 contents, `go version -m`, R8/JNI retention,
 SHA-256, and 16 KB ELF load alignment. The checked-in AAR must never lag native
-source.
+source. `build-aar.sh` writes `app/libs/libtailcat.aar.sourcehash` from the
+`core-engine` + `third_party` file tree; CI fails if that hash does not match
+the current tree.
 
 ## Documentation rule
 
