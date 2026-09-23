@@ -7,7 +7,7 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.3.6 on `main` (all 1.3.3–1.3.5 changes — audit H1–H7 source fixes after 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep, strict interior-whitespace token error, 5s UDP capability probe with periodic re-probe, `tcpOnly` telemetry, private-DNS rejection, native pump panic containment, disco-failure transport downgrade with `discoStale`, dead `GATEWAY_RESOLVER` removal, structured data-plane failure reporting with a debug diagnostics flag, nil-dial hardening with panic call-site reporting, typed-nil Close fix and per-flow panic isolation, HealthStale 15s/3-poll grace for intermittent 6s auto-close, notification/TelemetryCard live TUN rates instead of always-zero WG txBytes, 200.x stale-DNS networking-corruption fix (`pendingDNS` cleared on `abandonPrepare`, `TelemetryCard` now `isLiveRunning`), working split-tunnel exclusions with `addDisallowedApplication`, all-apps picker with search, PREPARED `rttMs` reporting, and a speed-test troubleshooter that surfaces silent stage failures and tunnel diagnostics — see the dated sections below). IPv4 test-routing capabilities are
+- Android repository: version 1.3.7 on `main` (all 1.3.3–1.3.6 changes — audit H1–H7 source fixes after 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep, strict interior-whitespace token error, 5s UDP capability probe with periodic re-probe, `tcpOnly` telemetry, private-DNS rejection, native pump panic containment, disco-failure transport downgrade with `discoStale`, dead `GATEWAY_RESOLVER` removal, structured data-plane failure reporting with a debug diagnostics flag, nil-dial hardening with panic call-site reporting, typed-nil Close fix and per-flow panic isolation, HealthStale 15s/3-poll grace for intermittent 6s auto-close, notification/TelemetryCard live TUN rates instead of always-zero WG txBytes, 200.x stale-DNS networking-corruption fix (`pendingDNS` cleared on `abandonPrepare`, `TelemetryCard` now `isLiveRunning`), working split-tunnel exclusions with `addDisallowedApplication`, all-apps picker with search, PREPARED `rttMs` reporting, and a speed-test troubleshooter that surfaces silent stage failures and tunnel diagnostics — see the dated sections below). IPv4 test-routing capabilities are
   true so Connect can be exercised with a live token. `ipv6` is true; `ipv6Egress` is session-measured.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
@@ -24,10 +24,11 @@ unsafe shortcuts already found in the tree.
   unmodified `0c31395bfd1ae0c0ef2917c0ec20432466087417` (application-layer UDP).
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
   reproducibly with Go 1.27.1 and NDK 29.0.14206865. Current SHA-256:
-   `9e3256a9449347159913215cad258acbd528601a39175d310dda0e3bfd6b311c`
-  (previous source-fixed AAR SHAs `c5b479c0b5710ed926804cb0b827472e5648b6bd356679195815ac888fa1b606`,
-  `aa0fa1bdda9ae102d3ef7a7153c2d1ceca3f5165c8c707e8b490d97997a75999`, and
-  1.3.2 SHA `a03e832082535bc4f8f860147bd1fa523e42d1c716e24d71a26c0041034b0976`).
+   `986c21150a4da2890b78023523a9b2bd6415ddc68de301000e792af6c16a2436`
+  (previous source-fixed AAR SHAs `9e3256a9449347159913215cad258acbd528601a39175d310dda0e3bfd6b311c`,
+   `c5b479c0b5710ed926804cb0b827472e5648b6bd356679195815ac888fa1b606`,
+   `aa0fa1bdda9ae102d3ef7a7153c2d1ceca3f5165c8c707e8b490d97997a75999`, and
+   1.3.2 SHA `a03e832082535bc4f8f860147bd1fa523e42d1c716e24d71a26c0041034b0976`).
   Sidecars: `app/libs/libtailcat.aar.sha256`, `app/libs/libtailcat.aar.sourcehash`.
   Liveprobe token for host tests is read from `OPENTAILCAT_LIVE_TOKEN` or
   `~/.opentailcat-private/live-token.txt` (never committed).
@@ -137,17 +138,18 @@ acceptance are unchanged.
 
 ## Release status
 
-The current tree is **1.3.6** versionCode **36** (AAR `9e3256a9449347159913215cad258acbd528601a39175d310dda0e3bfd6b311c`,
-Go 1.27.1, NDK 29.0.14206865, 16 KB) with the 200.x stale-DNS fix, the
-split-tunnel exclusion fix, the all-apps picker fix, PREPARED `rttMs`
-reporting, and the speed-test troubleshooter above. 1.3.5 used
-versionCode 35; 1.3.4 used versionCode 34; the 1.2.14
-checkpoint used versionCode 27. The `development` build type is release
-R8/resource optimization with the existing development certificate and
-no debug UI tooling. `release` signing remains separate. To reproduce these
-APKs, run `./gradlew assembleDevelopment`. The existing instrumentation suite
-targets debug; optimized APKs are checked directly through the emulator UI.
-This packaging correction promotes no VPN capabilities.
+The current tree is **1.3.7** versionCode **37** (AAR `986c21150a4da2890b78023523a9b2bd6415ddc68de301000e792af6c16a2436`,
+Go 1.27.1, NDK 29.0.14206865, 16 KB) with the Phase 8 analyzer SLL2 fix,
+the 200.x stale-DNS fix, the split-tunnel exclusion fix, the all-apps picker
+fix, PREPARED `rttMs` reporting, and the speed-test troubleshooter above.
+1.3.6 used versionCode 36; 1.3.5 used versionCode 35; 1.3.4 used
+versionCode 34; the 1.2.14 checkpoint used versionCode 27. The `development`
+build type is release R8/resource optimization with the existing development
+certificate and no debug UI tooling. `release` signing remains separate. To
+reproduce these APKs, run `./gradlew assembleDevelopment`. The existing
+instrumentation suite targets debug; optimized APKs are checked directly
+through the emulator UI. This packaging correction promotes no VPN
+capabilities.
 
 The current tree is a development prototype with verified token parsing and a
 userspace netstack UDP proxy. DNS routing and telemetry code exist; IPv4 `dns`
