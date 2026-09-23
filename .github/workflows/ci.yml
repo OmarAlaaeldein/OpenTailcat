@@ -18,8 +18,10 @@ jobs:
       - name: Test
         working-directory: core-engine
         run: |
-          go test ./...
+          go test -race ./...
           go vet ./...
+      - name: Phase 8 analyzer synthetic e2e
+        run: scripts/phase8/e2e-analyze.sh
       - name: Verify committed AAR hash
         run: |
           got="$(sha256sum app/libs/libtailcat.aar | awk '{print $1}')"

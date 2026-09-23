@@ -625,13 +625,19 @@ is a second VPN. Capture the phone’s Wi-Fi hop on the AP/next hop, or
 interfaces; empty capture lists need `brew install --cask wireshark-chmodbpf`.
 
 ```bash
-# Host automated gates (not a leak pass)
+# Host automated gates (not a leak pass): -race, unit, lint, AAR hash +
+# sourcehash, and synthetic phase8-analyze e2e (PASS/FAIL/fail-closed).
 scripts/phase8/run-host-gates.sh
+# Analyzer-only synthetic e2e (also in CI on every push):
+scripts/phase8/e2e-analyze.sh
 
-# Phone connected + Always-on lockdown. Start both captures, then generate
-# traffic from a second UID to probe IPs (example 1.1.1.1, 8.8.8.8).
-CAPTURE_IFACE=en0 scripts/phase8/capture-uplink.sh captures/uplink.pcap
-CAPTURE_IFACE=eth0 scripts/phase8/capture-gateway.sh captures/gateway.pcap
+# Phone connected + Always-on lockdown. Start BOTH captures first (classic
+# pcap), then generate second-UID probes from adb shell (uid 2000, not the
+# VPN app). Optional CAPTURE_SECONDS=45 bounds each capture.
+CAPTURE_IFACE=en0 CAPTURE_SECONDS=45 scripts/phase8/capture-uplink.sh captures/uplink.pcap &
+CAPTURE_IFACE=eth0 CAPTURE_SECONDS=45 scripts/phase8/capture-gateway.sh captures/gateway.pcap &
+scripts/phase8/generate-probes.sh   # PROBE_IPS / PROBE_ROUNDS / PROBE_PORT
+wait
 scripts/phase8/analyze-uplink.sh captures/uplink.pcap 1.1.1.1,8.8.8.8 captures/gateway.pcap
 ```
 
@@ -640,9 +646,12 @@ gateway pcap. Uplink may contain only Tailcat/WireGuard/DERP (and Magicsock
 sockets protected via `VpnService.protect`). Force each native pump to fail
 and confirm routes are removed or Android lockdown blocks traffic.
 
+Split-tunnel (excluded-app) evidence is the inverse: excluded UID probes must
+appear on the uplink pcap and be absent from the gateway pcap.
+
 Do not commit pcaps or live tokens. `ipv6` is true on the client; treat `ipv6Egress` and Phase 8 dual
-capture as the honesty bar for public IPv6 egress. Host analyzer unit tests are not Phase 8
-acceptance.
+capture as the honesty bar for public IPv6 egress. Host analyzer unit tests and
+`e2e-analyze.sh` synthetic fixtures are tooling checks, not Phase 8 acceptance.
 
 #### Release artifacts
 
