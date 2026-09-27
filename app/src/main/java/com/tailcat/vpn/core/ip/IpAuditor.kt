@@ -8,7 +8,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import com.tailcat.vpn.core.tls.PinnedHttps
 
-/** Resolves the app process' public IP. Tailcat currently excludes its own UID from the TUN. */
+/**
+ * Resolves the app process' public IP over the device's current routes. The
+ * app does not exclude its own UID, so while the VPN interface is up this
+ * request enters the TUN; it is never the gateway egress audit.
+ */
 class IpAuditor {
 
     private val _egressInfo = MutableStateFlow(EgressInfo())

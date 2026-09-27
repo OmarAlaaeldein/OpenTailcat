@@ -158,3 +158,65 @@ func skipDNSName(msg []byte, off int) (int, error) {
 		}
 	}
 }
+
+// dnsClassicUDPSize is the DNS-over-UDP answer limit without EDNS (RFC 1035).
+const dnsClassicUDPSize = 512
+
+// dnsUDPResponseLimit returns the largest UDP answer the client that sent
+// query accepts: its EDNS OPT payload size, or 512 without EDNS.
+func dnsUDPResponseLimit(query []byte) int {
+	if len(query) < 12 {
+		return dnsClassicUDPSize
+	}
+	qd := int(binary.BigEndian.Uint16(query[4:6]))
+	records := int(binary.BigEndian.Uint16(query[6:8])) +
+		int(binary.BigEndian.Uint16(query[8:10]))
+	ar := int(binary.BigEndian.Uint16(query[10:12]))
+	off := 12
+	for i := 0; i < qd; i++ {
+		next, err := skipDNSName(query, off)
+		if err != nil || next+4 > len(query) {
+			return dnsClassicUDPSize
+		}
+		off = next + 4
+	}
+	for i := 0; i < records+ar; i++ {
+		next, err := skipDNSName(query, off)
+		if err != nil || next+10 > len(query) {
+			return dnsClassicUDPSize
+		}
+		rrType := binary.BigEndian.Uint16(query[next : next+2])
+		if i >= records && rrType == 41 { // OPT: CLASS holds the UDP payload size
+			if size := int(binary.BigEndian.Uint16(query[next+2 : next+4])); size > dnsClassicUDPSize {
+				return size
+			}
+			return dnsClassicUDPSize
+		}
+		off = next + 10 + int(binary.BigEndian.Uint16(query[next+8:next+10]))
+	}
+	return dnsClassicUDPSize
+}
+
+// truncateDNSForUDP returns resp unchanged when it fits the client's UDP
+// limit, otherwise the header and question with TC set so the client
+// retries over TCP (RFC 1035 4.2.1). A cut datagram would be malformed.
+func truncateDNSForUDP(query, resp []byte) []byte {
+	if len(resp) < 12 || len(resp) <= dnsUDPResponseLimit(query) {
+		return resp
+	}
+	qd := int(binary.BigEndian.Uint16(resp[4:6]))
+	end := 12
+	for i := 0; i < qd; i++ {
+		next, err := skipDNSName(resp, end)
+		if err != nil || next+4 > len(resp) || next+4 > dnsClassicUDPSize {
+			end, qd = 12, 0
+			break
+		}
+		end = next + 4
+	}
+	out := append([]byte(nil), resp[:end]...)
+	out[2] |= 0x02 // TC
+	binary.BigEndian.PutUint16(out[4:6], uint16(qd))
+	clear(out[6:12])
+	return out
+}

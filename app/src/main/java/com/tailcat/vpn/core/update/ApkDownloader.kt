@@ -13,8 +13,9 @@ import java.net.URL
 import java.security.MessageDigest
 
 /**
- * Streams a release APK into the app cache and verifies SHA-256 when a
- * digest is available from GitHub or the release SHA256SUMS asset.
+ * Streams a release APK into the app cache. Refuses assets without a GitHub
+ * SHA-256 digest, hosts outside GitHub, and sizes that do not match the
+ * release metadata; the file is kept only when the digest matches.
  */
 class ApkDownloader(private val cacheDir: File) {
 
@@ -30,76 +31,97 @@ class ApkDownloader(private val cacheDir: File) {
         val error: String? = null
     )
 
-    suspend fun download(
-        asset: ReleaseAsset,
-        expectedSha256: String?
-    ): Result<File> = withContext(Dispatchers.IO) {
+    suspend fun download(asset: ReleaseAsset): Result<File> = withContext(Dispatchers.IO) {
         _progress.value = DownloadProgress(active = true, total = asset.size)
+        var target: File? = null
+        var connection: HttpURLConnection? = null
         runCatching {
+            UpdatePolicy.assetRejection(asset)?.let { error(it) }
+            val expectedSha256 = checkNotNull(asset.sha256)
             val dir = File(cacheDir, "updates").apply { mkdirs() }
-            val target = File(dir, asset.name)
-            val connection = (URL(asset.browserDownloadUrl).openConnection() as HttpURLConnection)
-            try {
-                connection.connectTimeout = 15_000
-                connection.readTimeout = 30_000
-                connection.requestMethod = "GET"
-                connection.useCaches = false
-                connection.instanceFollowRedirects = true
-                connection.setRequestProperty(
-                    "User-Agent",
-                    "OpenTailcat-Android/${com.tailcat.vpn.BuildConfig.VERSION_NAME}"
-                )
-                check(connection.responseCode in 200..299) {
-                    "Download failed: HTTP ${connection.responseCode}"
-                }
-                val total = connection.contentLengthLong.takeIf { it > 0 } ?: asset.size
-                val digest = MessageDigest.getInstance("SHA-256")
-                var readTotal = 0L
-                connection.inputStream.use { input ->
-                    target.outputStream().use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        while (true) {
-                            currentCoroutineContext().ensureActive()
-                            val n = input.read(buffer)
-                            if (n <= 0) break
-                            output.write(buffer, 0, n)
-                            digest.update(buffer, 0, n)
-                            readTotal += n
-                            _progress.value = DownloadProgress(
-                                active = true,
-                                fraction = if (total > 0) (readTotal.toFloat() / total).coerceIn(0f, 1f) else 0f,
-                                bytes = readTotal,
-                                total = total
-                            )
-                        }
+            // Only one downloaded APK is ever kept.
+            dir.listFiles()?.forEach { it.delete() }
+            val file = File(dir, asset.name).also { target = it }
+            val conn = openFollowingAllowedRedirects(asset.browserDownloadUrl).also { connection = it }
+            val total = asset.size
+            val digest = MessageDigest.getInstance("SHA-256")
+            var readTotal = 0L
+            conn.inputStream.use { input ->
+                file.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val n = input.read(buffer)
+                        if (n <= 0) break
+                        readTotal += n
+                        check(readTotal <= total) { "Download is larger than the release asset" }
+                        output.write(buffer, 0, n)
+                        digest.update(buffer, 0, n)
+                        _progress.value = DownloadProgress(
+                            active = true,
+                            fraction = (readTotal.toFloat() / total).coerceIn(0f, 1f),
+                            bytes = readTotal,
+                            total = total
+                        )
                     }
                 }
-                val actual = digest.digest().joinToString("") { "%02x".format(it) }
-                if (!expectedSha256.isNullOrBlank()) {
-                    val want = expectedSha256.removePrefix("sha256:").trim().lowercase()
-                    check(actual.equals(want, ignoreCase = true)) {
-                        "APK SHA-256 mismatch — refusing to install"
-                    }
-                }
-                _progress.value = DownloadProgress(
-                    active = false,
-                    fraction = 1f,
-                    bytes = readTotal,
-                    total = total,
-                    path = target.absolutePath
-                )
-                target
-            } catch (e: Throwable) {
-                target.delete()
-                _progress.value = DownloadProgress(active = false, error = e.message ?: "Download failed")
-                throw e
-            } finally {
-                connection.disconnect()
             }
+            check(readTotal == total) { "Download ended early" }
+            val actual = digest.digest().joinToString("") { "%02x".format(it) }
+            check(actual == expectedSha256) { "APK SHA-256 mismatch — refusing to install" }
+            _progress.value = DownloadProgress(
+                active = false,
+                fraction = 1f,
+                bytes = readTotal,
+                total = total,
+                path = file.absolutePath
+            )
+            file
+        }.onFailure { e ->
+            target?.delete()
+            _progress.value = DownloadProgress(active = false, error = e.message ?: "Download failed")
+        }.also {
+            connection?.disconnect()
         }
+    }
+
+    /** Follows up to [MAX_REDIRECTS] redirects, each to an allowed GitHub host. */
+    private fun openFollowingAllowedRedirects(startUrl: String): HttpURLConnection {
+        var url = startUrl
+        repeat(MAX_REDIRECTS + 1) {
+            check(UpdatePolicy.isAllowedDownloadUrl(url)) { "Download redirected off GitHub" }
+            val connection = URL(url).openConnection() as HttpURLConnection
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 30_000
+            connection.requestMethod = "GET"
+            connection.useCaches = false
+            connection.instanceFollowRedirects = false
+            connection.setRequestProperty(
+                "User-Agent",
+                "OpenTailcat-Android/${com.tailcat.vpn.BuildConfig.VERSION_NAME}"
+            )
+            val code = connection.responseCode
+            if (code in 300..399) {
+                val location = connection.getHeaderField("Location")
+                connection.disconnect()
+                checkNotNull(location) { "Download redirect without a location" }
+                url = URL(URL(url), location).toString()
+                return@repeat
+            }
+            if (code !in 200..299) {
+                connection.disconnect()
+                error("Download failed: HTTP $code")
+            }
+            return connection
+        }
+        error("Too many download redirects")
     }
 
     fun reset() {
         _progress.value = DownloadProgress()
+    }
+
+    private companion object {
+        const val MAX_REDIRECTS = 5
     }
 }

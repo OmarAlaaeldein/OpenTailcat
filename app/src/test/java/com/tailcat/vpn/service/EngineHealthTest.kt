@@ -121,4 +121,30 @@ class EngineHealthTest {
         // Immediate path: caller tears down without waiting for stale polls.
         assertTrue(EngineHealth.shouldTearDown(m, 1_002L))
     }
+
+    @Test
+    fun silentGatewayIsLostAfterThreshold() {
+        val base = metrics(healthUnixSec = 1_000L)
+        val silent = base.copy(discoStale = true, lastDiscoOkUnixSec = 1_000L - EngineHealth.GATEWAY_LOSS_SEC)
+        val reason = EngineHealth.teardownReason(silent, 1_000L)
+        assertEquals(EngineHealth.TeardownReason.GatewayLost(EngineHealth.GATEWAY_LOSS_SEC), reason)
+        assertTrue(EngineHealth.shortCause(reason).contains("gateway not responding"))
+        assertEquals(0, EngineHealth.nextStalePollCount(reason, 2))
+    }
+
+    @Test
+    fun briefDiscoGapStaysHealthy() {
+        val m = metrics(healthUnixSec = 1_000L)
+            .copy(discoStale = true, lastDiscoOkUnixSec = 1_000L - EngineHealth.GATEWAY_LOSS_SEC + 1)
+        assertEquals(EngineHealth.TeardownReason.Healthy, EngineHealth.teardownReason(m, 1_000L))
+    }
+
+    @Test
+    fun freshDiscoOrUnreportedTimeIsNeverGatewayLoss() {
+        val fresh = metrics(healthUnixSec = 1_000L).copy(discoStale = false, lastDiscoOkUnixSec = 1L)
+        assertEquals(EngineHealth.TeardownReason.Healthy, EngineHealth.teardownReason(fresh, 1_000L))
+        // Engines before lastDiscoOkUnixSec report 0: keep the old DEGRADED behavior.
+        val oldEngine = metrics(healthUnixSec = 1_000L).copy(discoStale = true, lastDiscoOkUnixSec = 0L)
+        assertEquals(EngineHealth.TeardownReason.Healthy, EngineHealth.teardownReason(oldEngine, 1_000L))
+    }
 }

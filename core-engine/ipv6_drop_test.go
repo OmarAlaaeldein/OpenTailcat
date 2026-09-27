@@ -302,9 +302,11 @@ func TestIPv4MTUExceededWritesFragNeeded(t *testing.T) {
 	if buf[ihl] != 3 || buf[ihl+1] != 4 {
 		t.Fatalf("expected ICMP type 3 code 4, got %d/%d", buf[ihl], buf[ihl+1])
 	}
+	// A UDP packet must also fit the tunnel's 1232 B payload limit, so the
+	// reported next-hop MTU is 20 + 8 + 1232 rather than the TUN MTU.
 	gotMTU := binary.BigEndian.Uint16(buf[ihl+6 : ihl+8])
-	if gotMTU != 1280 {
-		t.Fatalf("expected next-hop MTU 1280, got %d", gotMTU)
+	if gotMTU != 1260 {
+		t.Fatalf("expected next-hop MTU 1260, got %d", gotMTU)
 	}
 }
 

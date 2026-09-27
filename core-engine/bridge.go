@@ -31,12 +31,12 @@ type TunnelClient interface {
 // TunBridge manages bidirectional packet pumping between the Android TUN descriptor
 // and the Tailcat data plane / exit node using a unified gVisor proxy stack.
 type TunBridge struct {
-	sessionID int64
-	tunFile   *os.File
-	client    TunnelClient
-	token     *ParsedToken
-	transport string
-	rttMs     int64
+	sessionID  int64
+	tunFile    *os.File
+	client     TunnelClient
+	token      *ParsedToken
+	transport  string
+	rttMs      int64
 	mtu        int
 	tcpOnly    atomic.Bool
 	ipv6Egress atomic.Bool
@@ -52,6 +52,11 @@ type TunBridge struct {
 	mtuExceeded      atomic.Int64
 	queueExhaustion  atomic.Int64
 	policyRejections atomic.Int64
+	udpEvictions     atomic.Int64 // idle UDP flows evicted to admit new ones
+
+	// ICMP error rate limit (errors per wall-clock second).
+	icmpErrSecond atomic.Int64
+	icmpErrCount  atomic.Int32
 
 	// TUN interface counters
 	txBytes    atomic.Int64
@@ -85,6 +90,9 @@ type TunBridge struct {
 	onHealth      func()
 	startupFailed atomic.Bool
 	discoFresh    atomic.Bool // true after a successful live DiscoPing
+	// lastDiscoOK is the unix second of the last gateway reply: the bridge
+	// start (prepare just reached the gateway) or a successful DiscoPing.
+	lastDiscoOK atomic.Int64
 }
 
 // DNSConfig defines the active DNS resolver policy and optional forced resolver destination.
@@ -131,6 +139,13 @@ func newTunBridge(
 	if err != nil {
 		return nil, fmt.Errorf("dup tun fd: %w", err)
 	}
+	// Android hands over a blocking fd. A blocking os.File bypasses the
+	// runtime poller, so Close cannot interrupt a pending Read and Stop would
+	// leak the reader until its timeout. Non-blocking makes it pollable.
+	if err := syscall.SetNonblock(dupFD, true); err != nil {
+		syscall.Close(dupFD)
+		return nil, fmt.Errorf("set tun fd non-blocking: %w", err)
+	}
 
 	tunFile := os.NewFile(uintptr(dupFD), "tun")
 	if tunFile == nil {
@@ -162,6 +177,7 @@ func newTunBridge(
 		cancel:    cancel,
 		lastTime:  time.Now(),
 	}
+	b.lastDiscoOK.Store(time.Now().Unix())
 	if rttMs > 0 {
 		b.rttSamples = []int64{rttMs}
 		// prepare already completed a live DiscoPing; seed freshness so the
@@ -388,15 +404,17 @@ func (b *TunBridge) Stop() error {
 	}
 
 	b.cancel()
-	if b.netstack != nil {
-		b.netstack.Close()
-	}
+	// Closing the pollable TUN file wakes the reader immediately.
 	if b.tunFile != nil {
 		b.tunFile.Close()
 	}
 
+	// Netstack teardown and pump exit share one deadline.
 	done := make(chan struct{})
 	go func() {
+		if b.netstack != nil {
+			b.netstack.Close()
+		}
 		b.wg.Wait()
 		close(done)
 	}()
@@ -453,9 +471,13 @@ func (b *TunBridge) handleOutboundPacket(pkt []byte) {
 	if b.mtu > 0 && len(pkt) > b.mtu {
 		b.mtuExceeded.Add(1)
 		if version == 6 {
-			b.writeICMPv6PacketTooBig(pkt)
-		} else if version == 4 {
-			b.writeIPv4FragNeeded(pkt)
+			b.writeICMPv6PacketTooBig(pkt, ipv6MinMTU)
+		} else if version == 4 && ipv4DontFragment(pkt) {
+			mtu := b.mtu
+			if pkt[9] == 17 { // UDP must also fit the tunnel
+				mtu = min(mtu, ipv4UDPTunnelMTU(pkt))
+			}
+			b.writeIPv4FragNeeded(pkt, mtu)
 		}
 		return
 	}
@@ -470,6 +492,42 @@ func (b *TunBridge) handleOutboundPacket(pkt []byte) {
 	}
 }
 
+const ipv6MinMTU = 1280
+
+func ipv4DontFragment(pkt []byte) bool {
+	return len(pkt) >= 20 && pkt[6]&0x40 != 0
+}
+
+// ipv4Fragment reports a packet with More Fragments set or a non-zero
+// fragment offset.
+func ipv4Fragment(pkt []byte) bool {
+	return len(pkt) >= 20 && binary.BigEndian.Uint16(pkt[6:8])&0x3fff != 0
+}
+
+// ipv4UDPTunnelMTU is the IPv4 packet size at which pkt's UDP payload
+// reaches the tunnel limit (1260 without IP options).
+func ipv4UDPTunnelMTU(pkt []byte) int {
+	return int(pkt[0]&0x0f)*4 + 8 + maxTunnelUDPPayload
+}
+
+// dropOversizeUDP refuses an unfragmented UDP datagram whose payload the
+// tunnel cannot carry, and reports the usable size to the sender (ICMP
+// Fragmentation Needed for IPv4 with DF, Packet Too Big for IPv6) so path
+// MTU discovery and QUIC adapt instead of retransmitting into a blackhole.
+// Fragmented datagrams are checked after reassembly in runUDPFlow.
+func (b *TunBridge) dropOversizeUDP(pkt []byte, l4off int, isIPv6 bool) bool {
+	if len(pkt)-l4off-8 <= maxTunnelUDPPayload {
+		return false
+	}
+	b.mtuExceeded.Add(1)
+	if isIPv6 {
+		b.writeICMPv6PacketTooBig(pkt, ipv6MinMTU)
+	} else if ipv4DontFragment(pkt) {
+		b.writeIPv4FragNeeded(pkt, ipv4UDPTunnelMTU(pkt))
+	}
+	return true
+}
+
 func (b *TunBridge) handleIPv4(pkt []byte) {
 	ihl := int(pkt[0]&0x0f) * 4
 	if len(pkt) < ihl || ihl < 20 {
@@ -480,13 +538,14 @@ func (b *TunBridge) handleIPv4(pkt []byte) {
 	protocol := pkt[9]
 	srcIP, _ := netip.AddrFromSlice(pkt[12:16])
 	dstIP, _ := netip.AddrFromSlice(pkt[16:20])
+	fragment := ipv4Fragment(pkt)
 
 	switch protocol {
 	case 1: // ICMP
 		b.handleICMPv4(pkt, ihl, srcIP, dstIP)
 	case 6: // TCP
 		b.tcpPackets.Add(1)
-		if len(pkt) >= ihl+4 {
+		if !fragment && len(pkt) >= ihl+4 {
 			dstPort := binary.BigEndian.Uint16(pkt[ihl+2 : ihl+4])
 			if dstPort == 53 {
 				b.dnsQueries.Add(1)
@@ -495,7 +554,10 @@ func (b *TunBridge) handleIPv4(pkt []byte) {
 		b.netstack.inject(pkt, false)
 	case 17: // UDP
 		b.udpPackets.Add(1)
-		if len(pkt) >= ihl+4 {
+		if !fragment && len(pkt) >= ihl+8 {
+			if b.dropOversizeUDP(pkt, ihl, false) {
+				return
+			}
 			dstPort := binary.BigEndian.Uint16(pkt[ihl+2 : ihl+4])
 			if dstPort == 53 {
 				b.dnsQueries.Add(1)
@@ -512,7 +574,7 @@ func (b *TunBridge) handleIPv6(pkt []byte) {
 		b.malformedIP.Add(1)
 		return
 	}
-	nextHeader, l4off, ok := ipv6FinalNextHeader(pkt)
+	nextHeader, l4off, fragment, ok := ipv6FinalNextHeader(pkt)
 	if !ok {
 		b.malformedIP.Add(1)
 		return
@@ -523,7 +585,7 @@ func (b *TunBridge) handleIPv6(pkt []byte) {
 		return
 	case 6:
 		b.tcpPackets.Add(1)
-		if len(pkt) >= l4off+4 {
+		if !fragment && len(pkt) >= l4off+4 {
 			dstPort := binary.BigEndian.Uint16(pkt[l4off+2 : l4off+4])
 			if dstPort == 53 {
 				b.dnsQueries.Add(1)
@@ -532,7 +594,10 @@ func (b *TunBridge) handleIPv6(pkt []byte) {
 		b.netstack.inject(pkt, true)
 	case 17:
 		b.udpPackets.Add(1)
-		if len(pkt) >= l4off+4 {
+		if !fragment && len(pkt) >= l4off+8 {
+			if b.dropOversizeUDP(pkt, l4off, true) {
+				return
+			}
 			dstPort := binary.BigEndian.Uint16(pkt[l4off+2 : l4off+4])
 			if dstPort == 53 {
 				b.dnsQueries.Add(1)
@@ -544,62 +609,85 @@ func (b *TunBridge) handleIPv6(pkt []byte) {
 	}
 }
 
-func ipv6FinalNextHeader(pkt []byte) (byte, int, bool) {
+// ipv6FinalNextHeader walks the extension header chain and returns the
+// upper-layer protocol, its offset, and whether a Fragment header was seen
+// (the upper-layer header is then absent or incomplete).
+func ipv6FinalNextHeader(pkt []byte) (nh byte, off int, fragment bool, ok bool) {
 	if len(pkt) < 40 {
-		return 0, 0, false
+		return 0, 0, false, false
 	}
-	nh := pkt[6]
-	off := 40
+	nh = pkt[6]
+	off = 40
 	for i := 0; i < 8; i++ {
 		switch nh {
 		case 0, 43, 60:
 			if len(pkt) < off+2 {
-				return 0, 0, false
+				return 0, 0, false, false
 			}
-			hdrLen := int(pkt[off+1]+1) * 8
-			if hdrLen < 8 || len(pkt) < off+hdrLen {
-				return 0, 0, false
+			hdrLen := (int(pkt[off+1]) + 1) * 8
+			if len(pkt) < off+hdrLen {
+				return 0, 0, false, false
 			}
 			nh = pkt[off]
 			off += hdrLen
 		case 44:
 			if len(pkt) < off+8 {
-				return 0, 0, false
+				return 0, 0, false, false
 			}
 			nh = pkt[off]
 			off += 8
+			fragment = true
 		case 51:
 			if len(pkt) < off+2 {
-				return 0, 0, false
+				return 0, 0, false, false
 			}
-			hdrLen := int(pkt[off+1]+2) * 4
-			if hdrLen < 8 || len(pkt) < off+hdrLen {
-				return 0, 0, false
+			hdrLen := (int(pkt[off+1]) + 2) * 4
+			if len(pkt) < off+hdrLen {
+				return 0, 0, false, false
 			}
 			nh = pkt[off]
 			off += hdrLen
 		default:
-			return nh, off, true
+			return nh, off, fragment, true
 		}
 	}
-	return 0, 0, false
+	return 0, 0, false, false
 }
 
-func (b *TunBridge) writeICMPv6PacketTooBig(pkt []byte) {
+// maxICMPErrorsPerSecond bounds locally generated ICMP errors.
+const maxICMPErrorsPerSecond = 100
+
+func (b *TunBridge) allowICMPError() bool {
+	now := time.Now().Unix()
+	if prev := b.icmpErrSecond.Load(); prev != now && b.icmpErrSecond.CompareAndSwap(prev, now) {
+		b.icmpErrCount.Store(0)
+	}
+	return b.icmpErrCount.Add(1) <= maxICMPErrorsPerSecond
+}
+
+// isICMPv4Error reports ICMP error types, which must never trigger another
+// ICMP error (RFC 1122 3.2.2).
+func isICMPv4Error(icmpType byte) bool {
+	switch icmpType {
+	case 3, 4, 5, 11, 12:
+		return true
+	}
+	return false
+}
+
+// writeICMPv6PacketTooBig sends an ICMPv6 Packet Too Big reporting mtu for
+// pkt. The whole message stays within the IPv6 minimum MTU (RFC 4443 2.4).
+func (b *TunBridge) writeICMPv6PacketTooBig(pkt []byte, mtu int) {
 	if len(pkt) < 40 {
 		return
 	}
-	if pkt[6] == 58 && len(pkt) >= 41 && pkt[40] < 128 {
+	if nh, off, _, ok := ipv6FinalNextHeader(pkt); ok && nh == 58 && len(pkt) > off && pkt[off] < 128 {
+		return // never answer an ICMPv6 error
+	}
+	if !b.allowICMPError() {
 		return
 	}
-	mtu := b.mtu
-	if mtu <= 0 {
-		mtu = 1280
-	}
-	maxBody := mtu - 48
-	if maxBody < 40 {
-		return
-	}
+	maxBody := ipv6MinMTU - 48
 	invoking := pkt
 	if len(invoking) > maxBody {
 		invoking = pkt[:maxBody]
@@ -625,7 +713,9 @@ func (b *TunBridge) writeICMPv6PacketTooBig(pkt []byte) {
 	_ = b.writeTunPacket(reply)
 }
 
-func (b *TunBridge) writeIPv4FragNeeded(pkt []byte) {
+// writeIPv4FragNeeded sends ICMP Fragmentation Needed with next-hop mtu for
+// pkt. Callers only use it for packets with DF set.
+func (b *TunBridge) writeIPv4FragNeeded(pkt []byte, mtu int) {
 	if len(pkt) < 20 {
 		return
 	}
@@ -633,12 +723,14 @@ func (b *TunBridge) writeIPv4FragNeeded(pkt []byte) {
 	if ihl < 20 || len(pkt) < ihl {
 		return
 	}
-	if pkt[9] == 1 && len(pkt) >= ihl+1 && pkt[ihl] < 8 {
+	if binary.BigEndian.Uint16(pkt[6:8])&0x1fff != 0 {
+		return // only the first fragment carries the transport header
+	}
+	if pkt[9] == 1 && len(pkt) > ihl && isICMPv4Error(pkt[ihl]) {
 		return
 	}
-	mtu := b.mtu
-	if mtu <= 0 {
-		mtu = 1280
+	if !b.allowICMPError() {
+		return
 	}
 	quoted := ihl + 8
 	if quoted > len(pkt) {
@@ -672,6 +764,11 @@ func (b *TunBridge) writeTunPacket(pkt []byte) error {
 
 // handleICMPv4 generates an echo reply for IPv4 ping packets.
 func (b *TunBridge) handleICMPv4(pkt []byte, ihl int, srcIP, dstIP netip.Addr) {
+	// A fragment is only part of the echo request; echoing it back produces
+	// a reply the kernel can never reassemble.
+	if ipv4Fragment(pkt) || int(binary.BigEndian.Uint16(pkt[2:4])) != len(pkt) {
+		return
+	}
 	icmpPayload := pkt[ihl:]
 	if len(icmpPayload) < 8 {
 		return
@@ -767,7 +864,9 @@ func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 				if b.rttSampling.CompareAndSwap(false, true) {
 					lastRTTSample = t
 					go func() {
-						defer b.recoverPump("rtt sample")
+						// RTT sampling is not a required pump: a panic here must
+						// not mark the session FAILED.
+						defer b.recoverPumpLogOnly("rtt sample")
 						defer b.rttSampling.Store(false)
 						b.sampleGatewayPing()
 						b.sampleLiveRTT()
@@ -806,6 +905,7 @@ func (b *TunBridge) sampleLiveRTT() {
 	}
 	b.pingFails.Store(0)
 	b.discoFresh.Store(true)
+	b.lastDiscoOK.Store(time.Now().Unix())
 	if b.onHealth != nil {
 		b.onHealth()
 	}
@@ -816,7 +916,16 @@ func (b *TunBridge) sampleLiveRTT() {
 	b.rttMu.Lock()
 	b.transport = transport
 	b.rttMu.Unlock()
-	b.RecordRTT(int64(res.LatencySeconds * 1000))
+	b.RecordRTT(latencyMs(res.LatencySeconds))
+}
+
+// latencyMs converts a positive latency to whole milliseconds, reporting a
+// sub-millisecond (same-LAN) gateway as 1 ms instead of 0 (no sample).
+func latencyMs(seconds float64) int64 {
+	if seconds <= 0 {
+		return 0
+	}
+	return max(int64(seconds*1000), 1)
 }
 
 // reprobeUDP clears a stale tcpOnly latch when gateway UDP recovers.
@@ -910,6 +1019,7 @@ func (b *TunBridge) GetStats() EngineStats {
 		TcpOnly:          b.tcpOnly.Load(),
 		Ipv6Egress:       b.ipv6Egress.Load(),
 		DiscoStale:       !b.discoFresh.Load(),
+		LastDiscoOkSec:   b.lastDiscoOK.Load(),
 		DerpRegionID:     regionID,
 		TunnelEgressIP:   egressIP,
 		EgressAuditError: egressErr,
@@ -925,6 +1035,7 @@ func (b *TunBridge) GetStats() EngineStats {
 			MTUExceeded:      b.mtuExceeded.Load(),
 			QueueExhaustion:  b.queueExhaustion.Load(),
 			PolicyRejections: b.policyRejections.Load(),
+			UDPEvictions:     b.udpEvictions.Load(),
 		},
 	}
 

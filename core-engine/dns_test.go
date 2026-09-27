@@ -640,18 +640,31 @@ func TestDNSIPv4AndIPv6Resolvers(t *testing.T) {
 	bridge.netstack = proxy
 
 	query := buildDNSQuery(0x6001, "dualstack.test.org", 1)
+	// Dials run on flow goroutines; poll (a fixed sleep flaked under -race).
+	waitDials := func(n int) {
+		for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); {
+			mu.Lock()
+			got := len(dialedAP)
+			mu.Unlock()
+			if got >= n {
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
 
 	// IPv4 query to 1.1.1.1:53
 	srcV4 := netip.MustParseAddrPort("10.0.0.2:40001")
 	dstV4 := netip.MustParseAddrPort("1.1.1.1:53")
 	proxy.inject(buildIPv4UDPPacket(srcV4, dstV4, query), false)
-	time.Sleep(50 * time.Millisecond)
+	waitDials(1)
 
 	// IPv6 query to [2606:4700:4700::1111]:53
 	srcV6 := netip.MustParseAddrPort("[fd7a:115c:a1e0::2]:40002")
 	dstV6 := netip.MustParseAddrPort("[2606:4700:4700::1111]:53")
 	proxy.inject(buildIPv6UDPPacket(srcV6, dstV6, query), true)
-	time.Sleep(50 * time.Millisecond)
+	waitDials(2)
+	time.Sleep(50 * time.Millisecond) // a third, unexpected dial would show up here
 
 	mu.Lock()
 	defer mu.Unlock()

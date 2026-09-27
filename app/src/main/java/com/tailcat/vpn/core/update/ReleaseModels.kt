@@ -6,7 +6,9 @@ import org.json.JSONObject
 data class ReleaseAsset(
     val name: String,
     val browserDownloadUrl: String,
-    val size: Long
+    val size: Long,
+    /** Lowercase hex SHA-256 from GitHub's asset `digest` field, when present. */
+    val sha256: String? = null
 )
 
 data class LatestRelease(
@@ -40,19 +42,24 @@ data class LatestRelease(
                         ReleaseAsset(
                             name = a.optString("name"),
                             browserDownloadUrl = a.optString("browser_download_url"),
-                            size = a.optLong("size")
+                            size = a.optLong("size"),
+                            sha256 = UpdatePolicy.parseSha256(a.optStringOrNull("digest"))
                         )
                     )
                 }
             }
             return LatestRelease(
                 tagName = root.optString("tag_name"),
-                name = root.optString("name"),
-                notes = root.optString("body"),
+                name = root.optStringOrNull("name").orEmpty(),
+                notes = root.optStringOrNull("body").orEmpty(),
                 htmlUrl = root.optString("html_url"),
                 assets = assets
             )
         }
+
+        /** `optString` renders JSON null as the string "null". */
+        private fun JSONObject.optStringOrNull(key: String): String? =
+            if (isNull(key)) null else optString(key)
 
         fun normalizeVersion(raw: String): String =
             raw.trim().removePrefix("v").removePrefix("V")

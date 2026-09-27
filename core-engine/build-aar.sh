@@ -83,27 +83,33 @@ echo "==> Using readelf: ${READELF_BIN}"
 echo "==> Setting up canonical staging directory at ${CANONICAL_BUILD_DIR}..."
 rm -rf "${CANONICAL_BUILD_DIR}"
 mkdir -p "${CANONICAL_BUILD_DIR}"
+TMP_VERIFY_DIR="$(mktemp -d)"
+trap 'rm -rf "${TMP_VERIFY_DIR}" "${CANONICAL_BUILD_DIR}"' EXIT
 cp -R "${ROOT_DIR}/core-engine" "${CANONICAL_BUILD_DIR}/core-engine"
 cp -R "${ROOT_DIR}/third_party" "${CANONICAL_BUILD_DIR}/third_party"
 
-# Record the exact native source tree the AAR was built from so CI can fail
-# when Go/third_party changes land without a rebuild (AAR must not lag source).
+# Hash the exact native source tree the AAR is built from so CI can fail when
+# Go/third_party changes land without a rebuild (AAR must not lag source).
+# The hash is written only after the new AAR is built, verified, and in place.
+native_source_hash() {
+    (
+        cd "${ROOT_DIR}" &&
+        find core-engine third_party \
+            -type f \
+            ! -path '*/.git/*' \
+            ! -name .git \
+            ! -name '*.aar' \
+            ! -name '*.aar.sha256' \
+            ! -path '*/build/*' \
+            -print0 |
+            LC_ALL=C sort -z |
+            xargs -0 shasum -a 256 |
+            shasum -a 256 |
+            awk '{print $1}'
+    )
+}
 echo "==> Hashing native source inputs..."
-SOURCE_HASH="$(
-    cd "${ROOT_DIR}" &&
-    find core-engine third_party \
-        -type f \
-        ! -path '*/.git/*' \
-        ! -name '*.aar' \
-        ! -name '*.aar.sha256' \
-        ! -path '*/build/*' \
-        -print0 |
-        sort -z |
-        xargs -0 shasum -a 256 |
-        shasum -a 256 |
-        awk '{print $1}'
-)"
-printf '%s\n' "${SOURCE_HASH}" > "${ROOT_DIR}/app/libs/libtailcat.aar.sourcehash"
+SOURCE_HASH="$(native_source_hash)"
 echo "==> Native source hash: ${SOURCE_HASH}"
 
 cd "${CANONICAL_BUILD_DIR}/core-engine"
@@ -115,6 +121,13 @@ if ! command -v gobind &>/dev/null; then
     go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260821190718-4776eadac327
 fi
 
+# Build into the staging directory; app/libs is touched only after every
+# check below passes, so a failed build cannot leave a stale AAR that still
+# matches a fresh sourcehash. gomobile also writes libtailcat-sources.jar
+# next to the output; it stays in staging and never reaches app/libs.
+STAGED_AAR="${CANONICAL_BUILD_DIR}/out/libtailcat.aar"
+mkdir -p "$(dirname "${STAGED_AAR}")"
+
 # Build with reproducible flags:
 # -ldflags="-s -w": strip DWARF debugging tables and symbol references
 # -trimpath: remove local workstation path prefixes from build artifacts
@@ -125,16 +138,13 @@ go run golang.org/x/mobile/cmd/gomobile bind \
     -target=android/arm64,android/amd64 \
     -androidapi=26 \
     -javapkg=com.tailcat.vpn \
-    -o "${OUTPUT_AAR}" \
+    -o "${STAGED_AAR}" \
     .
 
 echo "==> Verifying AAR structure..."
-unzip -l "${OUTPUT_AAR}"
+unzip -l "${STAGED_AAR}"
 
-TMP_VERIFY_DIR="$(mktemp -d)"
-trap 'rm -rf "${TMP_VERIFY_DIR}" "${CANONICAL_BUILD_DIR}"' EXIT
-
-unzip -q "${OUTPUT_AAR}" -d "${TMP_VERIFY_DIR}"
+unzip -q "${STAGED_AAR}" -d "${TMP_VERIFY_DIR}"
 
 echo "==> Verifying Java API signatures..."
 JAVAP_OUT="$(javap -classpath "${TMP_VERIFY_DIR}/classes.jar" com.tailcat.vpn.engine.Engine)"
@@ -189,17 +199,32 @@ echo "==> 16 KB ELF load alignment verified for all target ABIs."
 echo "==> Verifying NDK identity notes (.note.android.ident)..."
 "${READELF_BIN}" -n "${TMP_VERIFY_DIR}/jni/arm64-v8a/libgojni.so" || true
 
+if [[ "$(native_source_hash)" != "${SOURCE_HASH}" ]]; then
+    echo "ERROR: native sources changed during the build; rerun build-aar.sh." >&2
+    exit 1
+fi
+
 echo "==> Generating verification metadata..."
 METADATA_DIR="${ROOT_DIR}/build/reports/aar"
 mkdir -p "${METADATA_DIR}"
-AAR_HASH="$(shasum -a 256 "${OUTPUT_AAR}" | tee "${METADATA_DIR}/sha256.txt" | awk '{print $1}')"
-printf '%s\n' "${AAR_HASH}" > "${ROOT_DIR}/app/libs/libtailcat.aar.sha256"
-unzip -l "${OUTPUT_AAR}" > "${METADATA_DIR}/contents.txt"
+AAR_HASH="$(shasum -a 256 "${STAGED_AAR}" | awk '{print $1}')"
+printf '%s  %s\n' "${AAR_HASH}" "${OUTPUT_AAR}" > "${METADATA_DIR}/sha256.txt"
+unzip -l "${STAGED_AAR}" > "${METADATA_DIR}/contents.txt"
 echo "${JAVAP_OUT}" > "${METADATA_DIR}/signatures.txt"
 go version -m "${TMP_VERIFY_DIR}/jni/arm64-v8a/libgojni.so" > "${METADATA_DIR}/go-version-m.txt"
 "${READELF_BIN}" -l "${TMP_VERIFY_DIR}/jni/arm64-v8a/libgojni.so" > "${METADATA_DIR}/alignment-arm64.txt"
 "${READELF_BIN}" -l "${TMP_VERIFY_DIR}/jni/x86_64/libgojni.so" > "${METADATA_DIR}/alignment-x86_64.txt"
 "${READELF_BIN}" -n "${TMP_VERIFY_DIR}/jni/arm64-v8a/libgojni.so" > "${METADATA_DIR}/ndk-ident-arm64.txt" || true
 "${READELF_BIN}" -n "${TMP_VERIFY_DIR}/jni/x86_64/libgojni.so" > "${METADATA_DIR}/ndk-ident-x86_64.txt" || true
+
+echo "==> Installing verified AAR into app/libs..."
+# Invalidate the recorded hashes first: if anything below fails, CI sees a
+# mismatch instead of a stale AAR paired with valid-looking hashes.
+: > "${ROOT_DIR}/app/libs/libtailcat.aar.sourcehash"
+: > "${ROOT_DIR}/app/libs/libtailcat.aar.sha256"
+cp "${STAGED_AAR}" "${OUTPUT_AAR}.tmp"
+mv -f "${OUTPUT_AAR}.tmp" "${OUTPUT_AAR}"
+printf '%s\n' "${AAR_HASH}" > "${ROOT_DIR}/app/libs/libtailcat.aar.sha256"
+printf '%s\n' "${SOURCE_HASH}" > "${ROOT_DIR}/app/libs/libtailcat.aar.sourcehash"
 
 echo "==> Build complete and verified successfully."

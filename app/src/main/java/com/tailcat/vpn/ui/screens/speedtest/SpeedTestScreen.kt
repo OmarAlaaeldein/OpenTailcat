@@ -160,7 +160,7 @@ fun SpeedTestScreen(
                     text = if (testState.viaGateway) {
                         "Gateway tunnel benchmark: traffic uses Tailcat DialTCP through the connected gateway."
                     } else {
-                        "Physical-network benchmark: the app UID bypasses the VPN, so this is the direct device path."
+                        "Device-route benchmark: the tunnel is not CONNECTED, so this measures the device's current network path, not the Tailcat tunnel."
                     },
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = TextSecondary,

@@ -96,7 +96,8 @@ func (t *ParsedToken) IsConnectable() bool {
 
 // ParseToken parses and classifies a Tailcat connection token using upstream Tailcat v0.4.0
 // ParseConnBlob as the authority. No silent trimming or mutations are performed.
-func ParseToken(raw string) (*ParsedToken, error) {
+func ParseToken(raw string) (_ *ParsedToken, err error) {
+	defer recoverExported("ParseToken", &err)
 	if len(raw) == 0 {
 		return &ParsedToken{
 			RawToken:       raw,

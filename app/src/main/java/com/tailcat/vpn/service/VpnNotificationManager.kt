@@ -30,10 +30,12 @@ class VpnNotificationManager(private val context: Context) {
         notificationManager.createNotificationChannel(channel)
     }
 
+    /** [detail] replaces the generic text in non-connected states (e.g. why it is reconnecting). */
     fun buildNotification(
         state: TunnelState,
         profileName: String,
-        metrics: NetworkMetrics
+        metrics: NetworkMetrics,
+        detail: String? = null
     ): Notification {
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -69,7 +71,7 @@ class VpnNotificationManager(private val context: Context) {
         val content = if (state == TunnelState.CONNECTED) {
             TrafficFormat.connectedNotificationContent(metrics)
         } else {
-            "Tap to manage your VPN connection"
+            detail ?: "Tap to manage your VPN connection"
         }
 
         val isActive = state != TunnelState.DISCONNECTED
@@ -84,6 +86,9 @@ class VpnNotificationManager(private val context: Context) {
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+        if (detail != null && state != TunnelState.CONNECTED) {
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(detail))
+        }
         if (isActive) {
             builder.addAction(R.drawable.ic_vpn_status, "Disconnect", stopPendingIntent)
         }

@@ -334,16 +334,19 @@ class TunnelEngineTest {
             "rttMs": 55,
             "dnsQueries": 12,
             "discoStale": true,
+            "lastDiscoOkUnixSec": 1700000000,
             "dropCounters": {
                 "malformedIp": 0,
                 "mtuExceeded": 0,
                 "queueExhaustion": 1,
-                "policyRejections": 3
+                "policyRejections": 3,
+                "udpEvictions": 9
             }
         }"""
 
         val metrics = com.tailcat.vpn.core.model.NetworkMetrics.fromJson(json)
         assertTrue(metrics.discoStale)
+        assertEquals(1_700_000_000L, metrics.lastDiscoOkUnixSec)
         assertEquals(12L, metrics.dnsQueries)
         assertEquals(1L, metrics.dropCounters.queueExhaustion)
         assertEquals(3L, metrics.dropCounters.policyRejections)

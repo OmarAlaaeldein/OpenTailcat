@@ -32,25 +32,53 @@ IPv4 Connect is test-enabled. `ipv6` is true; `ipv6Egress` is measured per sessi
 
 Critical current behavior:
 
-- IPv4 TCP: gVisor -> Tailcat `Client.DialTCP` -> gateway.
+- IPv4 TCP: gVisor -> Tailcat `Client.DialTCP` -> gateway. A clean EOF in one
+  direction is passed on as a half-close and the proxy waits for both
+  directions; a reset or write error ends both. `DialTCP` returns before the
+  gateway dials the destination, so an unreachable host shows up as
+  connected-then-EOF (a real refusal needs a gateway change). At most 512
+  proxied TCP connections; the local gVisor stack uses 128 KiB default / 1 MiB
+  max TCP buffers.
 - UDP/53: gVisor netstack proxies datagrams via `Client.DialUDP` to the TUN
   destination (PROFILE_RESOLVER) or `ForcedDNS` (FORCED_RESOLVER). The engine
-  does not inspect DNS TC bits; a libc/app TCP/53 retry is a normal TCP proxy.
+  does not inspect DNS TC bits on this path; a libc/app TCP/53 retry is a
+  normal TCP proxy. With `tcpOnly`, UDP/53 is carried as DNS-over-TCP and an
+  answer larger than the client's EDNS size (or 512 B) comes back as a
+  TC-flagged header and question.
 - Other IPv4 UDP: gVisor netstack proxies datagrams via `Client.DialUDP` across
   Tailcat netstack (no application-flow `net.DialUDP` in `core-engine`).
+- UDP payloads over 1232 B (Tailcat `MaxUDPPayload`) are dropped and counted in
+  `mtuExceeded`, because the tunnel loses them. An unfragmented datagram gets
+  ICMP Fragmentation Needed (next-hop MTU 1260, IPv4 with DF only) or Packet
+  Too Big (MTU 1280, IPv6); a datagram reassembled from fragments is dropped
+  after reassembly. Locally generated ICMP errors are limited to 100/s.
+- UDP flow table: one device-wide table of 1024 flows (every app shares the TUN
+  address). When it is full the least recently active flow is evicted
+  (`udpEvictions`) instead of refusing the new one. Idle timeouts: DNS 2 s after
+  every query is answered, 10 s with one outstanding; other flows 30 s until a
+  reply, then 2 min.
 - IPv6: Android installs `fd7a:115c:a1e0::2/128` on a warm TUN, then `::/0` after
-  pumps are live. Native `handleIPv6` proxies TCP/UDP with a 250ms dial timeout so
-  dual-stack apps can fall back to tunneled IPv4; ICMPv6 echo is dropped;
-  oversized IPv6 gets a local Packet Too Big; oversized IPv4 gets Fragmentation
-  Needed. Capability `ipv6` is true; without gateway IPv6 WAN, public IPv6 is
+  pumps are live. Native `handleIPv6` proxies TCP/UDP; public IPv6 is rejected before dial when `ipv6Egress` is false, otherwise IPv6 uses the IPv4 dial budget (15 s TCP / 10 s UDP), so
+  dual-stack apps fall back to tunneled IPv4. The check applies to the
+  destination after the DNS redirect (a query to an IPv6 resolver forced to an
+  IPv4 resolver still works) and exempts NAT64 `64:ff9b::/96`. Kotlin refuses
+  Connect when the profile DNS server is IPv6 and prepare measured no gateway
+  IPv6 egress. ICMPv6 echo is dropped;
+  oversized IPv6 gets a local Packet Too Big; oversized IPv4 with DF gets
+  Fragmentation Needed. Capability `ipv6` is true; without gateway IPv6 WAN, public IPv6 is
   fail-closed (RST/drop) so Happy Eyeballs uses tunneled IPv4.
-- ICMP echo: IPv4 answered locally. ICMPv6 echo is dropped.
+- ICMP echo: IPv4 answered locally (fragments are not answered). ICMPv6 echo
+  is dropped.
 - Speed test: when CONNECTED, ping/download/upload use `Client.DialTCP` through
   the gateway (`speed.cloudflare.com` is resolved with DNS-over-TCP via
-  `Client.DialTCP` to `1.1.1.1:53`); otherwise the app-UID physical path.
+  `Client.DialTCP` to `1.1.1.1:53`); otherwise ordinary app sockets on the
+  device's current routes (not a tunnel measurement).
 - Telemetry: schema version 2. RTT is sampled from `DiscoPing` about every 5s
   while a bridge is running; jitter is null until three samples. Transport
   follows the last successful `DiscoPing` (Endpoint set => DIRECT_P2P).
+  `lastDiscoOkUnixSec` is the bridge start or the last successful `DiscoPing`;
+  sub-millisecond RTTs report as 1 ms. `dropCounters.udpEvictions` counts
+  UDP flows evicted from a full table.
   WireGuard peer Tx/Rx stay 0 because upstream `Client` has no Status API.
   Kotlin rejects v1 and requires `RUNNING` plus fresh `healthUnixSec` for
   CONNECTED. `liveStats` is test-enabled.
@@ -89,9 +117,10 @@ OpenTailcat is an initiating Android client. It does not own gateway NAT,
 WARP/Tor selection, or filtering policy. Do not build a gateway listener into
 the Android app.
 
-Data-plane interoperability still requires a compatible gateway. Official
-Tailcat v0.4.0 `serve exit-node` is TCP-only. Current upstream (this submodule
-pin) exports `Client.DialUDP` and `Server.OnUDPForward`. If the live user-controlled Tailcat gateway
+Data-plane interoperability still requires a compatible gateway. Tailcat
+v0.4.0 `serve exit-node` was TCP-only; signed v0.7.0 (2026-09-16) adds UDP
+forwarding through `--serve=exit-node`. This submodule pin
+(`v0.5.0-25-g0c31395bf`) exports `Client.DialUDP` and `Server.OnUDPForward`. If the live user-controlled Tailcat gateway
 already supports native tunneled UDP, prove and version that capability.
 Otherwise a matching gateway-side Tailcat UDP deployment is required. A
 client-only direct socket is never an acceptable substitute.
@@ -152,15 +181,31 @@ Current lifecycle:
 - `attachTun` returns after TUN read, gVisor write, UDP GC, and health loops
   have entered. Required pump exit sets `FAILED` and clears `healthUnixSec`.
 - Kotlin sets `CONNECTED` only for native `RUNNING` plus fresh `healthUnixSec`.
-- Go duplicates the supplied TUN FD; Android owns the original.
-- `stop` is concurrent-idempotent and waits with a 3s bound.
+- Go duplicates the supplied TUN FD and sets it non-blocking so closing it
+  interrupts the reader (the flag is shared with Android's descriptor);
+  Android owns the original.
+- `stop` is concurrent-idempotent and returns within about 3 s; a slower
+  upstream `Client.Close` finishes in the background. Kotlin never calls it
+  on the main thread.
 - `detachTun` stops pumps, keeps the prepared client, and returns to `PREPARED`.
 - `disarmPumps` clears pump-failure without stopping the session.
+- Every exported function recovers a panic and returns it as an error
+  (`getStatsJSON` returns an `ERROR` state), so a Go panic cannot abort the
+  app process. A panic in `prepare` also resets the engine to `STOPPED`. Panics
+  in the RTT sampler are logged only; they no longer mark the session `FAILED`.
 - After `prepare`, Android establishes a host-only TUN (no VPN DNS), `attachTun`,
   `detachTun`, then a routed TUN with `0.0.0.0/0` and `::/0` plus VPN DNS and
   `attachTun` again. The VPN
   service is `START_STICKY` with `stopWithTask=false`. Shutdown closes the TUN
-  before native `stop`. The UI resyncs CONNECTED from live `getStatsJSON`.
+  before native `stop`. Only the service promotes a session to CONNECTED; on
+  resume the UI only restores a VPN the user still wants (`onUiResumed`).
+- A mid-session failure (native `FAILED`, 3 stale health polls, 3 failed stats
+  reads, or no gateway reply for 60 s per `lastDiscoOkUnixSec`) closes the TUN
+  and stops the engine at once, then, while `vpnWanted` is set, the service
+  reconnects with `StartRetry` backoff and a RECONNECTING notification that
+  names the cause. Between attempts there is no TUN, so without Always-on
+  lockdown traffic uses the device network (a fail-closed hold needs prepare
+  to run behind routes, which Tailcat's `netns.SetEnabled(false)` prevents).
 
 ## Token contract
 
@@ -200,8 +245,11 @@ key cannot be derived from the node public key.
 6. Close the TUN immediately after startup, pump, or health failure.
 7. Reject invalid/expired tokens in both Android and native code.
 8. Do not sign a release with the debug key.
-9. The app UID bypasses the VPN; in-process HTTP/UDP is direct unless explicitly
-   carried by `Client.DialTCP`/`Client.DialUDP`.
+9. The app does not exclude its own UID. Only Tailcat transport sockets are
+   protected with `VpnService.protect` and bypass the TUN; other in-process
+   HTTP/UDP follows the device routes (into the TUN while it is up). Never
+   label in-process traffic "direct" or "tunneled" without checking which
+   applies; gateway measurements must use `Client.DialTCP`/`Client.DialUDP`.
 10. Keep secrets, live tokens, signing keys, and traffic captures out of source
     control and public logs.
 

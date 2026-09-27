@@ -35,11 +35,12 @@ echo "==> AAR sourcehash tracks native tree"
 got_src="$(find core-engine third_party \
   -type f \
   ! -path '*/.git/*' \
+  ! -name .git \
   ! -name '*.aar' \
   ! -name '*.aar.sha256' \
   ! -path '*/build/*' \
   -print0 |
-  sort -z |
+  LC_ALL=C sort -z |
   xargs -0 shasum -a 256 |
   shasum -a 256 |
   awk '{print $1}')"

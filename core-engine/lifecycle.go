@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -96,6 +97,9 @@ func (c *TailcatCore) markFailed(sess *session, err error) {
 	go closeSession(sess)
 }
 
+// closeSession stops the bridge and closes the client, returning after at
+// most stopWaitTimeout. Teardown that takes longer (upstream Client.Close has
+// no deadline) finishes in the background.
 func closeSession(sess *session) {
 	if sess == nil {
 		return
@@ -111,16 +115,41 @@ func closeSession(sess *session) {
 		bridge := sess.bridge
 		client := sess.client
 		globalCore.mu.Unlock()
-		if bridge != nil {
-			_ = bridge.Stop()
-		}
-		if client != nil {
-			_ = client.Close()
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Tailcat session close panic (contained): %v @ %s", r, panicSite())
+				}
+			}()
+			if bridge != nil {
+				if err := bridge.Stop(); err != nil {
+					log.Printf("Tailcat session close: %v", err)
+				}
+			}
+			if client != nil {
+				_ = client.Close()
+			}
+		}()
+		select {
+		case <-done:
+		case <-time.After(stopWaitTimeout):
+			log.Printf("Tailcat session close exceeded %s; finishing in background", stopWaitTimeout)
 		}
 	})
 }
 
-func Prepare(tokenStr string) error {
+func Prepare(tokenStr string) (err error) {
+	var sess *session
+	defer func() {
+		if r := recover(); r != nil {
+			err = exportedPanicError("Prepare", r)
+			// Leave STOPPED rather than a PREPARING state nothing will finish.
+			abandonPrepare(sess)
+		}
+	}()
 	pt, err := ParseToken(tokenStr)
 	if err != nil {
 		return fmt.Errorf("token rejected: %w", err)
@@ -141,7 +170,7 @@ func Prepare(tokenStr string) error {
 	prev := globalCore.sess
 	globalCore.sess = nil
 	ctx, cancel := context.WithCancel(context.Background())
-	sess := &session{ctx: ctx, cancel: cancel, token: pt}
+	sess = &session{ctx: ctx, cancel: cancel, token: pt}
 	globalCore.state = StatePreparing
 	globalCore.sess = sess
 	globalCore.lastErr = ""
@@ -165,14 +194,14 @@ func Prepare(tokenStr string) error {
 		return errors.New("invalid reachability latency from gateway")
 	}
 	transport := "DERP_RELAY"
-	rttMs := res.Latency.Milliseconds()
+	rttMs := latencyMs(res.Latency.Seconds())
 	discoCtx, discoCancel := context.WithTimeout(sess.ctx, 4*time.Second)
 	if disco, discoErr := client.DiscoPing(discoCtx); discoErr == nil {
 		if disco.Endpoint != "" {
 			transport = "DIRECT_P2P"
 		}
 		if disco.LatencySeconds > 0 {
-			rttMs = int64(disco.LatencySeconds * 1_000)
+			rttMs = latencyMs(disco.LatencySeconds)
 		}
 	}
 	discoCancel()
@@ -237,7 +266,8 @@ func abandonPrepare(sess *session) {
 	}
 }
 
-func AttachTun(tunFD int) error {
+func AttachTun(tunFD int) (err error) {
+	defer recoverExported("AttachTun", &err)
 	globalCore.mu.Lock()
 	if globalCore.sess == nil || globalCore.sess.client == nil || globalCore.sess.token == nil {
 		globalCore.mu.Unlock()
@@ -347,6 +377,7 @@ func AttachTun(tunFD int) error {
 }
 
 func DisarmPumps() {
+	defer recoverExported("DisarmPumps", nil)
 	globalCore.mu.Lock()
 	defer globalCore.mu.Unlock()
 	if globalCore.sess == nil || globalCore.sess.bridge == nil {
@@ -355,7 +386,8 @@ func DisarmPumps() {
 	globalCore.sess.bridge.setOnPumpDead(nil)
 }
 
-func DetachTun() error {
+func DetachTun() (err error) {
+	defer recoverExported("DetachTun", &err)
 	globalCore.mu.Lock()
 	if globalCore.sess == nil {
 		globalCore.mu.Unlock()
@@ -389,7 +421,8 @@ func abandonAttach(sess *session) {
 	globalCore.mu.Unlock()
 }
 
-func Stop() error {
+func Stop() (err error) {
+	defer recoverExported("Stop", &err)
 	netStateMu.Lock()
 	activeMonitor = nil
 	netStateMu.Unlock()
@@ -419,22 +452,32 @@ func Stop() error {
 	globalCore.lastErr = ""
 	globalCore.mu.Unlock()
 
+	// Deferred so a panic during teardown can never leave stopping set,
+	// which would block every later Prepare and Stop.
+	defer func() {
+		globalCore.mu.Lock()
+		globalCore.state = StateStopped
+		globalCore.stopping = false
+		globalCore.stopWait = nil
+		close(done)
+		globalCore.mu.Unlock()
+	}()
+
 	netStateMu.Lock()
 	activeMonitor = nil
 	netStateMu.Unlock()
 
 	closeSession(sess)
-
-	globalCore.mu.Lock()
-	globalCore.state = StateStopped
-	globalCore.stopping = false
-	globalCore.stopWait = nil
-	close(done)
-	globalCore.mu.Unlock()
 	return nil
 }
 
-func GetStatsJSON() string {
+func GetStatsJSON() (out string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Tailcat GetStatsJSON panic (contained): %v @ %s", r, panicSite())
+			out = `{"version":2,"state":"ERROR","transport":"UNKNOWN"}`
+		}
+	}()
 	globalCore.mu.Lock()
 	state := globalCore.state
 	sess := globalCore.sess

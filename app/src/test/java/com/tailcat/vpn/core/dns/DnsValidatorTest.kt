@@ -211,4 +211,16 @@ class DnsValidatorTest {
             assertFalse(DnsValidator.isValid(raw))
         }
     }
+
+    @Test
+    fun ipv6ResolverIsRejectedWithoutGatewayIpv6Egress() {
+        val v6 = DnsValidator.validate("2606:4700:4700::1111") as DnsValidationResult.Valid
+        val v4 = DnsValidator.validate("1.1.1.1") as DnsValidationResult.Valid
+
+        val reason = DnsValidator.gatewayRejection(v6, ipv6Egress = false)
+        assertTrue(reason != null && reason.contains("2606:4700:4700::1111"))
+        assertEquals(null, DnsValidator.gatewayRejection(v6, ipv6Egress = true))
+        assertEquals(null, DnsValidator.gatewayRejection(v4, ipv6Egress = false))
+        assertEquals(null, DnsValidator.gatewayRejection(v4, ipv6Egress = true))
+    }
 }

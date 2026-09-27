@@ -72,8 +72,9 @@ fun TelemetryCard(
             .padding(14.dp)
     ) {
         Column {
-            // The app UID bypasses the Android VPN. Connected-mode egress must therefore
-            // come from the native engine's through-WireGuard probe, never IpAuditor.
+            // IpAuditor follows whatever route the app's own sockets take, so
+            // connected-mode egress comes only from the native engine's
+            // through-WireGuard probe.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,

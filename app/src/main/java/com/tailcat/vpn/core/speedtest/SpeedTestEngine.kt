@@ -70,7 +70,7 @@ class SpeedTestEngine {
             }
 
             currentStage = SpeedTestStage.TESTING_DOWNLOAD
-            stageDetail = if (viaGateway) "gateway download via Client.DialTCP" else "physical download via app UID"
+            stageDetail = if (viaGateway) "gateway download via Client.DialTCP" else "device-route download"
             _testState.value = _testState.value.copy(
                 stage = SpeedTestStage.TESTING_DOWNLOAD,
                 pingMs = finalPing,
@@ -98,7 +98,7 @@ class SpeedTestEngine {
             }
 
             currentStage = SpeedTestStage.TESTING_UPLOAD
-            stageDetail = if (viaGateway) "gateway upload via Client.DialTCP" else "physical upload via app UID"
+            stageDetail = if (viaGateway) "gateway upload via Client.DialTCP" else "device-route upload"
             _testState.value = _testState.value.copy(
                 stage = SpeedTestStage.TESTING_UPLOAD,
                 downloadMbps = downloadSpeed,
