@@ -80,6 +80,7 @@ import com.tailcat.vpn.core.token.TokenParser
 import com.tailcat.vpn.core.token.TokenValidationState
 import com.tailcat.vpn.ui.screens.home.components.PowerToggleRing
 import com.tailcat.vpn.ui.screens.home.components.TelemetryCard
+import com.tailcat.vpn.ui.screens.home.components.TelemetryDisplay
 import com.tailcat.vpn.ui.theme.AccentCyan
 import com.tailcat.vpn.ui.theme.BgDark
 import com.tailcat.vpn.ui.theme.BorderSubtle
@@ -435,15 +436,11 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Connection Subtitle Status
-            val statusLabel = when {
-                isDeviceOffline && tunnelState == TunnelState.DISCONNECTED -> "OFFLINE • NO INTERNET"
-                !viewModel.engineAvailability.isAvailable && tunnelState == TunnelState.DISCONNECTED -> "ENGINE REQUIRED • VPN DISABLED"
-                tunnelState == TunnelState.CONNECTED -> "CONNECTED"
-                tunnelState == TunnelState.CONNECTING -> "ESTABLISHING TUNNEL..."
-                tunnelState == TunnelState.RECONNECTING -> "ROAMING / RECONNECTING..."
-                tunnelState == TunnelState.DEGRADED -> "DEGRADED • RELAYING"
-                else -> "TAP TO CONNECT"
-            }
+            val statusLabel = TelemetryDisplay.statusLabel(
+                state = tunnelState,
+                deviceOffline = isDeviceOffline,
+                engineAvailable = viewModel.engineAvailability.isAvailable
+            )
 
             val statusColor = when {
                 isDeviceOffline && tunnelState == TunnelState.DISCONNECTED -> RedDegraded

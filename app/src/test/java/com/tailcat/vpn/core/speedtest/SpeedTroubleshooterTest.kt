@@ -4,6 +4,7 @@ import com.tailcat.vpn.core.model.DropCounters
 import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TunnelState
 import com.tailcat.vpn.core.model.TransportType
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -72,6 +73,45 @@ class SpeedTroubleshooterTest {
     }
 
     @Test
+    fun sanitizerRedactsWholeAddressesAndKeepsTimes() {
+        val redacted = listOf(
+            "203.0.113.5:443",
+            "[2606:4700:4700::1111]:443",
+            "::ffff:203.0.113.5",
+            "2001:db8::",
+            "2001:db8::/32",
+            "x2001:db8::1",
+            "ip_203.0.113.5",
+            "ec2-203-0-113-5.compute.amazonaws.com",
+            "fe80::1%wlan0",
+            "2001:0db8:0000:0000:0000:ff00:0042:8329",
+            "reached 198.51.100.7."
+        )
+        for (raw in redacted) {
+            val out = SpeedTroubleshooter.sanitizeMessage(raw)
+            assertTrue("$raw -> $out", out.contains("[ip-redacted]"))
+            for (leak in listOf("203", "2001", "2606", "198.51", "fe80", "db8")) {
+                assertFalse("$raw leaked $leak: $out", out.contains(leak))
+            }
+        }
+        assertEquals("at 12:34:56 took 1.5 s", SpeedTroubleshooter.sanitizeMessage("at 12:34:56 took 1.5 s"))
+        assertEquals("via 10.0.2.15:8080", SpeedTroubleshooter.sanitizeMessage("via 10.0.2.15:8080"))
+    }
+
+    @Test
+    fun halfUpTunnelWarnsThatRunWasNotAGatewayMeasurement() {
+        val findings = SpeedTroubleshooter.diagnose(
+            tunnelState = TunnelState.RECONNECTING,
+            metrics = null,
+            stage = SpeedTestStage.COMPLETED,
+            errorMessage = null,
+            viaGateway = false,
+            nowUnixSec = 1_000L
+        )
+        assertTrue(findings.any { it.message.contains("not a gateway measurement") })
+    }
+
+    @Test
     fun discoStaleDerpTcpOnlyAndDropsWarn() {
         val findings = SpeedTroubleshooter.diagnose(
             tunnelState = TunnelState.CONNECTED,
@@ -88,7 +128,7 @@ class SpeedTroubleshooterTest {
             viaGateway = true,
             nowUnixSec = 1_000L
         )
-        assertTrue(findings.any { it.message.contains("Discovery RTT is stale") })
+        assertTrue(findings.any { it.message.contains("did not answer recent discovery pings") })
         assertTrue(findings.any { it.message.contains("DERP") })
         assertTrue(findings.any { it.message.contains("TCP-only") })
         assertTrue(findings.any { it.message.contains("250") || it.message.contains("300") })

@@ -17,10 +17,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,7 +33,7 @@ import androidx.compose.ui.unit.sp
 import com.tailcat.vpn.core.metrics.TrafficFormat
 import com.tailcat.vpn.core.model.EgressInfo
 import com.tailcat.vpn.core.model.NetworkMetrics
-import com.tailcat.vpn.core.model.TransportType
+import com.tailcat.vpn.service.VpnInterfaceSpec
 import com.tailcat.vpn.ui.theme.AccentCyan
 import com.tailcat.vpn.ui.theme.BorderSubtle
 import com.tailcat.vpn.ui.theme.EmeraldConnected
@@ -45,6 +43,7 @@ import com.tailcat.vpn.ui.theme.TextMuted
 import com.tailcat.vpn.ui.theme.TextPrimary
 import com.tailcat.vpn.ui.theme.TextSecondary
 import com.tailcat.vpn.ui.theme.VioletDerp
+import com.tailcat.vpn.ui.theme.YellowWarning
 
 @Composable
 fun TelemetryCard(
@@ -60,8 +59,7 @@ fun TelemetryCard(
     // plane failed and metrics were stale. Now we require live RUNNING.
     val nowSec = System.currentTimeMillis() / 1000L
     val tunnelActive = metrics.isLiveRunning(nowSec)
-    val displayedIp = if (tunnelActive) metrics.tunnelEgressIp ?: "Checking…" else egressInfo.ip
-    val ipLabel = if (tunnelActive) "Exit IP" else "Device IP"
+    val egress = TelemetryDisplay.egress(metrics, egressInfo.ip, nowSec)
 
     Box(
         modifier = modifier
@@ -95,7 +93,7 @@ fun TelemetryCard(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "$ipLabel: $displayedIp",
+                                text = "${egress.label}: ${egress.value}",
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     color = TextPrimary,
                                     fontSize = 14.sp
@@ -104,7 +102,7 @@ fun TelemetryCard(
                         }
                         if (tunnelActive) {
                             Text(
-                                text = "VPN address: 100.64.0.2 / fd7a:115c:a1e0::2",
+                                text = "VPN address: ${VpnInterfaceSpec.IPV4_ADDRESS} / ${VpnInterfaceSpec.IPV6_ADDRESS}",
                                 style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
                             )
                         } else if (egressInfo.city != null || egressInfo.country != null) {
@@ -147,24 +145,13 @@ fun TelemetryCard(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    val (badgeColor, icon, label) = when (metrics.transportType) {
-                        TransportType.DIRECT_P2P -> {
-                            val ep = metrics.directEndpoint
-                            val text = if (!ep.isNullOrBlank()) "DIRECT P2P ($ep)" else "DIRECT P2P"
-                            Triple(EmeraldConnected, Icons.Default.FlashOn, text)
-                        }
-                        TransportType.DERP_RELAY -> {
-                            val name = metrics.derpRegionName
-                                ?: metrics.derpRegionCode
-                                ?: metrics.derpRegionId?.let { "DERP $it" }
-                                ?: "DERP"
-                            Triple(
-                                VioletDerp,
-                                Icons.Default.Shield,
-                                "DERP RELAY ($name)"
-                            )
-                        }
-                        TransportType.UNKNOWN -> Triple(TextMuted, Icons.Default.Shield, "DISCONNECTED")
+                    val transport = TelemetryDisplay.transport(metrics)
+                    val label = transport.text
+                    val badgeColor = when (transport.path) {
+                        TelemetryDisplay.Path.DIRECT -> EmeraldConnected
+                        TelemetryDisplay.Path.RELAY -> VioletDerp
+                        TelemetryDisplay.Path.NOT_RESPONDING -> YellowWarning
+                        TelemetryDisplay.Path.NONE -> TextMuted
                     }
 
                     Box(
@@ -208,15 +195,7 @@ fun TelemetryCard(
                 }
 
                 Text(
-                    text = if (metrics.transportType == TransportType.UNKNOWN) {
-                        "—"
-                    } else if (metrics.rttLatencyMs <= 0 && metrics.jitterMs == null) {
-                        "—"
-                    } else if (metrics.jitterMs != null) {
-                        "${metrics.rttLatencyMs} ms (±${metrics.jitterMs})"
-                    } else {
-                        "${metrics.rttLatencyMs} ms"
-                    },
+                    text = TelemetryDisplay.rtt(metrics, nowSec),
                     style = MaterialTheme.typography.labelMedium.copy(
                         color = TextSecondary,
                         fontSize = 12.sp
@@ -289,8 +268,8 @@ fun TelemetryCard(
             }
 
             // Factual telemetry discriminators: only shown when the engine
-            // reported a non-zero counter or a stale RTT sample.
-            if (metrics.dnsQueries > 0 || metrics.dropCounters.policyRejections > 0 || metrics.discoStale) {
+            // reported a non-zero counter.
+            if (metrics.dnsQueries > 0 || metrics.dropCounters.policyRejections > 0) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Column {
                     if (metrics.dnsQueries > 0) {
@@ -302,12 +281,6 @@ fun TelemetryCard(
                     if (metrics.dropCounters.policyRejections > 0) {
                         Text(
                             text = "Policy rejections: ${metrics.dropCounters.policyRejections}",
-                            style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
-                        )
-                    }
-                    if (metrics.discoStale) {
-                        Text(
-                            text = "RTT stale (relay)",
                             style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
                         )
                     }

@@ -89,15 +89,13 @@ class TokenParserTest {
 
     @Test
     fun testDerpRegionDisplayNames() {
+        // No city names: the app cannot know them for a fetched DERP map
+        // (the old table called region 6 "London" and 8 "Toronto").
         val cases = listOf(
-            1 to "NYC (Region 1)",
-            2 to "SFO (Region 2)",
-            3 to "Singapore (Region 3)",
-            4 to "Frankfurt (Region 4)",
-            6 to "London (Region 6)",
-            7 to "Tokyo (Region 7)",
-            8 to "Toronto (Region 8)",
-            302 to "San Francisco (Region 302)"
+            1 to "DERP region 1",
+            6 to "DERP region 6",
+            8 to "DERP region 8",
+            302 to "DERP region 302"
         )
 
         for ((regionId, expectedName) in cases) {
@@ -115,7 +113,7 @@ class TokenParserTest {
             derpRegionId = 1,
             hasEmbeddedRegion = true
         )
-        assertEquals("Embedded DERP Map", embedded.regionDisplayName)
+        assertEquals("Embedded DERP map", embedded.regionDisplayName)
     }
 
     @Test

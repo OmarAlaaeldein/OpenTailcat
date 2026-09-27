@@ -2,6 +2,7 @@ package com.tailcat.vpn
 
 import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TransportType
+import com.tailcat.vpn.ui.screens.home.components.TelemetryDisplay
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -27,84 +28,44 @@ import org.junit.Test
  */
 class StaleExitIpFixTest {
 
-    private fun metricsWithExit(
-        state: String,
-        transport: TransportType,
-        healthUnixSec: Long,
-        exitIp: String?,
-        nowSec: Long = 1_000L
+    private fun metrics(
+        state: String = "RUNNING",
+        healthUnixSec: Long = 999L,
+        exitIp: String? = null,
+        auditError: String? = null
     ) = NetworkMetrics(
         state = state,
-        transportType = transport,
+        transportType = TransportType.DERP_RELAY,
         healthUnixSec = healthUnixSec,
-        tunnelEgressIp = exitIp
-    ) to nowSec
+        tunnelEgressIp = exitIp,
+        egressAuditError = auditError
+    )
+
+    private val now = 1_000L
 
     @Test
-    fun failedStateWith200ExitIsNotLive() {
-        val (m, now) = metricsWithExit(
-            state = "FAILED",
-            transport = TransportType.DIRECT_P2P,
-            healthUnixSec = 990L,
-            exitIp = "200.160.0.8"
-        )
-        // Must be considered not live, so UI shows Device IP, not stained Exit IP.
-        assertFalse(m.isLiveRunning(now))
-        assertFalse(m.isLiveRunning(now) && m.tunnelEgressIp?.startsWith("200.") == true)
-        // Simulate TelemetryCard logic after fix:
-        val tunnelActive = m.isLiveRunning(now)
-        val displayedIp = if (tunnelActive) m.tunnelEgressIp ?: "Checking…" else "1.2.3.4"
-        assertEquals("1.2.3.4", displayedIp)
-        assertFalse(tunnelActive)
+    fun failedTunnelNeverShowsItsOldExitIp() {
+        val shown = TelemetryDisplay.egress(metrics(state = "FAILED", exitIp = "200.111.5.10"), "198.51.100.7", now)
+        assertEquals(TelemetryDisplay.Egress("Device IP", "198.51.100.7"), shown)
     }
 
     @Test
-    fun staleHealthWith200ExitIsNotLive() {
-        // Health 100s stale (beyond 15s window) but transport still DIRECT_P2P and exit 200.x
-        val (m, now) = metricsWithExit(
-            state = "RUNNING",
-            transport = TransportType.DERP_RELAY,
-            healthUnixSec = 800L, // 200s stale at now=1000
-            exitIp = "200.111.5.10",
-            nowSec = 1_000L
-        )
-        assertFalse(m.isLiveRunning(now))
-        val tunnelActive = m.isLiveRunning(now)
-        assertFalse(tunnelActive)
-        // UI must not show Exit IP 200.x when not live
-        val displayedIp = if (tunnelActive) m.tunnelEgressIp ?: "Checking…" else "DeviceIp"
-        assertEquals("DeviceIp", displayedIp)
+    fun staleHealthNeverShowsItsOldExitIp() {
+        val shown = TelemetryDisplay.egress(metrics(healthUnixSec = 1L, exitIp = "200.160.0.8"), "198.51.100.7", now)
+        assertEquals("Device IP", shown.label)
+        assertFalse(shown.value.startsWith("200."))
     }
 
     @Test
-    fun freshRunningWith200ExitIsLive() {
-        // When truly Running and fresh, a legitimate 200.x exit (e.g. real gateway in
-        // 200/8) *should* be shown as Exit IP — this is not the bug.
-        val (m, now) = metricsWithExit(
-            state = "RUNNING",
-            transport = TransportType.DIRECT_P2P,
-            healthUnixSec = 995L,
-            exitIp = "200.160.0.8",
-            nowSec = 1_000L
-        )
-        assertTrue(m.isLiveRunning(now))
-        val tunnelActive = m.isLiveRunning(now)
-        assertTrue(tunnelActive)
-        val displayedIp = if (tunnelActive) m.tunnelEgressIp ?: "Checking…" else "DeviceIp"
-        assertEquals("200.160.0.8", displayedIp)
+    fun liveTunnelShowsAuditedExitIp() {
+        val shown = TelemetryDisplay.egress(metrics(exitIp = "203.0.113.9"), "198.51.100.7", now)
+        assertEquals(TelemetryDisplay.Egress("Exit IP", "203.0.113.9"), shown)
     }
 
     @Test
-    fun unknownTransportNeverShowsExitIpEvenWith200() {
-        val (m, now) = metricsWithExit(
-            state = "RUNNING",
-            transport = TransportType.UNKNOWN,
-            healthUnixSec = 999L,
-            exitIp = "200.111.5.10"
-        )
-        // UNKNOWN transport is not live per shouldConnect, and TelemetryCard now uses isLiveRunning which also checks transport via isLiveRunning? Actually isLiveRunning only checks state+health, but TelemetryCard's new logic is isLiveRunning, which for RUNNING+fresh would be true even if transport UNKNOWN. However EngineHealth.shouldConnect also requires transport != UNKNOWN. We verify both.
-        // The UI's tunnelActive should be false because either isLiveRunning false (if health stale) or because we now correctly tie to isLiveRunning which for UNKNOWN still could be true if RUNNING+fresh, but the bug's stale case is FAILED/health stale, which is already covered. This test ensures UNKNOWN is not considered Exit-capable via the old logic path.
-        // For this edge, we assert that a truly UNKNOWN transport should not be shown as Exit even if isLiveRunning would otherwise be true — the old bug path would have shown Exit because it checked transport != UNKNOWN, which would be false here, so it already showed Device IP. This is a sanity check.
-        assertFalse(m.transportType != TransportType.UNKNOWN && m.tunnelEgressIp?.startsWith("200.") == true && m.isLiveRunning(now))
+    fun failedAuditSaysUnavailableInsteadOfCheckingForever() {
+        assertEquals("Checking…", TelemetryDisplay.egress(metrics(), "x", now).value)
+        val shown = TelemetryDisplay.egress(metrics(auditError = "tls: no pinned key in the verified chain"), "x", now)
+        assertTrue(shown.value.startsWith("unavailable (tls: no pinned key"))
     }
 }

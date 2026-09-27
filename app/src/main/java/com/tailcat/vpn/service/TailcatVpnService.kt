@@ -313,6 +313,7 @@ class TailcatVpnService : VpnService() {
             protectOpenTransportSockets(excludeTun = routed)
             app.tunnelController.sessionFailureHandler = { _ -> reconnectAfterFailure() }
             app.tunnelController.onEngineConnected(metrics)
+            publishAlwaysOnStatus()
             startMetricsNotificationUpdater(profile)
         } catch (error: Throwable) {
             closeOwned(warmOwned, routedOwned)
@@ -425,9 +426,17 @@ class TailcatVpnService : VpnService() {
     override fun onTaskRemoved(rootIntent: Intent?) {
     }
 
+    /** isLockdownEnabled needs a live VPN network, so read it once routes are up. */
+    private fun publishAlwaysOnStatus() {
+        if (Build.VERSION.SDK_INT < LockdownProbe.STATUS_API) return
+        val status = runCatching { AlwaysOnStatus(isAlwaysOn, isLockdownEnabled) }.getOrNull()
+        TailcatApplication.instance.tunnelController.setAlwaysOnStatus(status)
+    }
+
     private fun shutdown() {
         if (!shuttingDown.compareAndSet(false, true)) return
         TailcatApplication.instance.tunnelController.sessionFailureHandler = null
+        TailcatApplication.instance.tunnelController.setAlwaysOnStatus(null)
         synchronized(startLock) { startJob?.cancel() }
         metricsCollectorJob?.cancel()
         TailcatApplication.instance.tunnelController.stopPolling()

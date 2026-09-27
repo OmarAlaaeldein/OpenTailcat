@@ -218,25 +218,21 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                     }
 
                     SettingsCard(icon = Icons.Default.Security, title = "Always-on & kill switch") {
-                        val lockdown = remember(context) {
-                            com.tailcat.vpn.service.LockdownProbe.alwaysOnLockdownConfigured(
-                                context.contentResolver,
-                                context.packageName
-                            )
-                        }
+                        val alwaysOn by com.tailcat.vpn.TailcatApplication.instance.tunnelController
+                            .alwaysOnStatus.collectAsState()
                         Text(
-                            when (lockdown) {
-                                true -> "Status: Always-on VPN with ‘Block connections without VPN’ appears ON for this app."
-                                false -> "Status: Always-on lockdown is not enabled for this app."
-                                null -> "Status: Lockdown settings could not be read on this device."
-                            },
+                            com.tailcat.vpn.service.LockdownProbe.statusText(android.os.Build.VERSION.SDK_INT, alwaysOn),
                             style = MaterialTheme.typography.bodySmall.copy(
-                                color = if (lockdown == true) EmeraldConnected else TextSecondary
+                                color = if (com.tailcat.vpn.service.LockdownProbe.isProtected(alwaysOn)) {
+                                    EmeraldConnected
+                                } else {
+                                    TextSecondary
+                                }
                             )
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "Recommended on Android 10+: turn on Always-on VPN and ‘Block connections without VPN’ for stronger leak protection. Connect still works without them. Note: with lockdown on, Android blocks checked apps from using the network entirely.",
+                            "Recommended: turn on Always-on VPN and ‘Block connections without VPN’ (Android 8+). Without it, apps use the device network whenever the VPN is off or reconnecting. Connect still works without them. Note: with lockdown on, Android blocks checked apps from using the network entirely.",
                             style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary)
                         )
                         Spacer(Modifier.height(10.dp))

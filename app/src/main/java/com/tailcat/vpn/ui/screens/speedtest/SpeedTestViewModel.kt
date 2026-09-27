@@ -14,6 +14,7 @@ class SpeedTestViewModel : ViewModel() {
 
     private val engine = SpeedTestEngine()
     val testState: StateFlow<SpeedTestResult> = engine.testState
+    val tunnelState: StateFlow<TunnelState> = TailcatApplication.instance.tunnelController.tunnelState
 
     private var activeJob: Job? = null
 

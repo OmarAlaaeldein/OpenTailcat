@@ -1,70 +1,31 @@
 package com.tailcat.vpn.service
 
-import android.content.ContentResolver
-import android.os.Build
-import android.provider.Settings
-
 /**
- * Detects Always-on VPN + lockdown without requiring a live VPN NetworkAgent.
- *
- * [VpnService.isLockdownEnabled] delegates to
- * `isCallerCurrentAlwaysOnVpnLockdownApp`, which needs
- * [UnderlyingNetworkInfo] from a running VPN (AUDIT H1). Settings.Secure
- * `always_on_vpn_app` / `always_on_vpn_lockdown` are written when the user
- * enables Always-on lockdown in system Settings and are observable before
- * [Builder.establish]. Prefer that signal; keep the framework query as a
- * corroborating OR after a warm TUN exists.
+ * Always-on VPN and "Block connections without VPN" state, as reported by
+ * the running [android.net.VpnService] (`isAlwaysOn()` / `isLockdownEnabled()`,
+ * API 29+). Apps cannot read it otherwise: the `always_on_vpn_*` secure
+ * settings are hidden and unreadable for apps targeting Android 12+, and
+ * `isLockdownEnabled()` needs a live VPN network.
  */
+data class AlwaysOnStatus(val alwaysOn: Boolean, val lockdown: Boolean)
+
 object LockdownProbe {
-    /** API level where Always-on + block-without-VPN settings exist and are recommended. */
-    const val LOCKDOWN_REQUIRED_API = 29
+    /** API level where VpnService reports Always-on and lockdown. */
+    const val STATUS_API = 29
 
-    const val SECURE_ALWAYS_ON_VPN_APP = "always_on_vpn_app"
-    const val SECURE_ALWAYS_ON_VPN_LOCKDOWN = "always_on_vpn_lockdown"
-
-    /**
-     * @return true when this package is the Always-on VPN with lockdown;
-     * false when Settings are readable and lockdown is not configured;
-     * null when the secure settings cannot be read (fall back to framework).
-     * Below [LOCKDOWN_REQUIRED_API] returns true (lockdown settings N/A).
-     */
-    fun alwaysOnLockdownConfigured(
-        resolver: ContentResolver?,
-        packageName: String,
-        sdkInt: Int = Build.VERSION.SDK_INT,
-        readString: (ContentResolver?, String) -> String? = { cr, key ->
-            Settings.Secure.getString(requireNotNull(cr), key)
-        },
-        readInt: (ContentResolver?, String, Int) -> Int = { cr, key, def ->
-            try {
-                Settings.Secure.getInt(requireNotNull(cr), key)
-            } catch (_: Settings.SettingNotFoundException) {
-                def
-            }
-        }
-    ): Boolean? {
-        if (sdkInt < LOCKDOWN_REQUIRED_API) return true
-        return try {
-            val app = readString(resolver, SECURE_ALWAYS_ON_VPN_APP)
-            val lockdown = readInt(resolver, SECURE_ALWAYS_ON_VPN_LOCKDOWN, 0)
-            app == packageName && lockdown == 1
-        } catch (_: SecurityException) {
-            null
-        }
+    /** Settings text for [status], which is null unless the VPN service is running. */
+    fun statusText(sdkInt: Int, status: AlwaysOnStatus?): String = when {
+        sdkInt < STATUS_API ->
+            "Status: Android 8–9 do not report Always-on state to apps. Check Android VPN settings."
+        status == null ->
+            "Status: known only while the VPN is connected."
+        status.alwaysOn && status.lockdown ->
+            "Status: Always-on VPN with ‘Block connections without VPN’ is ON for this app."
+        status.alwaysOn ->
+            "Status: Always-on VPN is on, but ‘Block connections without VPN’ is off: apps use the device network whenever the VPN is reconnecting."
+        else ->
+            "Status: Always-on VPN is off for this app."
     }
 
-    /**
-     * True when Always-on + block-without-VPN appears enabled (status only).
-     * Lockdown is recommended but never gates Connect or default routes.
-     * Settings.Secure=true wins even if [frameworkLockdownEnabled] is still false
-     * after a host-only warm TUN (framework UnderlyingNetworkInfo race / quirk).
-     */
-    fun lockdownSatisfied(
-        sdkInt: Int,
-        settingsLockdown: Boolean?,
-        frameworkLockdownEnabled: Boolean
-    ): Boolean {
-        if (sdkInt < LOCKDOWN_REQUIRED_API) return true
-        return settingsLockdown == true || frameworkLockdownEnabled
-    }
+    fun isProtected(status: AlwaysOnStatus?): Boolean = status?.alwaysOn == true && status.lockdown
 }

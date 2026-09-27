@@ -76,6 +76,7 @@ fun SpeedTestScreen(
     onNavigateBack: () -> Unit = {}
 ) {
     val testState by viewModel.testState.collectAsState()
+    val tunnelState by viewModel.tunnelState.collectAsState()
     val isTesting = testState.stage in listOf(
         SpeedTestStage.MEASURING_PING,
         SpeedTestStage.TESTING_DOWNLOAD,
@@ -157,11 +158,7 @@ fun SpeedTestScreen(
                     .padding(horizontal = 12.dp, vertical = 7.dp)
             ) {
                 Text(
-                    text = if (testState.viaGateway) {
-                        "Gateway tunnel benchmark: traffic uses Tailcat DialTCP through the connected gateway."
-                    } else {
-                        "Device-route benchmark: the tunnel is not CONNECTED, so this measures the device's current network path, not the Tailcat tunnel."
-                    },
+                    text = SpeedTestBanner.text(testState.stage, testState.viaGateway, tunnelState),
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = TextSecondary,
                         fontSize = 11.sp

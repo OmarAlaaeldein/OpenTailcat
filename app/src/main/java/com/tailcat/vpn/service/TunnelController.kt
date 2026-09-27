@@ -50,6 +50,14 @@ class TunnelController(
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
 
+    // Reported by the running VPN service; null while it is not running.
+    private val _alwaysOnStatus = MutableStateFlow<AlwaysOnStatus?>(null)
+    val alwaysOnStatus: StateFlow<AlwaysOnStatus?> = _alwaysOnStatus.asStateFlow()
+
+    fun setAlwaysOnStatus(status: AlwaysOnStatus?) {
+        _alwaysOnStatus.value = status
+    }
+
     val engineAvailability: EngineAvailability
         get() = tunnelEngine.availability
 

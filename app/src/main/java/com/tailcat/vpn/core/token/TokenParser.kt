@@ -75,24 +75,15 @@ data class ParsedToken(
             serverPublicKeyHex
         }
 
+    /**
+     * Region IDs refer to the DERP map the engine fetches at connect time; the
+     * app has no reliable city names for them, so it shows the ID only.
+     */
     val regionDisplayName: String
-        get() {
-            if (hasEmbeddedRegion) return "Embedded DERP Map"
-            return when (derpRegionId) {
-                1 -> "NYC (Region 1)"
-                2 -> "SFO (Region 2)"
-                3 -> "Singapore (Region 3)"
-                4 -> "Frankfurt (Region 4)"
-                5 -> "Sydney (Region 5)"
-                6 -> "London (Region 6)"
-                7 -> "Tokyo (Region 7)"
-                8 -> "Toronto (Region 8)"
-                9 -> "Dallas (Region 9)"
-                10 -> "Seattle (Region 10)"
-                302 -> "San Francisco (Region 302)"
-                null -> "Default DERP"
-                else -> "DERP Region $derpRegionId"
-            }
+        get() = when {
+            hasEmbeddedRegion -> "Embedded DERP map"
+            derpRegionId == null -> "Default DERP"
+            else -> "DERP region $derpRegionId"
         }
 
     override fun equals(other: Any?): Boolean {
