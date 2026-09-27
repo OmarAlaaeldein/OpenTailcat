@@ -1,49 +1,56 @@
 package com.tailcat.vpn.core.tls
 
-import android.util.Base64
+import android.net.http.X509TrustManagerExtensions
 import java.net.URL
 import java.security.KeyStore
-import java.security.MessageDigest
+import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
+import java.util.concurrent.ConcurrentHashMap
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
+/**
+ * HTTPS to Cloudflare endpoints with [SpkiPins]. The pin is checked against
+ * the chain the platform verified, not the certificates the server sent: a
+ * server with any trusted certificate could otherwise append the public
+ * pinned certificate and pass.
+ */
 object PinnedHttps {
-    private val pins = setOf(
-        "ltQ6aXy3tqpNZKJdnevMD7oR+IsI5rNWbOssFDrl+Ew=",
-        "+b007mFjejRgBPvNGi8dBoql9OZGiCe4woYnC0Lt61I="
-    )
 
-    private val socketFactory by lazy {
-        val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
-        tmf.init(null as KeyStore?)
-        val system = tmf.trustManagers.filterIsInstance<X509TrustManager>().first()
-        val pinned = object : X509TrustManager {
-            override fun getAcceptedIssuers(): Array<X509Certificate> = system.acceptedIssuers
+    private val factories = ConcurrentHashMap<String, SSLSocketFactory>()
 
-            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {
-                system.checkClientTrusted(chain, authType)
-            }
+    private fun socketFactoryFor(host: String): SSLSocketFactory =
+        factories.getOrPut(host) {
+            val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+            tmf.init(null as KeyStore?)
+            val system = tmf.trustManagers.filterIsInstance<X509TrustManager>().first()
+            val extensions = X509TrustManagerExtensions(system)
+            val pinned = object : X509TrustManager {
+                override fun getAcceptedIssuers(): Array<X509Certificate> = system.acceptedIssuers
 
-            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {
-                system.checkServerTrusted(chain, authType)
-                val matched = chain.any { cert ->
-                    val spki = MessageDigest.getInstance("SHA-256").digest(cert.publicKey.encoded)
-                    Base64.encodeToString(spki, Base64.NO_WRAP) in pins
+                override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {
+                    system.checkClientTrusted(chain, authType)
                 }
-                check(matched) { "TLS pin mismatch" }
+
+                override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {
+                    val verified = extensions.checkServerTrusted(chain, authType, host)
+                    if (!SpkiPins.matches(verified.map { it.publicKey.encoded })) {
+                        throw CertificateException("TLS pin mismatch for $host")
+                    }
+                }
             }
+            val ctx = SSLContext.getInstance("TLS")
+            ctx.init(null, arrayOf(pinned), null)
+            ctx.socketFactory
         }
-        val ctx = SSLContext.getInstance("TLS")
-        ctx.init(null, arrayOf(pinned), null)
-        ctx.socketFactory
-    }
 
     fun open(endpoint: String): HttpsURLConnection {
-        val connection = URL(endpoint).openConnection() as HttpsURLConnection
-        connection.sslSocketFactory = socketFactory
+        val url = URL(endpoint)
+        val connection = url.openConnection() as HttpsURLConnection
+        connection.sslSocketFactory = socketFactoryFor(url.host)
         return connection
     }
 }
