@@ -396,6 +396,8 @@ func TestIPv4TCPUDPICMPStillHandled(t *testing.T) {
 	}
 	waitAtomic(t, dialUDP, 1, 2*time.Second, "DialUDP for IPv4 UDP")
 
+	// IPv4 echo is dropped like ICMPv6: no local reply (it would report
+	// any host reachable) and no dial.
 	icmpPkt := buildIPv4ICMPEcho(
 		netip.MustParseAddr("100.64.0.2"),
 		netip.MustParseAddr("1.1.1.1"),
@@ -403,25 +405,15 @@ func TestIPv4TCPUDPICMPStillHandled(t *testing.T) {
 	)
 	bridge.handleOutboundPacket(icmpPkt)
 
-	_ = r.SetReadDeadline(time.Now().Add(time.Second))
+	_ = r.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 	buf := make([]byte, 4096)
-	n, readErr := r.Read(buf)
-	if readErr != nil {
-		t.Fatalf("expected IPv4 ICMP echo reply on TUN, read: %v", readErr)
+	if n, _ := r.Read(buf); n > 0 {
+		t.Fatalf("expected no TUN write for IPv4 echo, got %d bytes", n)
 	}
-	if n < 28 {
-		t.Fatalf("IPv4 ICMP reply too short: %d", n)
+	if got := bridge.policyRejections.Load(); got != 1 {
+		t.Fatalf("expected 1 policyRejection for the dropped IPv4 echo, got %d", got)
 	}
-	if buf[0]>>4 != 4 {
-		t.Fatalf("expected IPv4 reply, version=%d", buf[0]>>4)
-	}
-	ihl := int(buf[0]&0x0f) * 4
-	if buf[9] != 1 {
-		t.Fatalf("expected ICMP protocol 1, got %d", buf[9])
-	}
-	if buf[ihl] != 0 {
-		t.Fatalf("expected ICMP echo reply type 0, got %d", buf[ihl])
-	}
+	bridge.policyRejections.Store(0)
 
 	if bridge.policyRejections.Load() != 0 {
 		t.Fatalf("expected 0 policyRejections for IPv4 traffic, got %d", bridge.policyRejections.Load())

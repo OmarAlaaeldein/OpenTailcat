@@ -67,8 +67,9 @@ Critical current behavior:
   oversized IPv6 gets a local Packet Too Big; oversized IPv4 with DF gets
   Fragmentation Needed. Capability `ipv6` is true; without gateway IPv6 WAN, public IPv6 is
   fail-closed (RST/drop) so Happy Eyeballs uses tunneled IPv4.
-- ICMP echo: IPv4 answered locally (fragments are not answered). ICMPv6 echo
-  is dropped.
+- ICMP echo: IPv4 and ICMPv6 echo are dropped (counted in `policyRejections`).
+  Tailcat carries only TCP and UDP, and a local reply would report every host
+  as reachable.
 - Speed test: when CONNECTED, ping/download/upload use `Client.DialTCP` through
   the gateway (`speed.cloudflare.com` is resolved with DNS-over-TCP via
   `Client.DialTCP` to `1.1.1.1:53`); otherwise ordinary app sockets on the

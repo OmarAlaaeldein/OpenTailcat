@@ -386,22 +386,19 @@ func TestReassembledOversizeUDPIsDroppedNotForwarded(t *testing.T) {
 	}
 }
 
-func TestFragmentedICMPEchoIsNotAnswered(t *testing.T) {
+// A local echo reply would claim any host is reachable (the review saw
+// 0.05 ms replies from unroutable TEST-NET-3), so IPv4 echo is dropped.
+func TestIPv4ICMPEchoIsDroppedNotAnswered(t *testing.T) {
 	b, r, cleanup := newPipeBridge(t, 1280, &mockTunnelClient{})
 	defer cleanup()
 
 	echo := buildIPv4ICMPEcho(netip.MustParseAddr("100.64.0.2"), netip.MustParseAddr("203.0.113.1"), make([]byte, 64))
 	b.handleOutboundPacket(echo)
-	if readTunWrite(r, time.Second) == nil {
-		t.Fatal("expected a reply to an unfragmented echo")
+	if reply := readTunWrite(r, 200*time.Millisecond); reply != nil {
+		t.Fatalf("an echo request must not be answered locally, got %d bytes", len(reply))
 	}
-	frag := append([]byte(nil), echo...)
-	binary.BigEndian.PutUint16(frag[6:8], 0x2000) // MF
-	frag[10], frag[11] = 0, 0
-	binary.BigEndian.PutUint16(frag[10:12], ipv4Checksum(frag[:20]))
-	b.handleOutboundPacket(frag)
-	if reply := readTunWrite(r, 100*time.Millisecond); reply != nil {
-		t.Fatalf("a fragment of an echo request must not be echoed, got %d bytes", len(reply))
+	if got := b.policyRejections.Load(); got != 1 {
+		t.Fatalf("policyRejections = %d, want 1", got)
 	}
 }
 

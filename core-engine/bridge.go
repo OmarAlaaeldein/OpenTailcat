@@ -536,13 +536,14 @@ func (b *TunBridge) handleIPv4(pkt []byte) {
 	}
 
 	protocol := pkt[9]
-	srcIP, _ := netip.AddrFromSlice(pkt[12:16])
-	dstIP, _ := netip.AddrFromSlice(pkt[16:20])
 	fragment := ipv4Fragment(pkt)
 
 	switch protocol {
 	case 1: // ICMP
-		b.handleICMPv4(pkt, ihl, srcIP, dstIP)
+		// Tailcat carries only TCP and UDP. Answering echo locally would
+		// report every host as reachable in about 0 ms, so ICMP is dropped
+		// like ICMPv6.
+		b.policyRejections.Add(1)
 	case 6: // TCP
 		b.tcpPackets.Add(1)
 		if !fragment && len(pkt) >= ihl+4 {
@@ -760,48 +761,6 @@ func (b *TunBridge) writeTunPacket(pkt []byte) error {
 	defer b.tunWriteMu.Unlock()
 	_, err := b.tunFile.Write(pkt)
 	return err
-}
-
-// handleICMPv4 generates an echo reply for IPv4 ping packets.
-func (b *TunBridge) handleICMPv4(pkt []byte, ihl int, srcIP, dstIP netip.Addr) {
-	// A fragment is only part of the echo request; echoing it back produces
-	// a reply the kernel can never reassemble.
-	if ipv4Fragment(pkt) || int(binary.BigEndian.Uint16(pkt[2:4])) != len(pkt) {
-		return
-	}
-	icmpPayload := pkt[ihl:]
-	if len(icmpPayload) < 8 {
-		return
-	}
-
-	icmpType := icmpPayload[0]
-	if icmpType != 8 { // Echo request
-		return
-	}
-
-	reply := make([]byte, len(pkt))
-	copy(reply, pkt)
-
-	// Swap IP addresses
-	copy(reply[12:16], pkt[16:20])
-	copy(reply[16:20], pkt[12:16])
-
-	// Recompute IPv4 header checksum
-	reply[10] = 0
-	reply[11] = 0
-	ipChk := ipv4Checksum(reply[:ihl])
-	binary.BigEndian.PutUint16(reply[10:12], ipChk)
-
-	// Change ICMP type to Echo Reply (0)
-	reply[ihl] = 0
-	// Recompute ICMP checksum
-	reply[ihl+2] = 0
-	reply[ihl+3] = 0
-	icmpChk := checksum(reply[ihl:])
-	binary.BigEndian.PutUint16(reply[ihl+2:ihl+4], icmpChk)
-
-	b.rxBytes.Add(int64(len(reply)))
-	b.writeTunPacket(reply)
 }
 
 const (

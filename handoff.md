@@ -177,7 +177,7 @@ IPv4 flags now set true.
 | ICMPv6 echo | Dropped | No gateway/Internet request is made |
 | IPv6 over MTU | Local ICMPv6 Packet Too Big | No gateway request |
 | IPv4 over MTU | Local ICMP Fragmentation Needed when DF is set; otherwise dropped | No gateway request |
-| IPv4 ICMP echo | Constructs a local echo reply (fragments are dropped, not echoed) | No gateway/Internet request is made |
+| IPv4 ICMP echo | Dropped like ICMPv6 (a local reply would fake reachability) | No gateway/Internet request is made |
 | Native exit audit | TLS/HTTP through `Client.DialTCP` | Tailcat gateway |
 | In-app speed test | When CONNECTED: `Client.DialTCP` through the gateway (`speed.cloudflare.com` resolved with DNS-over-TCP via `Client.DialTCP` to `1.1.1.1:53`). Otherwise `HttpURLConnection` on the device's current routes | Gateway TCP when CONNECTED; otherwise whatever route the device uses (direct when disconnected, into the TUN while it is still up in DEGRADED/RECONNECTING). |
 
