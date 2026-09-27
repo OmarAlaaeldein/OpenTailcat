@@ -304,7 +304,11 @@ type EngineStats struct {
 	// DiscoStale reports whether the last live DiscoPing is stale while the
 	// pumps remain alive. Additive in schema v2; Kotlin health-freshness
 	// gating is unchanged.
-	DiscoStale              bool         `json:"discoStale"`
+	DiscoStale bool `json:"discoStale"`
+	// LastDiscoOkSec is the unix second of the last gateway reply (bridge
+	// start or successful DiscoPing). Kotlin treats a long gap as gateway
+	// loss and reconnects. Additive in schema v2.
+	LastDiscoOkSec          int64        `json:"lastDiscoOkUnixSec,omitempty"`
 	DirectEndpoint          string       `json:"directEndpoint,omitempty"`
 	DerpRegionID            int          `json:"derpRegionId"`
 	DerpRegionCode          string       `json:"derpRegionCode,omitempty"`

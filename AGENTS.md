@@ -76,6 +76,9 @@ Critical current behavior:
 - Telemetry: schema version 2. RTT is sampled from `DiscoPing` about every 5s
   while a bridge is running; jitter is null until three samples. Transport
   follows the last successful `DiscoPing` (Endpoint set => DIRECT_P2P).
+  `lastDiscoOkUnixSec` is the bridge start or the last successful `DiscoPing`;
+  sub-millisecond RTTs report as 1 ms. `dropCounters.udpEvictions` counts
+  UDP flows evicted from a full table.
   WireGuard peer Tx/Rx stay 0 because upstream `Client` has no Status API.
   Kotlin rejects v1 and requires `RUNNING` plus fresh `healthUnixSec` for
   CONNECTED. `liveStats` is test-enabled.
@@ -194,7 +197,15 @@ Current lifecycle:
   `detachTun`, then a routed TUN with `0.0.0.0/0` and `::/0` plus VPN DNS and
   `attachTun` again. The VPN
   service is `START_STICKY` with `stopWithTask=false`. Shutdown closes the TUN
-  before native `stop`. The UI resyncs CONNECTED from live `getStatsJSON`.
+  before native `stop`. Only the service promotes a session to CONNECTED; on
+  resume the UI only restores a VPN the user still wants (`onUiResumed`).
+- A mid-session failure (native `FAILED`, 3 stale health polls, 3 failed stats
+  reads, or no gateway reply for 60 s per `lastDiscoOkUnixSec`) closes the TUN
+  and stops the engine at once, then, while `vpnWanted` is set, the service
+  reconnects with `StartRetry` backoff and a RECONNECTING notification that
+  names the cause. Between attempts there is no TUN, so without Always-on
+  lockdown traffic uses the device network (a fail-closed hold needs prepare
+  to run behind routes, which Tailcat's `netns.SetEnabled(false)` prevents).
 
 ## Token contract
 

@@ -26,6 +26,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
+	"tailscale.com/ipn/ipnstate"
 )
 
 // echoDatagramConn answers every datagram written to it with the same bytes,
@@ -677,6 +678,36 @@ func TestExportedPrepareRecoversPanicAndResets(t *testing.T) {
 	newTailcatClient = func(tailcat.ConnBlob) preparedClient { return &prepareTestClient{} }
 	if err := Prepare(officialTestToken(t)); err != nil {
 		t.Fatalf("Prepare after a contained panic: %v", err)
+	}
+}
+
+// lastDiscoOkUnixSec lets Kotlin detect a dead gateway: it advances only on
+// a successful DiscoPing, never on a failed one.
+func TestLastDiscoOkAdvancesOnlyOnGatewayReply(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var fail atomic.Bool
+	client := &mockTunnelClient{discoPingFn: func(context.Context) (*ipnstate.PingResult, error) {
+		if fail.Load() {
+			return nil, errors.New("gateway gone")
+		}
+		return &ipnstate.PingResult{LatencySeconds: 0.02}, nil
+	}}
+	b := &TunBridge{ctx: ctx, cancel: cancel, client: client, token: &ParsedToken{RegionID: 1}, transport: "DERP_RELAY"}
+
+	b.lastDiscoOK.Store(100)
+	b.sampleLiveRTT()
+	ok := b.GetStats().LastDiscoOkSec
+	if ok < time.Now().Unix()-5 {
+		t.Fatalf("lastDiscoOkUnixSec = %d after a successful DiscoPing, want about now", ok)
+	}
+
+	b.lastDiscoOK.Store(100)
+	fail.Store(true)
+	b.sampleLiveRTT()
+	stats := b.GetStats()
+	if stats.LastDiscoOkSec != 100 || !stats.DiscoStale {
+		t.Fatalf("after a failed DiscoPing: lastDiscoOk=%d discoStale=%v, want 100/true", stats.LastDiscoOkSec, stats.DiscoStale)
 	}
 }
 

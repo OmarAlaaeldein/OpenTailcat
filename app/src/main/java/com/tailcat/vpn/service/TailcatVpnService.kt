@@ -29,6 +29,10 @@ class TailcatVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     private val interfaceLock = Any()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val startLock = Any()
+
+    // Written by onStartCommand (main thread) and reconnectAfterFailure.
+    @Volatile
     private var startJob: Job? = null
     private var metricsCollectorJob: Job? = null
     private val shuttingDown = AtomicBoolean(false)
@@ -85,7 +89,9 @@ class TailcatVpnService : VpnService() {
                 startForeground(VpnNotificationManager.NOTIFICATION_ID, notification)
             }
 
-            startJob = serviceScope.launch { startWithRetry(profile, retryOnFailure) }
+            synchronized(startLock) {
+                startJob = serviceScope.launch { startWithRetry(profile, retryOnFailure) }
+            }
             return START_STICKY
         } catch (error: Exception) {
             // startForeground executes later than startForegroundService, so the
@@ -183,9 +189,47 @@ class TailcatVpnService : VpnService() {
                 app.notificationManager.buildNotification(
                     state = state,
                     profileName = profile.name,
-                    metrics = app.tunnelController.networkMetrics.value
+                    metrics = app.tunnelController.networkMetrics.value,
+                    detail = if (state == TunnelState.RECONNECTING) {
+                        app.tunnelController.lastError.value
+                    } else {
+                        null
+                    }
                 )
             )
+        }
+    }
+
+    /**
+     * The live session failed (pump exit, stale engine health, or a silent
+     * gateway). The user still wants the VPN, so drop the session and start
+     * again with [StartRetry] backoff. The foreground notification stays up
+     * and names the cause. Without Always-on lockdown, traffic uses the
+     * device's own network until the new session's routes are installed.
+     */
+    private fun reconnectAfterFailure() {
+        val app = TailcatApplication.instance
+        synchronized(startLock) {
+            if (shuttingDown.get()) return
+            // The start that connected this session may still be returning;
+            // run after it rather than dropping the reconnect.
+            val previous = startJob
+            startJob = serviceScope.launch {
+                previous?.join()
+                metricsCollectorJob?.cancel()
+                resetForRetry()
+                val profile = app.profileRepository.activeProfile.value
+                val validationError = app.tunnelController.validateStartRequest(requireOnline = false)
+                if (profile == null || validationError != null) {
+                    app.tunnelController.onVpnStartFailed(
+                        validationError ?: "No gateway profile is selected"
+                    )
+                    shutdown()
+                    return@launch
+                }
+                showStateNotification(profile, TunnelState.RECONNECTING)
+                startWithRetry(profile, retryOnFailure = true)
+            }
         }
     }
 
@@ -267,6 +311,7 @@ class TailcatVpnService : VpnService() {
             // After default routes, re-sweep so any late Magicsock/DERP redial is protected.
             app.tunnelEngine.ensureTransportProtect()
             protectOpenTransportSockets(excludeTun = routed)
+            app.tunnelController.sessionFailureHandler = { _ -> reconnectAfterFailure() }
             app.tunnelController.onEngineConnected(metrics)
             startMetricsNotificationUpdater(profile)
         } catch (error: Throwable) {
@@ -382,7 +427,8 @@ class TailcatVpnService : VpnService() {
 
     private fun shutdown() {
         if (!shuttingDown.compareAndSet(false, true)) return
-        startJob?.cancel()
+        TailcatApplication.instance.tunnelController.sessionFailureHandler = null
+        synchronized(startLock) { startJob?.cancel() }
         metricsCollectorJob?.cancel()
         TailcatApplication.instance.tunnelController.stopPolling()
 

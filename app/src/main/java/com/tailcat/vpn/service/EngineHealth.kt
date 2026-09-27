@@ -12,6 +12,14 @@ object EngineHealth {
      */
     const val STALE_TEARDOWN_POLLS: Int = 3
 
+    /**
+     * Seconds without any gateway reply (DiscoPing every ~5 s, 2 s timeout)
+     * after which a running session counts as lost and is reconnected. A
+     * healthy relayed session answers DiscoPing, so this needs about 12
+     * consecutive failures.
+     */
+    const val GATEWAY_LOSS_SEC: Long = 60L
+
     /** Machine-readable reason a live tunnel must be torn down. */
     sealed interface TeardownReason {
         /** No teardown required. */
@@ -25,6 +33,9 @@ object EngineHealth {
 
         /** No fresh native health heartbeat within the live window. */
         data class HealthStale(val ageSec: Long, val state: String) : TeardownReason
+
+        /** Pumps are alive but the gateway has not answered for [ageSec]. */
+        data class GatewayLost(val ageSec: Long) : TeardownReason
     }
 
     fun shouldConnect(metrics: NetworkMetrics, nowUnixSec: Long): Boolean {
@@ -61,6 +72,12 @@ object EngineHealth {
             val age = (nowUnixSec - metrics.healthUnixSec).coerceAtLeast(0L)
             return TeardownReason.HealthStale(ageSec = age, state = metrics.state.ifBlank { "?" })
         }
+        if (metrics.discoStale && metrics.lastDiscoOkUnixSec > 0L) {
+            val silentSec = nowUnixSec - metrics.lastDiscoOkUnixSec
+            if (silentSec >= GATEWAY_LOSS_SEC) {
+                return TeardownReason.GatewayLost(ageSec = silentSec)
+            }
+        }
         return TeardownReason.Healthy
     }
 
@@ -72,5 +89,6 @@ object EngineHealth {
             else "engine packet pump failed: ${reason.detail}"
         TeardownReason.TransportLost -> "transport lost (no direct or DERP path)"
         is TeardownReason.HealthStale -> "no fresh engine health for ${reason.ageSec}s (state ${reason.state})"
+        is TeardownReason.GatewayLost -> "gateway not responding for ${reason.ageSec}s"
     }
 }

@@ -530,7 +530,10 @@ Implementation requirements:
   monitoring loops. Closing a channel immediately before entering a loop is not
   proof that both packet directions are usable.
 - Unexpected exit of any required pump transitions the engine to `FAILED` and
-  triggers immediate Android teardown.
+  triggers immediate Android teardown (TUN closed, engine stopped). While the
+  user still wants the VPN, the service then reconnects with `StartRetry`
+  backoff; a gateway silent for 60 s (`lastDiscoOkUnixSec`) is handled the same
+  way. There is no fail-closed TUN between attempts (lockdown required).
 - Descriptor ownership is explicit: Go duplicates the supplied FD; Android
   owns the original; each side closes only its descriptor.
 - `stop` is idempotent under concurrent calls and waits with a bounded timeout.

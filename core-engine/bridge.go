@@ -90,6 +90,9 @@ type TunBridge struct {
 	onHealth      func()
 	startupFailed atomic.Bool
 	discoFresh    atomic.Bool // true after a successful live DiscoPing
+	// lastDiscoOK is the unix second of the last gateway reply: the bridge
+	// start (prepare just reached the gateway) or a successful DiscoPing.
+	lastDiscoOK atomic.Int64
 }
 
 // DNSConfig defines the active DNS resolver policy and optional forced resolver destination.
@@ -174,6 +177,7 @@ func newTunBridge(
 		cancel:    cancel,
 		lastTime:  time.Now(),
 	}
+	b.lastDiscoOK.Store(time.Now().Unix())
 	if rttMs > 0 {
 		b.rttSamples = []int64{rttMs}
 		// prepare already completed a live DiscoPing; seed freshness so the
@@ -901,6 +905,7 @@ func (b *TunBridge) sampleLiveRTT() {
 	}
 	b.pingFails.Store(0)
 	b.discoFresh.Store(true)
+	b.lastDiscoOK.Store(time.Now().Unix())
 	if b.onHealth != nil {
 		b.onHealth()
 	}
@@ -1014,6 +1019,7 @@ func (b *TunBridge) GetStats() EngineStats {
 		TcpOnly:          b.tcpOnly.Load(),
 		Ipv6Egress:       b.ipv6Egress.Load(),
 		DiscoStale:       !b.discoFresh.Load(),
+		LastDiscoOkSec:   b.lastDiscoOK.Load(),
 		DerpRegionID:     regionID,
 		TunnelEgressIP:   egressIP,
 		EgressAuditError: egressErr,
