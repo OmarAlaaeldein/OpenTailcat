@@ -21,7 +21,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class TailcatVpnService : VpnService() {
@@ -313,6 +312,7 @@ class TailcatVpnService : VpnService() {
             protectOpenTransportSockets(excludeTun = routed)
             app.tunnelController.sessionFailureHandler = { _ -> reconnectAfterFailure() }
             app.tunnelController.onEngineConnected(metrics)
+            app.tunnelController.setAppliedExclusions(excludedApps.toSet())
             publishAlwaysOnStatus()
             startMetricsNotificationUpdater(profile)
         } catch (error: Throwable) {
@@ -410,11 +410,18 @@ class TailcatVpnService : VpnService() {
 
         metricsCollectorJob?.cancel()
         metricsCollectorJob = serviceScope.launch {
-            app.tunnelController.networkMetrics.collectLatest { metrics ->
+            var lastState: TunnelState? = null
+            var lastPostMs = 0L
+            app.tunnelController.networkMetrics.collect { metrics ->
+                val state = app.tunnelController.tunnelState.value
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (!NotificationThrottle.shouldPost(state, lastState, now, lastPostMs)) return@collect
+                lastState = state
+                lastPostMs = now
                 manager.notify(
                     VpnNotificationManager.NOTIFICATION_ID,
                     app.notificationManager.buildNotification(
-                        state = app.tunnelController.tunnelState.value,
+                        state = state,
                         profileName = profile.name,
                         metrics = metrics
                     )
@@ -437,6 +444,7 @@ class TailcatVpnService : VpnService() {
         if (!shuttingDown.compareAndSet(false, true)) return
         TailcatApplication.instance.tunnelController.sessionFailureHandler = null
         TailcatApplication.instance.tunnelController.setAlwaysOnStatus(null)
+        TailcatApplication.instance.tunnelController.setAppliedExclusions(null)
         synchronized(startLock) { startJob?.cancel() }
         metricsCollectorJob?.cancel()
         TailcatApplication.instance.tunnelController.stopPolling()

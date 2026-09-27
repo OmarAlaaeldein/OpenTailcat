@@ -58,6 +58,14 @@ class TunnelController(
         _alwaysOnStatus.value = status
     }
 
+    // Split-tunnel exclusions the running session applied; null while stopped.
+    private val _appliedExclusions = MutableStateFlow<Set<String>?>(null)
+    val appliedExclusions: StateFlow<Set<String>?> = _appliedExclusions.asStateFlow()
+
+    fun setAppliedExclusions(packages: Set<String>?) {
+        _appliedExclusions.value = packages
+    }
+
     val engineAvailability: EngineAvailability
         get() = tunnelEngine.availability
 

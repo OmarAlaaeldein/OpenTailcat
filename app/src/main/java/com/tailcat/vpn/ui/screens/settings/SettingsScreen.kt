@@ -55,6 +55,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -88,7 +89,41 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 
-data class AppInfoItem(val packageName: String, val appName: String)
+data class AppInfoItem(
+    val packageName: String,
+    val appName: String,
+    val uid: Int = -1,
+    /** Other apps sharing this UID: Android excludes them together. */
+    val sharedWith: List<String> = emptyList()
+)
+
+/** Loads every installed package; runs off the main thread (hundreds of labels). */
+private fun loadInstalledApps(context: android.content.Context): List<AppInfoItem> {
+    val pm = context.packageManager
+    val apps = if (Build.VERSION.SDK_INT >= 33) {
+        pm.getInstalledApplications(
+            PackageManager.ApplicationInfoFlags.of(PackageManager.GET_META_DATA.toLong())
+        )
+    } else {
+        @Suppress("DEPRECATION")
+        pm.getInstalledApplications(PackageManager.GET_META_DATA)
+    }
+    val labelled = apps
+        .filterNot { it.packageName == context.packageName }
+        .map { info ->
+            Triple(
+                info.packageName,
+                runCatching { info.loadLabel(pm).toString() }.getOrDefault(info.packageName),
+                info.uid
+            )
+        }
+        .filter { it.second.isNotBlank() }
+        .distinctBy { it.first }
+    val peers = com.tailcat.vpn.service.SplitTunnelExclusions.sharedUidPeers(labelled)
+    return labelled
+        .map { (pkg, name, uid) -> AppInfoItem(pkg, name, uid, peers[pkg].orEmpty()) }
+        .sortedBy { it.appName.lowercase() }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,29 +151,12 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
 
     // Every package installed for this user, not only apps with a launcher
     // icon; headless/background apps must be selectable for exclusions.
-    val installedApps = remember {
-        val pm = context.packageManager
-        val apps = if (Build.VERSION.SDK_INT >= 33) {
-            pm.getInstalledApplications(
-                PackageManager.ApplicationInfoFlags.of(PackageManager.GET_META_DATA.toLong())
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            pm.getInstalledApplications(PackageManager.GET_META_DATA)
+    val installedApps by produceState<List<AppInfoItem>?>(initialValue = null, context) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            loadInstalledApps(context)
         }
-        apps.map { info ->
-            AppInfoItem(
-                packageName = info.packageName,
-                appName = runCatching { info.loadLabel(pm).toString() }
-                    .getOrDefault(info.packageName)
-            )
-        }
-            .filterNot { it.packageName == context.packageName }
-            .filter { it.appName.isNotBlank() }
-            .distinctBy { it.packageName }
-            .sortedBy { it.appName.lowercase() }
     }
-    val visibleApps = installedApps.filter { item ->
+    val visibleApps = installedApps.orEmpty().filter { item ->
         appQuery.isBlank() ||
             item.appName.contains(appQuery, ignoreCase = true) ||
             item.packageName.contains(appQuery, ignoreCase = true)
@@ -453,7 +471,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                             .padding(horizontal = 16.dp, vertical = 0.dp)
                     ) {
                     item {
-                        val originalExclusions = remember { store.splitTunnelExcludedApps }
+                        val appliedExclusions by app.tunnelController.appliedExclusions.collectAsState()
                         Text(
                             "Checked apps bypass the VPN and use the device network directly. Changes apply the next time the tunnel starts. The tunnel is not leak-free while any app is checked.",
                             style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary),
@@ -461,7 +479,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         )
                         val tunnelState by app.tunnelController.tunnelState.collectAsState()
                         if (tunnelState != com.tailcat.vpn.core.model.TunnelState.DISCONNECTED &&
-                            excludedApps != originalExclusions
+                            appliedExclusions != null && excludedApps != appliedExclusions
                         ) {
                             Text(
                                 "Exclusion list changed while the tunnel is up. Disconnect and Connect again for it to apply.",
@@ -471,6 +489,13 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         } else if (tunnelState != com.tailcat.vpn.core.model.TunnelState.DISCONNECTED) {
                             Text(
                                 "Tunnel is running. New exclusions take effect on the next Connect.",
+                                style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            )
+                        }
+                        if (installedApps == null) {
+                            Text(
+                                "Loading installed apps…",
                                 style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
                                 modifier = Modifier.padding(bottom = 12.dp)
                             )
@@ -506,6 +531,20 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                                     item.packageName,
                                     style = MaterialTheme.typography.labelMedium.copy(color = TextMuted)
                                 )
+                                if (item.sharedWith.isNotEmpty()) {
+                                    Text(
+                                        "Shares its network identity with ${item.sharedWith.take(3).joinToString()}" +
+                                            (if (item.sharedWith.size > 3) " and ${item.sharedWith.size - 3} more" else "") +
+                                            ": excluding one excludes all of them.",
+                                        style = MaterialTheme.typography.labelMedium.copy(color = YellowWarning)
+                                    )
+                                }
+                                if (com.tailcat.vpn.service.SplitTunnelExclusions.isSystemUid(item.uid)) {
+                                    Text(
+                                        "System component (uid ${item.uid}).",
+                                        style = MaterialTheme.typography.labelMedium.copy(color = YellowWarning)
+                                    )
+                                }
                             }
                             Checkbox(
                                 checked = isExcluded,

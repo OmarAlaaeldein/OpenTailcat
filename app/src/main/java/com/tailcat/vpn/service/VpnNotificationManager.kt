@@ -11,6 +11,7 @@ import com.tailcat.vpn.R
 import com.tailcat.vpn.core.metrics.TrafficFormat
 import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TunnelState
+import com.tailcat.vpn.ui.DisconnectActivity
 import com.tailcat.vpn.ui.MainActivity
 
 class VpnNotificationManager(private val context: Context) {
@@ -47,10 +48,13 @@ class VpnNotificationManager(private val context: Context) {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val stopIntent = Intent(context, TailcatVpnService::class.java).apply {
-            action = TailcatVpnService.ACTION_STOP_VPN
+        // An activity, not the service: from a lock-screen notification Android
+        // makes the user unlock before starting it, so a locked phone cannot
+        // be taken off the VPN.
+        val stopIntent = Intent(context, DisconnectActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
-        val stopPendingIntent = PendingIntent.getService(
+        val stopPendingIntent = PendingIntent.getActivity(
             context,
             1,
             stopIntent,

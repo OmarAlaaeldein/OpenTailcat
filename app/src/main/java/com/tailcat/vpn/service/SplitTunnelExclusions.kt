@@ -22,4 +22,21 @@ object SplitTunnelExclusions {
     ): List<String> = excluded
         .filter { it.isNotBlank() && isInstalled(it) }
         .sorted()
+
+    /** First UID of ordinary apps ([android.os.Process.FIRST_APPLICATION_UID]). */
+    const val FIRST_APPLICATION_UID = 10_000
+
+    /**
+     * Android applies exclusions per UID: excluding one package also excludes
+     * every package sharing its UID. Returns, for each package, the names of
+     * the other packages that share its UID (empty when it has its own).
+     */
+    fun sharedUidPeers(apps: List<Triple<String, String, Int>>): Map<String, List<String>> {
+        val byUid = apps.groupBy { it.third }
+        return apps.associate { (pkg, _, uid) ->
+            pkg to byUid.getValue(uid).filter { it.first != pkg }.map { it.second }.sorted()
+        }
+    }
+
+    fun isSystemUid(uid: Int): Boolean = uid < FIRST_APPLICATION_UID
 }

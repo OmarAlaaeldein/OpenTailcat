@@ -39,6 +39,15 @@
             </intent-filter>
         </activity>
 
+        <!-- Notification Disconnect action: an activity, so Android asks to unlock first. -->
+        <activity
+            android:name=".ui.DisconnectActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
