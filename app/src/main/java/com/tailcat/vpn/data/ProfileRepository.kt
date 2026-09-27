@@ -114,13 +114,14 @@ class ProfileRepository(private val preferencesStore: PreferencesStorage) {
 
         val profile = GatewayProfile(
             id = existing?.id ?: java.util.UUID.randomUUID().toString(),
-            name = name.ifBlank { "Gateway-${tokenData.serverPublicKeyHex.take(6)}" },
+            // Re-pairing the same gateway (e.g. a refreshed token) keeps its name and MTU.
+            name = name.ifBlank { existing?.name ?: "Gateway-${tokenData.serverPublicKeyHex.take(6)}" },
             token = tokenData.rawToken,
             serverPublicKey = tokenData.serverPublicKeyHex,
             derpRegionId = tokenData.derpRegionId,
             customDns = dnsValidation.ip,
             dnsPolicy = dnsPolicy,
-            mtu = preferencesStore.defaultMtu,
+            mtu = existing?.mtu ?: preferencesStore.defaultMtu,
             isDefault = existing?.isDefault ?: _profiles.value.isEmpty(),
             createdAt = existing?.createdAt ?: System.currentTimeMillis()
         )

@@ -35,6 +35,19 @@ class ProfileRepositoryTest {
     }
 
     @Test
+    fun rePairingTheSameGatewayKeepsItsNameAndMtu() {
+        val first = repository.addOrUpdateFromToken("Home exit", validOfficialToken).getOrThrow()
+        fakeStorage.defaultMtu = 1400 // a later default must not rewrite the saved profile
+
+        val again = repository.addOrUpdateFromToken("", validOfficialToken).getOrThrow()
+
+        assertEquals(first.id, again.id)
+        assertEquals("Home exit", again.name)
+        assertEquals(first.mtu, again.mtu)
+        assertEquals(1, repository.profiles.value.size)
+    }
+
+    @Test
     fun testAddProfileWithValidDnsAndPolicy() {
         val result = repository.addOrUpdateFromToken(
             name = "Test Gateway",

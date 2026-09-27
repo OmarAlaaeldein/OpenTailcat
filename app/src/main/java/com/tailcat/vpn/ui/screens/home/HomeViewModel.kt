@@ -78,13 +78,29 @@ class HomeViewModel : ViewModel() {
         return true
     }
 
+    /**
+     * Starts the VPN only when it is off. Permission callbacks land after the
+     * Activity resumes, when a restore may already have started it; a toggle
+     * would stop that start.
+     */
+    fun connect(): Boolean =
+        if (tunnelState.value == TunnelState.DISCONNECTED) tunnelController.startTunnel() else true
+
     fun selectProfile(profile: GatewayProfile) {
+        val changed = profile.id != activeProfile.value?.id
         profileRepository.setActiveProfile(profile)
-        if (tunnelState.value == TunnelState.CONNECTED) {
-            tunnelController.stopTunnel()
-            viewModelScope.launch {
-                _uiEvent.emit("Gateway changed. Tap connect to start the new tunnel.")
-            }
+        if (changed) stopSessionForProfileChange()
+    }
+
+    /**
+     * A running session keeps using the gateway it started with; stop it so
+     * the screen never names one gateway while traffic goes to another.
+     */
+    private fun stopSessionForProfileChange() {
+        if (tunnelState.value == TunnelState.DISCONNECTED) return
+        tunnelController.stopTunnel()
+        viewModelScope.launch {
+            _uiEvent.emit("Gateway changed. Tap connect to start the new tunnel.")
         }
     }
 
@@ -94,7 +110,14 @@ class HomeViewModel : ViewModel() {
         customDns: String = app.preferencesStore.defaultDns,
         dnsPolicy: com.tailcat.vpn.core.model.DnsPolicy = com.tailcat.vpn.core.model.DnsPolicy.PROFILE_RESOLVER
     ): Result<GatewayProfile> {
-        return profileRepository.addOrUpdateFromToken(name, token, customDns, dnsPolicy)
+        val previous = activeProfile.value?.id
+        return profileRepository.addOrUpdateFromToken(name, token, customDns, dnsPolicy).onSuccess { saved ->
+            if (saved.id != previous) {
+                stopSessionForProfileChange()
+            } else if (tunnelState.value != TunnelState.DISCONNECTED) {
+                showMessage("Gateway updated. Disconnect and connect again to use the new token.")
+            }
+        }
     }
 
     fun updateActiveProfileDns(
