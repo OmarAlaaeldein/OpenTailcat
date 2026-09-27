@@ -225,6 +225,13 @@ class TailcatVpnService : VpnService() {
             currentCoroutineContext().ensureActive()
             checkNotShuttingDown()
 
+            // Prepare measured gateway IPv6 egress; refuse a resolver it cannot reach
+            // before any route or DNS server is installed.
+            com.tailcat.vpn.core.dns.DnsValidator.gatewayRejection(
+                dnsValidation,
+                app.tunnelEngine.getStats().ipv6Egress
+            )?.let { throw PermanentStartFailure(it) }
+
             // Snapshot once so warm and routed interfaces exclude the same apps.
             val excludedApps = resolveExcludedApplications()
 

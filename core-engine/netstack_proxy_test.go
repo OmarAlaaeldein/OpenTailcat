@@ -440,8 +440,10 @@ func TestQUICFramedInitialDatagram(t *testing.T) {
 	}
 }
 
-// TestBehavioralFlowLimitsAndBackpressure verifies that active flow limits reject packets
-// at both the per-source (128) and global (1024) limits without leaking state.
+// TestBehavioralFlowLimitsAndBackpressure verifies the device-wide UDP flow
+// cap. Every app shares the single TUN address, so a full table must evict
+// the least recently active flow and admit the new one instead of refusing
+// it (which used to block all UDP, DNS included, for up to 40 s).
 func TestBehavioralFlowLimitsAndBackpressure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -463,64 +465,43 @@ func TestBehavioralFlowLimitsAndBackpressure(t *testing.T) {
 	defer proxy.Close()
 	b.netstack = proxy
 
-	srcAddr := netip.MustParseAddr("10.0.0.2")
-	dstAP := netip.MustParseAddrPort("1.1.1.1:53")
+	srcAddr := netip.MustParseAddr("100.64.0.2") // the real, shared TUN address
+	dstAP := netip.MustParseAddrPort("1.1.1.1:443")
 
-	// 1. Inject maxActiveUDPFlowsPerSource (128) flows from source 10.0.0.2
-	for i := 0; i < maxActiveUDPFlowsPerSource; i++ {
+	for i := 0; i < maxActiveUDPFlows; i++ {
 		srcAP := netip.AddrPortFrom(srcAddr, uint16(10000+i))
-		pkt := buildIPv4UDPPacket(srcAP, dstAP, []byte(fmt.Sprintf("flow-%d", i)))
-		proxy.inject(pkt, false)
+		proxy.inject(buildIPv4UDPPacket(srcAP, dstAP, []byte(fmt.Sprintf("flow-%d", i))), false)
 	}
-
-	waitAtomic32(t, &activeDials, int32(maxActiveUDPFlowsPerSource), 2*time.Second, "per-source DialUDP")
-
-	proxy.udpMu.Lock()
-	activeCount := proxy.udpActivePerSource[srcAddr]
-	proxy.udpMu.Unlock()
-
-	if activeCount != maxActiveUDPFlowsPerSource {
-		t.Fatalf("Expected %d active flows for source, got %d", maxActiveUDPFlowsPerSource, activeCount)
-	}
-
-	// 2. The 129th flow from the same source MUST be rejected (backpressure drop)
-	initialDials := activeDials.Load()
-	pktRejected := buildIPv4UDPPacket(netip.AddrPortFrom(srcAddr, 25000), dstAP, []byte("overflow-flow"))
-	proxy.inject(pktRejected, false)
-	time.Sleep(50 * time.Millisecond)
-
-	if activeDials.Load() != initialDials {
-		t.Errorf("129th flow from source was not rejected; dial count increased from %d to %d", initialDials, activeDials.Load())
-	}
-
-	// 3. Fill the global limit to 1024 across 8 distinct sources (8 * 128 = 1024)
-	for srcIdx := 3; srcIdx <= 9; srcIdx++ {
-		curSrc := netip.MustParseAddr(fmt.Sprintf("10.0.0.%d", srcIdx))
-		for i := 0; i < maxActiveUDPFlowsPerSource; i++ {
-			srcAP := netip.AddrPortFrom(curSrc, uint16(10000+i))
-			pkt := buildIPv4UDPPacket(srcAP, dstAP, []byte(fmt.Sprintf("global-flow-%d-%d", srcIdx, i)))
-			proxy.inject(pkt, false)
-		}
-	}
-
-	waitAtomic32(t, &activeDials, int32(maxActiveUDPFlowsTotal), 5*time.Second, "global DialUDP")
+	waitAtomic32(t, &activeDials, int32(maxActiveUDPFlows), 5*time.Second, "DialUDP up to the cap")
 
 	proxy.udpMu.Lock()
 	total := proxy.udpActiveTotal
 	proxy.udpMu.Unlock()
-
-	if total != maxActiveUDPFlowsTotal {
-		t.Fatalf("Expected %d total active flows at global limit, got %d", maxActiveUDPFlowsTotal, total)
+	if total != maxActiveUDPFlows {
+		t.Fatalf("expected %d active flows at the cap, got %d", maxActiveUDPFlows, total)
 	}
 
-	// 4. Flow from a 9th source (10.0.0.10) MUST be rejected by global limit
-	dialsBeforeGlobalOverflow := activeDials.Load()
-	pktGlobalRejected := buildIPv4UDPPacket(netip.MustParseAddrPort("10.0.0.10:10000"), dstAP, []byte("global-overflow"))
-	proxy.inject(pktGlobalRejected, false)
-	time.Sleep(50 * time.Millisecond)
+	oldest := udpFlowKey{src: netip.AddrPortFrom(srcAddr, 10000), dst: dstAP}
+	newest := udpFlowKey{src: netip.AddrPortFrom(srcAddr, 30000), dst: dstAP}
+	proxy.inject(buildIPv4UDPPacket(newest.src, dstAP, []byte("over-cap")), false)
+	waitAtomic32(t, &activeDials, int32(maxActiveUDPFlows+1), 2*time.Second, "DialUDP for the flow over the cap")
 
-	if activeDials.Load() != dialsBeforeGlobalOverflow {
-		t.Errorf("Global limit overflow flow was not rejected; dial count increased from %d to %d", dialsBeforeGlobalOverflow, activeDials.Load())
+	if got := b.udpEvictions.Load(); got != 1 {
+		t.Fatalf("udpEvictions = %d, want 1", got)
+	}
+	if got := b.queueExhaustion.Load(); got != 0 {
+		t.Fatalf("queueExhaustion = %d, want 0 (the new flow must be admitted)", got)
+	}
+	proxy.udpMu.Lock()
+	total = proxy.udpActiveTotal
+	_, oldestPresent := proxy.udpFlows[oldest]
+	_, newestPresent := proxy.udpFlows[newest]
+	proxy.udpMu.Unlock()
+	if total != maxActiveUDPFlows {
+		t.Fatalf("expected %d active flows after eviction, got %d", maxActiveUDPFlows, total)
+	}
+	if oldestPresent || !newestPresent {
+		t.Fatalf("expected the least recently active flow evicted and the new one admitted (oldest=%v newest=%v)", oldestPresent, newestPresent)
 	}
 }
 
@@ -552,13 +533,12 @@ func TestFlowReservationRollbackOnDialFailure(t *testing.T) {
 
 	// The failed dial rolls back on the flow goroutine; poll instead of a
 	// fixed sleep, which flaked under -race on a loaded machine.
-	var total, srcCount int
+	var total int
 	for deadline := time.Now().Add(3 * time.Second); ; {
 		proxy.udpMu.Lock()
 		total = proxy.udpActiveTotal
-		srcCount = proxy.udpActivePerSource[srcAP.Addr()]
 		proxy.udpMu.Unlock()
-		if (total == 0 && srcCount == 0) || time.Now().After(deadline) {
+		if total == 0 || time.Now().After(deadline) {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -566,9 +546,6 @@ func TestFlowReservationRollbackOnDialFailure(t *testing.T) {
 
 	if total != 0 {
 		t.Errorf("Expected udpActiveTotal = 0 after dial failure rollback, got %d", total)
-	}
-	if srcCount != 0 {
-		t.Errorf("Expected per-source count = 0 after dial failure rollback, got %d", srcCount)
 	}
 }
 
@@ -641,7 +618,6 @@ func TestBehavioralConcurrentClose(t *testing.T) {
 	proxy.udpMu.Lock()
 	total := proxy.udpActiveTotal
 	flowsLen := len(proxy.udpFlows)
-	perSourceLen := len(proxy.udpActivePerSource)
 	proxy.udpMu.Unlock()
 
 	if total != 0 {
@@ -649,9 +625,6 @@ func TestBehavioralConcurrentClose(t *testing.T) {
 	}
 	if flowsLen != 0 {
 		t.Fatalf("Flow map not empty after Close(): %d flows remaining", flowsLen)
-	}
-	if perSourceLen != 0 {
-		t.Fatalf("Per-source map not empty after Close(): %d sources remaining", perSourceLen)
 	}
 }
 
@@ -693,7 +666,10 @@ func TestTunnelClientPathSelection(t *testing.T) {
 	}
 }
 
-// TestMTUBoundaryDatagramSize verifies handling of UDP datagrams at the 1280-byte MTU boundary.
+// TestMTUBoundaryDatagramSize checks the tunnel's UDP payload boundary on the
+// proxy path (datagrams reassembled from IP fragments arrive here): 1232 B,
+// Tailcat's MaxUDPPayload, is forwarded; 1233 B is dropped and counted
+// instead of being silently lost inside the tunnel.
 func TestMTUBoundaryDatagramSize(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -702,11 +678,7 @@ func TestMTUBoundaryDatagramSize(t *testing.T) {
 	defer clientConn.Close()
 	defer remoteEcho.Close()
 
-	// 1252 byte payload fits within 1280 MTU (1280 - 20 IPv4 - 8 UDP = 1252)
-	maxPayload := make([]byte, 1252)
-	_, _ = rand.Read(maxPayload)
-
-	var receivedLen atomic.Int32
+	received := make(chan int, 4)
 	go func() {
 		buf := make([]byte, 65535)
 		for {
@@ -714,7 +686,7 @@ func TestMTUBoundaryDatagramSize(t *testing.T) {
 			if err != nil {
 				return
 			}
-			receivedLen.Store(int32(n))
+			received <- n
 			_, _ = remoteEcho.Write(buf[:n])
 		}
 	}()
@@ -733,11 +705,16 @@ func TestMTUBoundaryDatagramSize(t *testing.T) {
 	defer proxy.Close()
 	b.netstack = proxy
 
-	srcAP := netip.MustParseAddrPort("10.0.0.2:12345")
-	dstAP := netip.MustParseAddrPort("1.1.1.1:53")
+	srcAP := netip.MustParseAddrPort("100.64.0.2:12345")
+	dstAP := netip.MustParseAddrPort("1.1.1.1:3478")
 
-	pkt := buildIPv4UDPPacket(srcAP, dstAP, maxPayload)
-	proxy.inject(pkt, false)
+	tooBig := make([]byte, maxTunnelUDPPayload+1)
+	_, _ = rand.Read(tooBig)
+	proxy.inject(buildIPv4UDPPacket(srcAP, dstAP, tooBig), false)
+
+	maxPayload := make([]byte, maxTunnelUDPPayload)
+	_, _ = rand.Read(maxPayload)
+	proxy.inject(buildIPv4UDPPacket(srcAP, dstAP, maxPayload), false)
 
 	packet := proxy.link.ReadContext(ctx)
 	if packet == nil {
@@ -748,11 +725,24 @@ func TestMTUBoundaryDatagramSize(t *testing.T) {
 	view.Release()
 	packet.DecRef()
 
-	if len(reply) != 1280 {
-		t.Errorf("Expected 1280 byte MTU packet, got %d", len(reply))
+	if want := 20 + 8 + maxTunnelUDPPayload; len(reply) != want {
+		t.Errorf("Expected %d byte reply packet, got %d", want, len(reply))
 	}
-	if int(receivedLen.Load()) != len(maxPayload) {
-		t.Errorf("Remote received %d bytes, want %d", receivedLen.Load(), len(maxPayload))
+	select {
+	case n := <-received:
+		if n != maxTunnelUDPPayload {
+			t.Errorf("Remote received %d bytes first, want %d (the oversized datagram must not be forwarded)", n, maxTunnelUDPPayload)
+		}
+	default:
+		t.Fatal("remote received nothing")
+	}
+	select {
+	case n := <-received:
+		t.Fatalf("remote received an extra %d byte datagram", n)
+	default:
+	}
+	if got := b.mtuExceeded.Load(); got != 1 {
+		t.Fatalf("mtuExceeded = %d, want 1", got)
 	}
 }
 
@@ -817,10 +807,9 @@ func TestAcceptCloseRace(t *testing.T) {
 		proxy.udpMu.Lock()
 		total := proxy.udpActiveTotal
 		flows := len(proxy.udpFlows)
-		sources := len(proxy.udpActivePerSource)
 		proxy.udpMu.Unlock()
-		if total != 0 || flows != 0 || sources != 0 {
-			t.Fatalf("shutdown leaked UDP accounting: total=%d flows=%d sources=%d", total, flows, sources)
+		if total != 0 || flows != 0 {
+			t.Fatalf("shutdown leaked UDP accounting: total=%d flows=%d", total, flows)
 		}
 	}
 }

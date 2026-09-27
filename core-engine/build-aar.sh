@@ -97,6 +97,7 @@ native_source_hash() {
         find core-engine third_party \
             -type f \
             ! -path '*/.git/*' \
+            ! -name .git \
             ! -name '*.aar' \
             ! -name '*.aar.sha256' \
             ! -path '*/build/*' \

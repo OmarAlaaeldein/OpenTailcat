@@ -19,6 +19,20 @@ object DnsValidator {
         return validate(ip) is DnsValidationResult.Valid
     }
 
+    /**
+     * Returns why [resolver] cannot work through this gateway, or null when
+     * it can. An IPv6 resolver needs gateway IPv6 internet ([ipv6Egress],
+     * measured by prepare); without it the engine refuses every lookup and
+     * the device would have no DNS while the VPN shows connected.
+     */
+    fun gatewayRejection(resolver: DnsValidationResult.Valid, ipv6Egress: Boolean): String? =
+        if (resolver.isIpv6 && !ipv6Egress) {
+            "DNS server ${resolver.ip} is IPv6, but this gateway has no IPv6 internet. " +
+                "Use an IPv4 DNS server such as 1.1.1.1."
+        } else {
+            null
+        }
+
     fun validate(rawInput: String?): DnsValidationResult {
         if (rawInput.isNullOrBlank()) {
             return DnsValidationResult.Invalid("DNS server IP cannot be empty")

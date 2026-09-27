@@ -113,7 +113,8 @@ type NetworkStatePayload struct {
 // UpdateNetworkState receives dynamic network changes from Android (LinkProperties, active network type,
 // interface addresses, and routes) and injects them into Tailscale netmon to trigger path re-evaluation.
 // This method is exported to Java via Go Mobile as: Engine.updateNetworkState(String).
-func UpdateNetworkState(networkStateJSON string) error {
+func UpdateNetworkState(networkStateJSON string) (err error) {
+	defer recoverExported("UpdateNetworkState", &err)
 	if len(networkStateJSON) > MaxTokenStringLength {
 		return fmt.Errorf("network state JSON exceeds maximum size")
 	}
@@ -283,6 +284,9 @@ type DropCounters struct {
 	MTUExceeded      int64 `json:"mtuExceeded"`
 	QueueExhaustion  int64 `json:"queueExhaustion"`
 	PolicyRejections int64 `json:"policyRejections"`
+	// UDPEvictions counts idle UDP flows closed early because the flow
+	// table was full. Not a packet drop; additive in schema v2.
+	UDPEvictions int64 `json:"udpEvictions"`
 }
 
 // EngineStats encapsulates authoritative measured telemetry reported to Android.

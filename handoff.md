@@ -169,14 +169,15 @@ IPv4 flags now set true.
 
 | Input from Android | Native handling | Actual egress |
 | --- | --- | --- |
-| IPv4 TCP | gVisor terminates TCP and proxies the stream with `Client.DialTCP` | Tailcat WireGuard/Magicsock to gateway |
-| IPv4 UDP destination port 53 | gVisor proxies datagram via `Client.DialUDP` to TUN dest (PROFILE_RESOLVER) or `ForcedDNS` (FORCED_RESOLVER). Engine does not inspect TC bits; a libc/app TCP/53 retry is a normal TCP proxy | Tailcat WireGuard/Magicsock to gateway |
-| Other IPv4 UDP | gVisor proxies datagrams via `Client.DialUDP` across Tailcat netstack | Tailcat WireGuard/Magicsock to gateway (pending live acceptance) |
-| IPv6 TCP/UDP | gVisor inject → `DialTCP`/`DialUDP` with the IPv4 dial budget; public IPv6 rejected pre-dial when `ipv6Egress` is false | Gateway if it has IPv6 WAN; else RST/drop so apps can use tunneled IPv4 |
+| IPv4 TCP | gVisor terminates TCP and proxies the stream with `Client.DialTCP`; half-close is passed on and both directions finish before teardown; at most 512 connections | Tailcat WireGuard/Magicsock to gateway |
+| IPv4 UDP destination port 53 | gVisor proxies datagram via `Client.DialUDP` to TUN dest (PROFILE_RESOLVER) or `ForcedDNS` (FORCED_RESOLVER). Engine does not inspect TC bits; a libc/app TCP/53 retry is a normal TCP proxy. With `tcpOnly` it is carried as DNS-over-TCP and an answer over the client's EDNS size (or 512 B) returns TC-flagged. The flow closes 2 s after every query is answered | Tailcat WireGuard/Magicsock to gateway |
+| Other IPv4 UDP | gVisor proxies datagrams via `Client.DialUDP` across Tailcat netstack. One device-wide table of 1024 flows evicts the least recently active flow when full; idle timeout 30 s until a reply, then 2 min | Tailcat WireGuard/Magicsock to gateway (pending live acceptance) |
+| UDP payload over 1232 B (Tailcat `MaxUDPPayload`) | Dropped and counted in `mtuExceeded`. Unfragmented: local ICMP Fragmentation Needed with next-hop MTU 1260 (IPv4 with DF) or Packet Too Big 1280 (IPv6), at most 100 ICMP errors/s. Reassembled from fragments: dropped after reassembly | No gateway request |
+| IPv6 TCP/UDP | gVisor inject → `DialTCP`/`DialUDP` with the IPv4 dial budget; public IPv6 rejected pre-dial when `ipv6Egress` is false, checked after the DNS redirect; NAT64 `64:ff9b::/96` exempt. Kotlin refuses Connect for an IPv6 profile DNS server without `ipv6Egress` | Gateway if it has IPv6 WAN; else RST/drop so apps can use tunneled IPv4 |
 | ICMPv6 echo | Dropped | No gateway/Internet request is made |
 | IPv6 over MTU | Local ICMPv6 Packet Too Big | No gateway request |
-| IPv4 over MTU | Local ICMP Fragmentation Needed | No gateway request |
-| IPv4 ICMP echo | Constructs a local echo reply | No gateway/Internet request is made |
+| IPv4 over MTU | Local ICMP Fragmentation Needed when DF is set; otherwise dropped | No gateway request |
+| IPv4 ICMP echo | Constructs a local echo reply (fragments are dropped, not echoed) | No gateway/Internet request is made |
 | Native exit audit | TLS/HTTP through `Client.DialTCP` | Tailcat gateway |
 | In-app speed test | When CONNECTED: `Client.DialTCP` through the gateway (`speed.cloudflare.com` resolved with DNS-over-TCP via `Client.DialTCP` to `1.1.1.1:53`). Otherwise `HttpURLConnection` on the device's current routes | Gateway TCP when CONNECTED; otherwise whatever route the device uses (direct when disconnected, into the TUN while it is still up in DEGRADED/RECONNECTING). |
 

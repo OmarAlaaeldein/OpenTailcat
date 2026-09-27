@@ -22,7 +22,8 @@ func runningClient() (TunnelClient, error) {
 	return globalCore.sess.client, nil
 }
 
-func MeasureTunnelPingMS() (int64, error) {
+func MeasureTunnelPingMS() (_ int64, err error) {
+	defer recoverExported("MeasureTunnelPingMS", &err)
 	client, err := runningClient()
 	if err != nil {
 		return 0, err
@@ -40,7 +41,8 @@ func MeasureTunnelPingMS() (int64, error) {
 	return ms, nil
 }
 
-func MeasureTunnelDownloadMbps() (float64, error) {
+func MeasureTunnelDownloadMbps() (_ float64, err error) {
+	defer recoverExported("MeasureTunnelDownloadMbps", &err)
 	client, err := runningClient()
 	if err != nil {
 		return 0, err
@@ -61,7 +63,8 @@ func MeasureTunnelDownloadMbps() (float64, error) {
 	return float64(n) * 8 / elapsed.Seconds() / 1_000_000, nil
 }
 
-func MeasureTunnelUploadMbps() (float64, error) {
+func MeasureTunnelUploadMbps() (_ float64, err error) {
+	defer recoverExported("MeasureTunnelUploadMbps", &err)
 	client, err := runningClient()
 	if err != nil {
 		return 0, err

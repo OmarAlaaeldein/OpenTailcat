@@ -15,6 +15,7 @@ var (
 )
 
 func SetSocketProtector(p SocketProtector) {
+	defer recoverExported("SetSocketProtector", nil)
 	protectorMu.Lock()
 	currentProtector = p
 	protectorMu.Unlock()
@@ -38,5 +39,6 @@ func protectFD(fd int) error {
 // Magicsock/DERP sockets after upstream createEngine disables netns.
 // Safe no-op on non-Android builds. Call after prepare() and before routes.
 func EnsureTransportProtect() {
+	defer recoverExported("EnsureTransportProtect", nil)
 	ensureTransportProtect()
 }

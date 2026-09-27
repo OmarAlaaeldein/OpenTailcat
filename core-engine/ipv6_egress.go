@@ -51,8 +51,13 @@ func probeIPv6Egress(ctx context.Context, client TunnelClient) bool {
 	return true
 }
 
+// nat64Prefix is the well-known NAT64 prefix (RFC 6052). The gateway maps it
+// to IPv4 and carries it over its IPv4 WAN.
+var nat64Prefix = netip.MustParsePrefix("64:ff9b::/96")
+
 // isPublicIPv6Destination reports destinations that need gateway IPv6 WAN.
-// ULA/link-local/etc. are not Internet Happy-Eyeballs targets.
+// ULA/link-local/etc. are not Internet Happy-Eyeballs targets, and NAT64
+// addresses leave the gateway as IPv4.
 func isPublicIPv6Destination(dst netip.AddrPort) bool {
 	ip := dst.Addr()
 	if !ip.IsValid() || ip.Is4() || ip.Is4In6() {
@@ -63,7 +68,8 @@ func isPublicIPv6Destination(dst netip.AddrPort) bool {
 		return false
 	}
 	if ip.IsLoopback() || ip.IsMulticast() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsPrivate() || ip.IsUnspecified() {
+		ip.IsLinkLocalMulticast() || ip.IsPrivate() || ip.IsUnspecified() ||
+		nat64Prefix.Contains(ip) {
 		return false
 	}
 	return true
