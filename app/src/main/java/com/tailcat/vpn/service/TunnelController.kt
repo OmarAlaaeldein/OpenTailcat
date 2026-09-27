@@ -90,10 +90,18 @@ class TunnelController(
         _tunnelState.value = state
     }
 
-    fun validateStartRequest(): String? {
+    /**
+     * Returns why a start cannot proceed, or null. [requireOnline] is for
+     * explicit Connect taps; service starts (Always-on at boot, captive
+     * portals, restores) must not need a validated network, because the
+     * service retries the handshake until the network is usable.
+     */
+    fun validateStartRequest(requireOnline: Boolean = true): String? {
         val profile = profileRepository.activeProfile.value
             ?: return "Pair a gateway token before connecting"
-        if (!networkMonitor.isOnline) return "No validated internet connection is available"
+        if (requireOnline && !networkMonitor.isOnline) {
+            return "No validated internet connection is available"
+        }
 
         return when (val validation = TokenParser.validate(profile.token)) {
             is TokenValidationState.Valid -> {
@@ -127,16 +135,20 @@ class TunnelController(
         if (!VpnRestore.shouldRestore(
                 vpnWanted = preferences.vpnWanted,
                 state = _tunnelState.value,
-                validationError = validateStartRequest()
+                validationError = validateStartRequest(requireOnline = false)
             )
         ) {
             return false
         }
-        return startTunnel()
+        return startTunnel(userInitiated = false)
     }
 
-    fun startTunnel(): Boolean {
-        val error = validateStartRequest()
+    /**
+     * [userInitiated] starts come from the Connect button: they need a
+     * validated network and report a failed handshake instead of retrying.
+     */
+    fun startTunnel(userInitiated: Boolean = true): Boolean {
+        val error = validateStartRequest(requireOnline = userInitiated)
         if (error != null) {
             reportError(error)
             return false
@@ -151,6 +163,7 @@ class TunnelController(
             _tunnelState.value = TunnelState.CONNECTING
             val intent = Intent(context, TailcatVpnService::class.java).apply {
                 action = TailcatVpnService.ACTION_START_VPN
+                putExtra(TailcatVpnService.EXTRA_USER_INITIATED, userInitiated)
             }
             ContextCompat.startForegroundService(context, intent)
             true
@@ -248,6 +261,18 @@ class TunnelController(
         _tunnelState.value = TunnelState.DISCONNECTED
         _networkMetrics.value = NetworkMetrics()
         refreshPublicIp()
+    }
+
+    /**
+     * A non-UI start failed and the service will retry in [retryInMs]. The
+     * user still wants the VPN, so vpnWanted stays set; the error is shown
+     * without a new event per attempt.
+     */
+    fun onStartRetrying(message: String, retryInMs: Long) {
+        pollingJob?.cancel()
+        _tunnelState.value = TunnelState.RECONNECTING
+        _networkMetrics.value = NetworkMetrics()
+        _lastError.value = "${message.trimEnd('.')}. Retrying in ${retryInMs / 1000} s."
     }
 
     fun onVpnStartFailed(message: String) {

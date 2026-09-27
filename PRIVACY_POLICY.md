@@ -1,6 +1,6 @@
 # Privacy policy for OpenTailcat
 
-**Last updated:** September 4, 2026
+**Last updated:** September 27, 2026
 
 OpenTailcat is designed without accounts, advertising, analytics SDKs, remote
 crash reporting, or a proprietary coordination service. This policy describes
@@ -23,8 +23,8 @@ for privacy-sensitive traffic:
   tunneled when the gateway supports it. ICMPv6 echo is dropped.
 - When CONNECTED, the in-app network benchmark uses `Client.DialTCP` through the
   gateway (`speed.cloudflare.com` is resolved with DNS-over-TCP via the tunnel).
-  When not CONNECTED, it uses ordinary app connections on the excluded UID. The
-  UI labels which path ran.
+  When not CONNECTED, it uses ordinary app connections on the device's current
+  routes. The UI labels which path ran.
 
 ## Data stored on the device
 
@@ -49,11 +49,18 @@ device-to-device transfer for application data.
   DNS-over-TCP via `Client.DialTCP` to `1.1.1.1:53`. When not CONNECTED, the same
   Cloudflare endpoints are requested with ordinary app connections.
 - During a prepared Tailcat session, the native engine contacts the relay
-  described by the token or DERP map and the configured gateway peer.
+  described by the token or DERP map and the configured gateway peer. It may
+  fetch Tailcat's public relay map from `https://tailcat.dev/derpmap.json`, and
+  relay hostnames are resolved with the device network's DNS resolver.
+- Only when you tap **Check for updates** in Settings, the app requests
+  `https://api.github.com/repos/OmarAlaaeldein/OpenTailcat/releases/latest`.
+  Only when you tap **Download**, it downloads the release APK from GitHub
+  (`github.com` and GitHub's release-asset hosts).
 - After TUN attachment, the native engine attempts an exit-IP audit through
   Tailcat: authenticated TLS `GET /cdn-cgi/trace` to Cloudflare `1.1.1.1`
-  via `Client.DialTCP`. The in-app public-IP display uses Cloudflare then
-  Cloudflare from the excluded app UID, not the tunnel audit.
+  via `Client.DialTCP`. The in-app public-IP display is a separate Cloudflare
+  request from the app itself; it follows the device's current routes (through
+  the VPN interface while it is up) and is not the tunnel audit.
 - After TUN attachment, intercepted DNS is proxied through Tailcat according to
   PROFILE_RESOLVER or FORCED_RESOLVER. IPv4 `dns` is test-enabled; Phase 8 leak
   capture is still pending.
@@ -72,11 +79,13 @@ OpenTailcat cannot make privacy promises on behalf of a user-selected gateway.
 
 This development build may install IPv4 `0.0.0.0/0` and IPv6 `::/0` after
 pumps are live. IPv6 TCP/UDP on the TUN is proxied; ICMPv6 echo is dropped.
-OpenTailcat's own UID and split-tunnel apps bypass the VPN. It is not leak-free.
+Split-tunnel apps bypass the VPN. It is not leak-free.
 
-Apps explicitly selected in OpenTailcat's split-tunnel settings also bypass the
-VPN. OpenTailcat itself is always excluded so its Magicsock/DERP transport does
-not recursively enter the TUN.
+Apps explicitly selected in OpenTailcat's split-tunnel settings bypass the VPN.
+OpenTailcat does not exclude itself: its Magicsock/DERP transport sockets are
+protected with `VpnService.protect` so they do not recursively enter the TUN,
+and its other requests (public-IP display, update check) follow the device's
+current routes.
 
 ## Android permissions
 
@@ -87,6 +96,10 @@ not recursively enter the TUN.
   operation of an active Android VPN service.
 - `POST_NOTIFICATIONS`: optional foreground VPN status on Android 13+.
 - `BIND_VPN_SERVICE`: enforced by Android on the VPN service declaration.
+- `QUERY_ALL_PACKAGES`: lists installed apps for the split-tunnel picker. The
+  list stays on the device.
+- `REQUEST_INSTALL_PACKAGES`: hands a downloaded update APK to the Android
+  installer when you tap **Install**.
 
 OpenTailcat does not request camera, location, contacts, storage, or advertising
 permissions.
@@ -94,7 +107,11 @@ permissions.
 ## Logging and diagnostics
 
 The application contains no analytics or project-owned telemetry endpoint.
-Benchmark and IP results are held in memory for display. Native/system logs may
+Benchmark and IP results are held in memory for display. The Network
+Benchmark screen can copy a plain-text troubleshooting report (stage, metrics,
+tunnel state, findings; public IPs in free text are redacted) to the clipboard
+when you tap its copy button. The app sends it nowhere, but other apps with
+clipboard access may read it. Native/system logs may
 contain connection errors or relay metadata; tokens and traffic payloads must
 not be intentionally logged. Android, device vendors, gateways, relays, and
 external endpoint operators may maintain independent logs.

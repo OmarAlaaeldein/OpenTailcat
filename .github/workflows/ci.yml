@@ -39,7 +39,7 @@ jobs:
             ! -name '*.aar.sha256' \
             ! -path '*/build/*' \
             -print0 |
-            sort -z |
+            LC_ALL=C sort -z |
             xargs -0 sha256sum |
             sha256sum |
             awk '{print $1}')"

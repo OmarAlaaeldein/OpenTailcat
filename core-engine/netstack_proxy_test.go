@@ -549,12 +549,20 @@ func TestFlowReservationRollbackOnDialFailure(t *testing.T) {
 
 	pkt := buildIPv4UDPPacket(srcAP, dstAP, []byte("fail-dial-test"))
 	proxy.inject(pkt, false)
-	time.Sleep(50 * time.Millisecond)
 
-	proxy.udpMu.Lock()
-	total := proxy.udpActiveTotal
-	srcCount := proxy.udpActivePerSource[srcAP.Addr()]
-	proxy.udpMu.Unlock()
+	// The failed dial rolls back on the flow goroutine; poll instead of a
+	// fixed sleep, which flaked under -race on a loaded machine.
+	var total, srcCount int
+	for deadline := time.Now().Add(3 * time.Second); ; {
+		proxy.udpMu.Lock()
+		total = proxy.udpActiveTotal
+		srcCount = proxy.udpActivePerSource[srcAP.Addr()]
+		proxy.udpMu.Unlock()
+		if (total == 0 && srcCount == 0) || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	if total != 0 {
 		t.Errorf("Expected udpActiveTotal = 0 after dial failure rollback, got %d", total)

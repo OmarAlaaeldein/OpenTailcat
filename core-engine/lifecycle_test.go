@@ -57,6 +57,16 @@ func statsState(t *testing.T) (EngineStats, EngineState) {
 	return stats, st
 }
 
+// assertFastTeardown fails when a teardown waited for a pump timeout. The
+// test pipes are blocking fds like Android's TUN, so a reader that Close
+// cannot interrupt shows up here as a multi-second stall.
+func assertFastTeardown(t *testing.T, what string, start time.Time) {
+	t.Helper()
+	if d := time.Since(start); d > 500*time.Millisecond {
+		t.Fatalf("%s took %s; packet pumps did not stop promptly", what, d)
+	}
+}
+
 func TestLifecycleHappyPathPrepareAttachStop(t *testing.T) {
 	_ = Stop()
 	fake := &prepareTestClient{}
@@ -113,9 +123,11 @@ func TestLifecycleHappyPathPrepareAttachStop(t *testing.T) {
 		t.Fatalf("expected RUNNING after reattach, got state=%s json=%s", st, stats.State)
 	}
 
+	start := time.Now()
 	if err := Stop(); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
+	assertFastTeardown(t, "Stop", start)
 	stats, st = statsState(t)
 	if st != StateStopped || stats.State != "STOPPED" {
 		t.Fatalf("expected STOPPED, got state=%s json=%s", st, stats.State)
@@ -228,9 +240,11 @@ func TestDetachTunKeepsPreparedClient(t *testing.T) {
 	if err := AttachTun(int(r.Fd())); err != nil {
 		t.Fatalf("AttachTun: %v", err)
 	}
+	start := time.Now()
 	if err := DetachTun(); err != nil {
 		t.Fatalf("DetachTun: %v", err)
 	}
+	assertFastTeardown(t, "DetachTun", start)
 	stats, st := statsState(t)
 	if st != StatePrepared || stats.State != "PREPARED" {
 		t.Fatalf("expected PREPARED after DetachTun, got state=%s json=%s", st, stats.State)
@@ -255,9 +269,11 @@ func TestDetachTunKeepsPreparedClient(t *testing.T) {
 	if st != StateRunning || stats.State != "RUNNING" {
 		t.Fatalf("expected RUNNING after reattach, got state=%s json=%s", st, stats.State)
 	}
+	start = time.Now()
 	if err := DetachTun(); err != nil {
 		t.Fatalf("second DetachTun: %v", err)
 	}
+	assertFastTeardown(t, "second DetachTun", start)
 	if err := DetachTun(); err != nil {
 		t.Fatalf("idempotent DetachTun: %v", err)
 	}

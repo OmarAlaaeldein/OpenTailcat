@@ -7,7 +7,7 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.4.0 on `main` (all 1.3.3–1.3.7 changes — audit H1–H7 source fixes after the 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep, strict interior-whitespace token error, 5s UDP capability probe with periodic re-probe, `tcpOnly` telemetry, private-DNS rejection, native pump panic containment, disco-failure transport downgrade with `discoStale`, dead `GATEWAY_RESOLVER` removal, structured data-plane failure reporting with a debug diagnostics flag, nil-dial hardening with panic call-site reporting, typed-nil Close fix and per-flow panic isolation, HealthStale 15s/3-poll grace for intermittent 6s auto-close, notification/TelemetryCard live TUN rates instead of always-zero WG txBytes, 200.x stale-DNS networking-corruption fix (`pendingDNS` cleared on `abandonPrepare`, `TelemetryCard` now `isLiveRunning`), working split-tunnel exclusions with `addDisallowedApplication`, all-apps picker with search, PREPARED `rttMs` reporting, a speed-test troubleshooter that surfaces silent stage failures and tunnel diagnostics, a speed-test **troubleshooter clipboard export** (TopAppBar copy → `SpeedTestReport`, metrics/tunnel snapshot on `SpeedTestResult`, IP-sanitized free text), and a Settings **Updates** card that checks `api.github.com/.../releases/latest`, downloads the ABI-matching APK into cache (SHA-256 verify when a digest is available), signature-compares the archive, and installs via FileProvider + `REQUEST_INSTALL_PACKAGES` — see the dated sections below). IPv4 test-routing capabilities are
+- Android repository: version 1.4.0 on `main` (all 1.3.3–1.3.7 changes — audit H1–H7 source fixes after the 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep, strict interior-whitespace token error, 5s UDP capability probe with periodic re-probe, `tcpOnly` telemetry, private-DNS rejection, native pump panic containment, disco-failure transport downgrade with `discoStale`, dead `GATEWAY_RESOLVER` removal, structured data-plane failure reporting with a debug diagnostics flag, nil-dial hardening with panic call-site reporting, typed-nil Close fix and per-flow panic isolation, HealthStale 15s/3-poll grace for intermittent 6s auto-close, notification/TelemetryCard live TUN rates instead of always-zero WG txBytes, 200.x stale-DNS networking-corruption fix (`pendingDNS` cleared on `abandonPrepare`, `TelemetryCard` now `isLiveRunning`), working split-tunnel exclusions with `addDisallowedApplication`, all-apps picker with search, PREPARED `rttMs` reporting, a speed-test troubleshooter that surfaces silent stage failures and tunnel diagnostics, a speed-test **troubleshooter clipboard export** (TopAppBar copy → `SpeedTestReport`, metrics/tunnel snapshot on `SpeedTestResult`, IP-sanitized free text), and a Settings **Updates** card that checks `api.github.com/.../releases/latest`, downloads the ABI-matching APK into cache (1.4.0 does not verify SHA-256; unreleased source now requires GitHub's asset digest), signature-compares the archive, and installs via FileProvider + `REQUEST_INSTALL_PACKAGES` — see the dated sections below). IPv4 test-routing capabilities are
   true so Connect can be exercised with a live token. `ipv6` is true; `ipv6Egress` is session-measured.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
@@ -15,11 +15,11 @@ unsafe shortcuts already found in the tree.
 - Phase 2 unified token contract checkpoint: `dfce360`.
 - Phase 3 tunneled UDP data plane implementation complete; live physical acceptance pending; IPv4 `udp` is test-enabled.
 - Phase 4 DNS routing exists with pending-config and omit-means-preserve; IPv4 `dns` is test-enabled.
-- Phase 5 IPv6 TCP/UDP is proxied with a 250ms dial timeout; ICMPv6 echo is dropped; oversized IPv6 gets a local Packet Too Big; Android installs `::/0` only after pumps are live; `ipv6` is true; `ipv6Egress` is session-measured.
+- Phase 5 IPv6 TCP/UDP is proxied (public IPv6 is rejected before dial when `ipv6Egress` is false, otherwise IPv6 uses the IPv4 dial budget (15 s TCP / 10 s UDP)); ICMPv6 echo is dropped; oversized IPv6 gets a local Packet Too Big; Android installs `::/0` only after pumps are live; `ipv6` is true; `ipv6Egress` is session-measured.
 - Phase 6 cancellable session context, readiness barriers, pump-failure `FAILED`, bounded `Stop`, `DetachTun`, and `DisarmPumps` exist. After `prepare`, Android establishes a host-only TUN (no VPN DNS), attaches pumps, `detachTun`, then installs `0.0.0.0/0` and `::/0` with VPN DNS and reattaches. The VPN service is `START_STICKY` with `stopWithTask=false`; shutdown closes the TUN before native `stop`. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
 - Phase 7 telemetry schema and WireGuard counters exist; RTT is sampled from live `DiscoPing` while a bridge is running; Kotlin rejects schema v1 and does not synthesize `RUNNING`; the measured `tcpOnly` latch (5s UDP probe at prepare, 30s re-probe while latched) is reported in stats and the UI; `liveStats` is test-enabled.
-- Upstream Tailcat base: signed `v0.4.0`, commit
-  `ce6fedcabc220bab3b94d470ab330219111eeae8`.
+- Upstream Tailcat base: unsigned `main` commit `v0.5.0-25-g0c31395bf` (an
+  ancestor of the signed `v0.6.0` and `v0.7.0` tags). It is not `v0.4.0`.
 - Tailcat source: git submodule of `github.com/tailscale/tailcat` at
   unmodified `0c31395bfd1ae0c0ef2917c0ec20432466087417` (application-layer UDP).
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
@@ -116,7 +116,7 @@ Fix in this tree (Kotlin-only; AAR unchanged):
   behavior for disallowed applications under lockdown).
 - OpenTailcat's own UID is never on the list; the Settings picker filters out
   the app package. Magicsock/DERP bypass still relies on `VpnService.protect`
-  (`TransportSocketProtect`), not on app-UID exclusion.
+  (`TransportSocketProtect`); the app does not exclude its own UID.
 - Tests: `SplitTunnelExclusionsTest` (blank/uninstalled filtering, ordering);
   `LeakGuardTest` deleted; `LockdownProbeTest` updated.
 
@@ -172,13 +172,13 @@ IPv4 flags now set true.
 | IPv4 TCP | gVisor terminates TCP and proxies the stream with `Client.DialTCP` | Tailcat WireGuard/Magicsock to gateway |
 | IPv4 UDP destination port 53 | gVisor proxies datagram via `Client.DialUDP` to TUN dest (PROFILE_RESOLVER) or `ForcedDNS` (FORCED_RESOLVER). Engine does not inspect TC bits; a libc/app TCP/53 retry is a normal TCP proxy | Tailcat WireGuard/Magicsock to gateway |
 | Other IPv4 UDP | gVisor proxies datagrams via `Client.DialUDP` across Tailcat netstack | Tailcat WireGuard/Magicsock to gateway (pending live acceptance) |
-| IPv6 TCP/UDP | gVisor inject → `DialTCP`/`DialUDP` with 250ms timeout | Gateway if it has IPv6 WAN; else RST/drop so apps can use tunneled IPv4 |
+| IPv6 TCP/UDP | gVisor inject → `DialTCP`/`DialUDP` with the IPv4 dial budget; public IPv6 rejected pre-dial when `ipv6Egress` is false | Gateway if it has IPv6 WAN; else RST/drop so apps can use tunneled IPv4 |
 | ICMPv6 echo | Dropped | No gateway/Internet request is made |
 | IPv6 over MTU | Local ICMPv6 Packet Too Big | No gateway request |
 | IPv4 over MTU | Local ICMP Fragmentation Needed | No gateway request |
 | IPv4 ICMP echo | Constructs a local echo reply | No gateway/Internet request is made |
 | Native exit audit | TLS/HTTP through `Client.DialTCP` | Tailcat gateway |
-| In-app speed test | When CONNECTED: `Client.DialTCP` through the gateway (`speed.cloudflare.com` resolved with DNS-over-TCP via `Client.DialTCP` to `1.1.1.1:53`). Otherwise `HttpURLConnection` from excluded app UID | Gateway TCP when CONNECTED; direct device network otherwise. UI labels the path. |
+| In-app speed test | When CONNECTED: `Client.DialTCP` through the gateway (`speed.cloudflare.com` resolved with DNS-over-TCP via `Client.DialTCP` to `1.1.1.1:53`). Otherwise `HttpURLConnection` on the device's current routes | Gateway TCP when CONNECTED; otherwise whatever route the device uses (direct when disconnected, into the TUN while it is still up in DEGRADED/RECONNECTING). |
 
 ## Non-negotiable invariants
 
@@ -189,8 +189,9 @@ IPv4 flags now set true.
    Phase 8 acceptance.
 2. Never install `0.0.0.0/0` or `::/0` around an incomplete or unhealthy packet
    pump.
-3. Never substitute an ordinary OS socket for a tunneled application flow. The
-   app-UID exclusion makes that a leak by design.
+3. Never substitute an ordinary OS socket for a tunneled application flow. A
+   socket protected with `VpnService.protect` bypasses the TUN, so that would
+   be a leak by design.
 4. Never report `CONNECTED` from method availability, a successful public
    Internet request, or a stale startup sample.
 5. Never derive or invent a disco public key from a node public key. The two
@@ -206,9 +207,9 @@ OpenTailcat is an initiating client. It does not own gateway NAT, WARP/Tor
 policy, or DNS filtering. However, an arbitrary UDP VPN cannot be completed by
 client code if the selected gateway accepts only TCP.
 
-Official Tailcat `v0.4.0` configures `serve exit-node` with `OnTCPForward` and
-admits TCP only. Current upstream (this submodule pin) exports `Client.DialUDP`
-and `Server.OnUDPForward`. Therefore:
+Tailcat `v0.4.0` configured `serve exit-node` with `OnTCPForward` and admitted
+TCP only; signed `v0.7.0` forwards UDP through `--serve=exit-node`. This
+submodule pin exports `Client.DialUDP` and `Server.OnUDPForward`. Therefore:
 
 - First determine whether the live target gateway (your Tailcat gateway or another
   deployment) already accepts UDP flows over the Tailcat WireGuard peer.
@@ -253,7 +254,7 @@ Checkpoint status:
 - Phase 2 — complete: Kotlin and Go share the strict upstream-compatible token contract.
 - Phase 3 — implementation complete: native userspace netstack UDP proxy using upstream `Client.DialUDP` / `OnUDPForward`; physical-device live acceptance pending; IPv4 `udp` is test-enabled.
 - Phase 4 — DNS routing code exists: pending DNS is stored before attach and applied on `attachTun`. Absent `dnsPolicy` in later `updateNetworkState` does not reset policy. `GATEWAY_RESOLVER` is unused (treated as PROFILE). The engine does not inspect DNS TC bits. IPv4 `dns` is test-enabled.
-- Phase 5 — IPv6 TCP/UDP proxied with a 250ms dial timeout; ICMPv6 echo dropped; oversized IPv6 gets Packet Too Big; Android installs `::/0` after pumps are live. `ipv6` is true; `ipv6Egress` is session-measured.
+- Phase 5 — IPv6 TCP/UDP proxied (public IPv6 is rejected before dial when `ipv6Egress` is false, otherwise IPv6 uses the IPv4 dial budget (15 s TCP / 10 s UDP)); ICMPv6 echo dropped; oversized IPv6 gets Packet Too Big; Android installs `::/0` after pumps are live. `ipv6` is true; `ipv6Egress` is session-measured.
 - Phase 6 — session context, short mutex, always-Close previous client, readiness barriers, pump-exit `FAILED` + `healthUnixSec`, bounded `Stop`, `DetachTun`, `DisarmPumps`. After `prepare`, Android establishes a host-only TUN (no VPN DNS), attaches, `detachTun`, then installs `0.0.0.0/0`/`::/0` with VPN DNS and reattaches. Sticky VPN service; TUN closed before native `stop`. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
 - Phase 7 — telemetry code exists: schema version 2. RTT is sampled from `DiscoPing` about every 5s while a bridge is running; jitter is null until three samples. WireGuard peer Tx/Rx stay 0 because upstream `Client` has no Status API. Kotlin requires version 2, does not synthesize missing `state` as `RUNNING`, and CONNECTED requires live `RUNNING` + fresh `healthUnixSec`. `liveStats` is test-enabled.
 - Phase 8 — host gates and Wireshark/tshark pcap analyzer exist (`scripts/phase8`, `cmd/phase8-analyze`). Physical dual-capture on ARM64 and production signing remain. `ipv6` is true; `ipv6Egress` is session-measured.
@@ -570,9 +571,9 @@ Do not promote `liveStats` until live RTT sampling exists, jitter matches the do
 
 When CONNECTED, the in-app speed test uses native `MeasureTunnel*` (`Client.DialTCP`);
 `speed.cloudflare.com` is resolved with DNS-over-TCP via `Client.DialTCP` to
-`1.1.1.1:53`. When not CONNECTED, it uses `HttpURLConnection` from the excluded
-app UID. The UI labels which path ran. Do not present the physical path as
-tunnel performance.
+`1.1.1.1:53`. When not CONNECTED, it uses `HttpURLConnection` on the device's
+current routes (the app does not exclude its own UID, so this still enters the
+TUN while it is up). Do not present that path as tunnel performance.
 
 Acceptance condition: telemetry changes during forced DERP/direct transitions,
 matches packet captures/status counters within documented accounting rules, and
@@ -812,6 +813,6 @@ Client `ipv6` is true with fail-closed HE behavior. Real IPv6 Internet still nee
 2. Connected Always-on session with `::/0` installed after pumps are live (already implemented).
 3. Second-UID IPv6 TCP/UDP probe succeeds only via gateway; simultaneous uplink+gateway classic PCAPs pass phase8-analyze (H7 fail-closed).
 4. PMTU / Packet Too Big path exercised; ICMPv6 echo remains local-drop.
-5. Gateway under test has IPv6 WAN. Client 250ms IPv6 dial timeout is intentional fail-fast toward tunneled IPv4 when the gateway lacks IPv6.
+5. Gateway under test has IPv6 WAN. Without it, the client rejects public IPv6 before dialing (RST/drop) so apps fail fast to tunneled IPv4; the old 250 ms IPv6 dial timeout was removed.
 
 Omar device checklist: enable Always-on lockdown, rebuild AAR (`core-engine/build-aar.sh` with Go 1.27.1 + NDK 29.0.14206865), install development APK, confirm `isLockdownEnabled` after Connect, run `scripts/phase8` dual capture including an IPv6 probe address.

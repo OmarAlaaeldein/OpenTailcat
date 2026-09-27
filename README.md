@@ -19,8 +19,10 @@ Android client for Tailcat. Paste a `tc…` token and connect to **your** gatewa
   tunnel state, findings) for a GitHub issue. Public IPs in free text are
   redacted.
 - **Settings → Updates**: check the latest GitHub release, download the
-  APK for your ABI, verify SHA-256 when the release provides a digest and
-  signature against the installed app, then install via the system installer.
+  APK for your ABI, compare its signature with the installed app, then
+  install via the system installer. Correction: 1.4.0 does **not** verify the
+  APK's SHA-256 (the check was never wired up); the Android installer's own
+  signature check is the only protection in 1.4.0.
 - No data-plane capability promotions; `testRouting: true` unchanged.
 
 ## What’s new in 1.3.7

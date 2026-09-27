@@ -58,9 +58,24 @@ func (b *TunBridge) probeTunnelEgressIP(ctx context.Context) (netip.Addr, error)
 	return parseEgressTrace(string(body))
 }
 
+const (
+	egressRetryBase = 3 * time.Second
+	egressRetryMax  = 5 * time.Minute
+)
+
+// egressRetryDelay doubles from egressRetryBase up to egressRetryMax, so a
+// persistent failure (for example a rotated TLS pin) does not retry every
+// few seconds for the whole session.
+func egressRetryDelay(attempt int) time.Duration {
+	d := egressRetryBase
+	for i := 1; i < attempt && d < egressRetryMax; i++ {
+		d *= 2
+	}
+	return min(d, egressRetryMax)
+}
+
 func (b *TunBridge) egressProbeLoop() {
 	defer b.recoverPumpLogOnly("egress probe")
-	const retryDelay = 3 * time.Second
 	for attempt := 1; ; attempt++ {
 		probeCtx, cancel := context.WithTimeout(b.ctx, 15*time.Second)
 		ip, err := b.probeTunnelEgressIP(probeCtx)
@@ -76,7 +91,7 @@ func (b *TunBridge) egressProbeLoop() {
 		select {
 		case <-b.ctx.Done():
 			return
-		case <-time.After(retryDelay):
+		case <-time.After(egressRetryDelay(attempt)):
 		}
 	}
 }

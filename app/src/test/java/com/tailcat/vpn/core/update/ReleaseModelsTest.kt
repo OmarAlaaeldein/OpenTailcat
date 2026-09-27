@@ -63,6 +63,29 @@ class ReleaseModelsTest {
     }
 
     @Test
+    fun parsesAssetDigestAndNullBody() {
+        val hex = "445b8d551fb6a094c6bfb9f46a741b17aa1359203909a51e07385d80b0ef58be"
+        val r = LatestRelease.parse(
+            """
+            {
+              "tag_name": "v1.5.0",
+              "name": null,
+              "body": null,
+              "html_url": "https://github.com/OmarAlaaeldein/OpenTailcat/releases/tag/v1.5.0",
+              "assets": [
+                {"name":"OpenTailcat-1.5.0-arm64-v8a.apk","browser_download_url":"https://example.com/a.apk","size":1,"digest":"sha256:$hex"},
+                {"name":"OpenTailcat-1.5.0-x86_64.apk","browser_download_url":"https://example.com/b.apk","size":1,"digest":null}
+              ]
+            }
+            """.trimIndent()
+        )
+        assertEquals("", r.notes)
+        assertEquals("", r.name)
+        assertEquals(hex, r.apkAssetForAbi("arm64-v8a")?.sha256)
+        assertNull(r.apkAssetForAbi("x86_64")?.sha256)
+    }
+
+    @Test
     fun comparesSemverishVersions() {
         assertTrue(LatestRelease.isNewerVersion("1.3.8", "1.3.7"))
         assertTrue(LatestRelease.isNewerVersion("1.4.0", "1.3.7"))

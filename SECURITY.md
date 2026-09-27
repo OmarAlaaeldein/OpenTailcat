@@ -1,5 +1,13 @@
 # Security policy
 
+## Reporting a vulnerability
+
+Report vulnerabilities privately through GitHub: open the repository's
+**Security** tab and choose **Report a vulnerability**
+(<https://github.com/OmarAlaaeldein/OpenTailcat/security/advisories/new>).
+Do not open a public issue, and never include a live gateway token, signing
+key, or traffic capture in a report; describe how to reproduce instead.
+
 ## Release status
 
 OpenTailcat 1.4.0 in the current source tree is a development build. It has an
@@ -48,7 +56,7 @@ be relied on as a production privacy VPN.
   still needs Phase 8 capture proof per gateway.
 - Profiles and tokens are stored in encrypted preferences backed by Android
   Keystore. Android backup and device-to-device transfer are disabled.
-- Transport sockets must be protected with `VpnService.protect` (netns re-enabled after Tailcat `SetEnabled(false)`). The builder no longer relies on app-UID exclusion alone.
+- Transport sockets must be protected with `VpnService.protect` (netns re-enabled after Tailcat `SetEnabled(false)`). The app does not exclude its own UID: while the VPN is up its other HTTP (public-IP display, update check, speed test when not CONNECTED) is routed into the TUN like any app's.
 - Cleartext traffic is disabled for the Android application.
 
 ### Remaining release blockers & pending gates
@@ -61,7 +69,7 @@ be relied on as a production privacy VPN.
   claim.
 - **IPv4 flags are test-enabled, not Phase 8 accepted**: leak capture still pending.
 - **IPv6 dual-stack egress**: Android installs `::/0` after pumps are live.
-  Native proxies IPv6 TCP/UDP with a 250ms dial timeout; ICMPv6 echo is dropped;
+  Native proxies IPv6 TCP/UDP (public IPv6 is rejected before dial when `ipv6Egress` is false, otherwise IPv6 uses the IPv4 dial budget (15 s TCP / 10 s UDP)); ICMPv6 echo is dropped;
   oversized IPv6 gets a local Packet Too Big. Live IPv6 internet depends on the
   gateway. Capability `ipv6` is true; without gateway IPv6 WAN, public IPv6 is
   fail-closed (RST/drop) so Happy Eyeballs can fall back to tunneled IPv4.

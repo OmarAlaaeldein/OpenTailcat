@@ -7,6 +7,8 @@ import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.core.update.ApkDownloader
 import com.tailcat.vpn.core.update.GitHubReleaseClient
 import com.tailcat.vpn.core.update.LatestRelease
+import com.tailcat.vpn.core.update.UpdatePolicy
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 sealed interface UpdateState {
@@ -79,11 +82,12 @@ class SettingsViewModel : ViewModel() {
                     }
                 }
             }
-            downloader.download(asset, expectedSha256 = null)
+            downloader.download(asset)
                 .onSuccess { file ->
                     collectJob.cancel()
-                    val mismatch = com.tailcat.vpn.core.update.ApkInstaller
-                        .signatureMismatchReason(context, file)
+                    val mismatch = withContext(Dispatchers.IO) {
+                        com.tailcat.vpn.core.update.ApkInstaller.signatureMismatchReason(context, file)
+                    }
                     if (mismatch != null) {
                         file.delete()
                         _updateState.value = UpdateState.Error(mismatch)
@@ -126,9 +130,9 @@ class SettingsViewModel : ViewModel() {
 
     fun openReleasePage(context: Context) {
         val url = when (val s = _updateState.value) {
-            is UpdateState.Available -> s.release.htmlUrl
-            is UpdateState.Ready -> s.release.htmlUrl
-            else -> "https://github.com/OmarAlaaeldein/OpenTailcat/releases/latest"
+            is UpdateState.Available -> UpdatePolicy.safeReleasePage(s.release.htmlUrl)
+            is UpdateState.Ready -> UpdatePolicy.safeReleasePage(s.release.htmlUrl)
+            else -> "${UpdatePolicy.RELEASES_PAGE}/latest"
         }
         runCatching {
             context.startActivity(

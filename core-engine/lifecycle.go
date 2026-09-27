@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -96,6 +97,9 @@ func (c *TailcatCore) markFailed(sess *session, err error) {
 	go closeSession(sess)
 }
 
+// closeSession stops the bridge and closes the client, returning after at
+// most stopWaitTimeout. Teardown that takes longer (upstream Client.Close has
+// no deadline) finishes in the background.
 func closeSession(sess *session) {
 	if sess == nil {
 		return
@@ -111,11 +115,28 @@ func closeSession(sess *session) {
 		bridge := sess.bridge
 		client := sess.client
 		globalCore.mu.Unlock()
-		if bridge != nil {
-			_ = bridge.Stop()
-		}
-		if client != nil {
-			_ = client.Close()
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Tailcat session close panic (contained): %v @ %s", r, panicSite())
+				}
+			}()
+			if bridge != nil {
+				if err := bridge.Stop(); err != nil {
+					log.Printf("Tailcat session close: %v", err)
+				}
+			}
+			if client != nil {
+				_ = client.Close()
+			}
+		}()
+		select {
+		case <-done:
+		case <-time.After(stopWaitTimeout):
+			log.Printf("Tailcat session close exceeded %s; finishing in background", stopWaitTimeout)
 		}
 	})
 }
@@ -419,18 +440,22 @@ func Stop() error {
 	globalCore.lastErr = ""
 	globalCore.mu.Unlock()
 
+	// Deferred so a panic during teardown can never leave stopping set,
+	// which would block every later Prepare and Stop.
+	defer func() {
+		globalCore.mu.Lock()
+		globalCore.state = StateStopped
+		globalCore.stopping = false
+		globalCore.stopWait = nil
+		close(done)
+		globalCore.mu.Unlock()
+	}()
+
 	netStateMu.Lock()
 	activeMonitor = nil
 	netStateMu.Unlock()
 
 	closeSession(sess)
-
-	globalCore.mu.Lock()
-	globalCore.state = StateStopped
-	globalCore.stopping = false
-	globalCore.stopWait = nil
-	close(done)
-	globalCore.mu.Unlock()
 	return nil
 }
 

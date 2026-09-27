@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.content.pm.Signature
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -28,29 +29,33 @@ object ApkInstaller {
         )
 
     /**
-     * Compares the downloaded APK signing cert digests with the installed
-     * package. Returns null when signatures match (or cannot be compared);
-     * returns an error message when they clearly differ.
+     * Checks the downloaded APK's signer against the installed app and the
+     * pinned release keys ([UpdatePolicy.signerRejection]). Accepts a v3 key
+     * rotation whose lineage contains the installed signer. Returns null when
+     * the update is acceptable; otherwise the reason to refuse, including when
+     * signatures cannot be read.
      */
     fun signatureMismatchReason(context: Context, apkFile: File): String? {
         return runCatching {
-            val archive = context.packageManager.getPackageArchiveInfo(
-                apkFile.absolutePath,
+            val pm = context.packageManager
+            val flags = if (Build.VERSION.SDK_INT >= 28) {
                 PackageManager.GET_SIGNING_CERTIFICATES
-            ) ?: return "Downloaded file is not a valid APK"
-            val installed = context.packageManager.getPackageInfo(
-                context.packageName,
-                PackageManager.GET_SIGNING_CERTIFICATES
-            )
-            val archiveDigests = signerDigests(archive)
-            val installedDigests = signerDigests(installed)
-            if (archiveDigests.isEmpty() || installedDigests.isEmpty()) return null
-            if (archiveDigests.intersect(installedDigests).isEmpty()) {
-                "APK is not signed with this app’s key (install would fail)"
             } else {
-                null
+                @Suppress("DEPRECATION")
+                PackageManager.GET_SIGNATURES
             }
-        }.getOrNull()
+            val archive = pm.getPackageArchiveInfo(apkFile.absolutePath, flags)
+                ?: return "Downloaded file is not a valid APK"
+            if (archive.packageName != context.packageName) {
+                return "Downloaded APK is a different app"
+            }
+            val installed = pm.getPackageInfo(context.packageName, flags)
+            UpdatePolicy.signerRejection(
+                installedCurrent = currentSignerDigests(installed),
+                archiveCurrent = currentSignerDigests(archive),
+                archiveHistory = signerHistoryDigests(archive)
+            )
+        }.getOrElse { e -> "Could not verify the APK signature (${e.message})" }
     }
 
     fun installIntent(context: Context, apkFile: File): Intent {
@@ -66,19 +71,25 @@ object ApkInstaller {
     }
 
     @Suppress("DEPRECATION")
-    private fun signerDigests(info: PackageInfo): Set<String> {
+    private fun currentSignerDigests(info: PackageInfo): Set<String> {
         val signers = if (Build.VERSION.SDK_INT >= 28) {
             info.signingInfo?.apkContentsSigners ?: emptyArray()
         } else {
-            @Suppress("DEPRECATION")
             info.signatures ?: emptyArray()
         }
-        return signers.mapNotNull { sig ->
-            runCatching {
-                MessageDigest.getInstance("SHA-256")
-                    .digest(sig.toByteArray())
-                    .joinToString("") { b -> "%02x".format(b) }
-            }.getOrNull()
-        }.toSet()
+        return signers.map { sha256(it) }.toSet()
     }
+
+    /** v3 lineage including the current signer; null with several signers or before API 28. */
+    private fun signerHistoryDigests(info: PackageInfo): List<String>? {
+        if (Build.VERSION.SDK_INT < 28) return null
+        val signingInfo = info.signingInfo ?: return null
+        if (signingInfo.hasMultipleSigners()) return null
+        return signingInfo.signingCertificateHistory?.map { sha256(it) }
+    }
+
+    private fun sha256(signature: Signature): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(signature.toByteArray())
+            .joinToString("") { b -> "%02x".format(b) }
 }

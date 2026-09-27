@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -39,17 +40,29 @@ class TailcatVpnService : VpnService() {
             return START_NOT_STICKY
         }
 
+        // A duplicate start (Always-on plus a restore, or a second tap) must not
+        // be re-validated: a transient failure would tear down a live tunnel.
+        if (startJob?.isActive == true || vpnInterface != null) return START_STICKY
+
         val app = TailcatApplication.instance
         val profile = app.profileRepository.activeProfile.value
-        val validationError = app.tunnelController.validateStartRequest()
+        // Always-on starts at boot or behind a captive portal before any network
+        // is validated; the start loop below retries the handshake instead.
+        val validationError = app.tunnelController.validateStartRequest(requireOnline = false)
         if (profile == null || validationError != null) {
             rejectStart(
                 validationError ?: "No gateway profile is selected"
             )
             return START_NOT_STICKY
         }
-
-        if (startJob?.isActive == true || vpnInterface != null) return START_STICKY
+        // Only an explicit Connect tap fails fast; Always-on (SERVICE_INTERFACE
+        // action), sticky restarts (null intent), and restores retry.
+        val retryOnFailure = intent?.getBooleanExtra(EXTRA_USER_INITIATED, false) != true
+        if (intent?.action == SERVICE_INTERFACE) {
+            // The system started us as the Always-on VPN: the user wants it on,
+            // even if this app never recorded a Connect tap.
+            app.preferencesStore.vpnWanted = true
+        }
 
         shuttingDown.set(false)
         try {
@@ -72,7 +85,7 @@ class TailcatVpnService : VpnService() {
                 startForeground(VpnNotificationManager.NOTIFICATION_ID, notification)
             }
 
-            startJob = serviceScope.launch { establishAndStartEngine(profile) }
+            startJob = serviceScope.launch { startWithRetry(profile, retryOnFailure) }
             return START_STICKY
         } catch (error: Exception) {
             // startForeground executes later than startForegroundService, so the
@@ -110,6 +123,73 @@ class TailcatVpnService : VpnService() {
         shutdown()
     }
 
+    /**
+     * Runs start attempts until one connects. A failure ends the service when
+     * the start was a Connect tap, the cause is permanent, or the user no
+     * longer wants the VPN; otherwise the engine is reset and the attempt is
+     * retried with [StartRetry] backoff while vpnWanted stays set.
+     */
+    private suspend fun startWithRetry(profile: GatewayProfile, retryOnFailure: Boolean) {
+        val app = TailcatApplication.instance
+        // A stop launched off the main thread must finish before prepare, or
+        // it would tear down the session this start creates.
+        pendingNativeStop?.join()
+        var attempt = 0
+        while (true) {
+            try {
+                establishAndStartEngine(profile)
+                return
+            } catch (error: CancellationException) {
+                shutdown()
+                throw error
+            } catch (error: Exception) {
+                val message = error.message ?: "VPN engine failed to start"
+                val permanent = error is PermanentStartFailure ||
+                    StartRetry.isPermanentEngineError(message) ||
+                    prepare(this) != null
+                if (!retryOnFailure || permanent || !app.preferencesStore.vpnWanted) {
+                    app.tunnelController.onVpnStartFailed(message)
+                    shutdown()
+                    return
+                }
+                attempt++
+                val waitMs = StartRetry.delayMs(attempt)
+                resetForRetry()
+                app.tunnelController.onStartRetrying(message, waitMs)
+                showStateNotification(profile, TunnelState.RECONNECTING)
+                // Cancelled by shutdown() when the user disconnects.
+                delay(waitMs)
+            }
+        }
+    }
+
+    /** Drops any TUN adopted by the failed attempt and the native session. */
+    private fun resetForRetry() {
+        val tun = synchronized(interfaceLock) {
+            val current = vpnInterface
+            vpnInterface = null
+            current
+        }
+        runCatching { tun?.close() }
+        runCatching { TailcatApplication.instance.tunnelEngine.stop() }
+    }
+
+    private fun showStateNotification(profile: GatewayProfile, state: TunnelState) {
+        val app = TailcatApplication.instance
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        runCatching {
+            manager.notify(
+                VpnNotificationManager.NOTIFICATION_ID,
+                app.notificationManager.buildNotification(
+                    state = state,
+                    profileName = profile.name,
+                    metrics = app.tunnelController.networkMetrics.value
+                )
+            )
+        }
+    }
+
+    /** One start attempt. Throws on failure after closing any TUN it still owns. */
     private suspend fun establishAndStartEngine(profile: GatewayProfile) {
         val app = TailcatApplication.instance
         var warmOwned: ParcelFileDescriptor? = null
@@ -117,9 +197,9 @@ class TailcatVpnService : VpnService() {
         try {
             // Validate resolver IP before configuring VPN interface
             val dnsValidation = com.tailcat.vpn.core.dns.DnsValidator.validate(profile.customDns)
-            check(dnsValidation is com.tailcat.vpn.core.dns.DnsValidationResult.Valid) {
+            if (dnsValidation !is com.tailcat.vpn.core.dns.DnsValidationResult.Valid) {
                 val reason = (dnsValidation as? com.tailcat.vpn.core.dns.DnsValidationResult.Invalid)?.reason ?: "unknown error"
-                "Invalid DNS resolver in profile: $reason"
+                throw PermanentStartFailure("Invalid DNS resolver in profile: $reason")
             }
 
             // Provide current validated Android LinkProperties, interface state, and DNS policy to native engine
@@ -182,16 +262,9 @@ class TailcatVpnService : VpnService() {
             protectOpenTransportSockets(excludeTun = routed)
             app.tunnelController.onEngineConnected(metrics)
             startMetricsNotificationUpdater(profile)
-        } catch (error: CancellationException) {
+        } catch (error: Throwable) {
             closeOwned(warmOwned, routedOwned)
-            shutdown()
             throw error
-        } catch (error: Exception) {
-            closeOwned(warmOwned, routedOwned)
-            app.tunnelController.onVpnStartFailed(
-                error.message ?: "VPN engine failed to start"
-            )
-            shutdown()
         }
     }
 
@@ -313,7 +386,6 @@ class TailcatVpnService : VpnService() {
             current
         }
         runCatching { tun?.close() }
-        runCatching { TailcatApplication.instance.tunnelEngine.stop() }
 
         val finish = {
             TailcatApplication.instance.tunnelController.onVpnStopped()
@@ -321,8 +393,15 @@ class TailcatVpnService : VpnService() {
             stopSelf()
         }
         if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            // Native stop can wait up to its bound; never block the main thread
+            // (onDestroy, rejected starts). The TUN is already closed, so routes
+            // are gone before this runs; the next start joins it first.
+            pendingNativeStop = serviceScope.launch {
+                runCatching { TailcatApplication.instance.tunnelEngine.stop() }
+            }
             finish()
         } else {
+            runCatching { TailcatApplication.instance.tunnelEngine.stop() }
             android.os.Handler(android.os.Looper.getMainLooper()).post(finish)
         }
     }
@@ -360,5 +439,10 @@ class TailcatVpnService : VpnService() {
             "VPN permission is required. Tap Connect to allow the VPN connection."
         const val ACTION_START_VPN = "com.tailcat.vpn.ACTION_START"
         const val ACTION_STOP_VPN = "com.tailcat.vpn.ACTION_STOP"
+        const val EXTRA_USER_INITIATED = "com.tailcat.vpn.extra.USER_INITIATED"
+
+        /** Native stop running off the main thread; outlives the service instance. */
+        @Volatile
+        private var pendingNativeStop: Job? = null
     }
 }

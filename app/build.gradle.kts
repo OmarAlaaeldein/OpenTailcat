@@ -108,8 +108,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.security.crypto)
 
-    // Local Go Mobile AAR if present
-    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
+    // Checked-in Go Mobile AAR (core-engine/build-aar.sh). Named explicitly so
+    // stray local files in libs/ (such as gomobile's sources jar) never ship.
+    implementation(files("libs/libtailcat.aar"))
 
     testImplementation(libs.junit)
     testImplementation(libs.org.json)

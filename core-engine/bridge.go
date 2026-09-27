@@ -131,6 +131,13 @@ func newTunBridge(
 	if err != nil {
 		return nil, fmt.Errorf("dup tun fd: %w", err)
 	}
+	// Android hands over a blocking fd. A blocking os.File bypasses the
+	// runtime poller, so Close cannot interrupt a pending Read and Stop would
+	// leak the reader until its timeout. Non-blocking makes it pollable.
+	if err := syscall.SetNonblock(dupFD, true); err != nil {
+		syscall.Close(dupFD)
+		return nil, fmt.Errorf("set tun fd non-blocking: %w", err)
+	}
 
 	tunFile := os.NewFile(uintptr(dupFD), "tun")
 	if tunFile == nil {
@@ -388,15 +395,17 @@ func (b *TunBridge) Stop() error {
 	}
 
 	b.cancel()
-	if b.netstack != nil {
-		b.netstack.Close()
-	}
+	// Closing the pollable TUN file wakes the reader immediately.
 	if b.tunFile != nil {
 		b.tunFile.Close()
 	}
 
+	// Netstack teardown and pump exit share one deadline.
 	done := make(chan struct{})
 	go func() {
+		if b.netstack != nil {
+			b.netstack.Close()
+		}
 		b.wg.Wait()
 		close(done)
 	}()
