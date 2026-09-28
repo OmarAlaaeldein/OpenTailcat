@@ -166,6 +166,27 @@ func TestAnalyzePlaintextDNSOutsideTunnelFails(t *testing.T) {
 	}
 }
 
+func TestAnalyzeAllowedResolverIsReportedNotFailed(t *testing.T) {
+	lan := netip.MustParseAddr("192.168.2.1")
+	other := netip.MustParseAddr("192.168.2.53")
+	cfg := config()
+	cfg.AllowedDNS = []netip.Addr{lan}
+	up := tunnelUplink(
+		record{at(4), ether(ipv4(device, lan, 17, 5353, 53))},
+		record{at(4), ether(ipv4(lan, device, 17, 53, 5353))},
+	)
+	res := analyze(t, ethPcap(up...), ethPcap(probeGateway()...), cfg)
+	if res.Verdict != Pass || len(res.AllowedDNSSeen) != 1 || res.AllowedDNSSeen[0] != lan {
+		t.Fatalf("verdict %s allowed %v leaks %v, want PASS reporting %v", res.Verdict, res.AllowedDNSSeen, res.DNSLeaks, lan)
+	}
+	// Only the listed resolver is allowed.
+	up = tunnelUplink(record{at(4), ether(ipv4(device, other, 17, 5353, 53))})
+	res = analyze(t, ethPcap(up...), ethPcap(probeGateway()...), cfg)
+	if res.Verdict != Fail || len(res.DNSLeaks) != 1 || res.DNSLeaks[0] != other {
+		t.Fatalf("unlisted resolver: verdict %s leaks %v, want FAIL with %v", res.Verdict, res.DNSLeaks, other)
+	}
+}
+
 func TestAnalyzeWithoutDeviceTunnelTrafficIsInconclusive(t *testing.T) {
 	// An idle or wrong interface: only unrelated hosts, never the phone.
 	var up []record

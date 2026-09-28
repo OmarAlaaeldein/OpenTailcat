@@ -13,6 +13,9 @@ usage: DEVICE_IP=phone-ip TUNNEL_PEERS=gateway-or-derp-ip[,...] \\
   DEVICE_IP      the phone's address(es) on the uplink capture (comma list)
   TUNNEL_PEERS   gateway and DERP endpoint IPs the tunnel uses (comma list)
   GATEWAY_SRC    optional: gateway tunnel-side source IP(s) of probe traffic
+  ALLOW_DNS      optional: resolver IP(s) the phone may query in plaintext
+                 outside the tunnel (the uplink network's own resolver, used
+                 by Android's network validation); reported, not failed
 Exit: 0 PASS, 1 FAIL, 2 usage/capture error, 3 INCONCLUSIVE (not a pass).
 EOF
 }
@@ -37,6 +40,9 @@ args=(--uplink "$UPLINK" --probe "$PROBES" --gateway "$GATEWAY"
   --device-ip "$DEVICE_IP" --tunnel-peer "$TUNNEL_PEERS")
 if [[ -n "${GATEWAY_SRC:-}" ]]; then
   args+=(--gateway-src "$GATEWAY_SRC")
+fi
+if [[ -n "${ALLOW_DNS:-}" ]]; then
+  args+=(--allow-dns "$ALLOW_DNS")
 fi
 # Build instead of `go run`, which reports every non-zero exit as 1.
 BIN_DIR="$(mktemp -d)"

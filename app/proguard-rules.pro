@@ -1,9 +1,9 @@
 # Tailcat Proguard / R8 Optimization Rules
 
-# 1. Keep Tailcat domain models & JNI interfaces
--keep class com.tailcat.vpn.core.model.** { *; }
--keep class com.tailcat.vpn.service.TailcatVpnService { *; }
--keep class com.tailcat.vpn.engine.** { *; }
+# 1. Keep the Go Mobile JNI surface (the AAR's consumer rule keeps the same).
+# App models are parsed with org.json, not reflection, and manifest
+# components are kept by AAPT's generated rules.
+-keep class com.tailcat.golib.engine.** { *; }
 -keep class go.** { *; }
 -keepclasseswithmembernames class * {
     native <methods>;

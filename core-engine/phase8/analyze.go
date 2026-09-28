@@ -17,6 +17,10 @@ type Config struct {
 	// GatewaySources, when set, counts only gateway packets from these
 	// addresses (the gateway's tunnel-side egress address) as probe hits.
 	GatewaySources []netip.Addr
+	// AllowedDNS are resolvers the phone may query in plaintext outside the
+	// tunnel, such as the uplink network's own resolver that Android's
+	// per-network validation uses. Such DNS is reported, not failed.
+	AllowedDNS []netip.Addr
 	// MinTunnelPackets is the positive control: uplink packets from the
 	// phone to a tunnel peer required inside the gateway probe window.
 	MinTunnelPackets int
@@ -43,6 +47,8 @@ type Result struct {
 	ProbeLeaks []netip.Addr
 	// DNSLeaks are servers the phone sent plaintext DNS to outside the tunnel.
 	DNSLeaks []netip.Addr
+	// AllowedDNSSeen are Config.AllowedDNS servers the phone queried.
+	AllowedDNSSeen []netip.Addr
 	// MissingOnGateway are probes with no non-DNS packet on the gateway.
 	MissingOnGateway []netip.Addr
 	// ProbeWindow spans the gateway probe hits.
@@ -79,6 +85,7 @@ func Analyze(uplink, gateway io.Reader, cfg Config) (*Result, error) {
 	res := &Result{}
 	leaks := map[netip.Addr]bool{}
 	dnsLeaks := map[netip.Addr]bool{}
+	allowedSeen := map[netip.Addr]bool{}
 	for _, p := range up.Packets {
 		for _, a := range []netip.Addr{p.Src, p.Dst} {
 			if slices.Contains(cfg.Probes, a) {
@@ -89,16 +96,27 @@ func Analyze(uplink, gateway io.Reader, cfg Config) (*Result, error) {
 			continue
 		}
 		// Plaintext DNS between the phone and anything but a tunnel peer
-		// left the tunnel.
-		if p.DstPort == 53 && slices.Contains(cfg.DeviceIPs, p.Src) && !slices.Contains(cfg.TunnelPeers, p.Dst) {
-			dnsLeaks[p.Dst] = true
+		// left the tunnel, unless that resolver was explicitly allowed.
+		var server netip.Addr
+		switch {
+		case p.DstPort == 53 && slices.Contains(cfg.DeviceIPs, p.Src):
+			server = p.Dst
+		case p.SrcPort == 53 && slices.Contains(cfg.DeviceIPs, p.Dst):
+			server = p.Src
+		default:
+			continue
 		}
-		if p.SrcPort == 53 && slices.Contains(cfg.DeviceIPs, p.Dst) && !slices.Contains(cfg.TunnelPeers, p.Src) {
-			dnsLeaks[p.Src] = true
+		switch {
+		case slices.Contains(cfg.TunnelPeers, server):
+		case slices.Contains(cfg.AllowedDNS, server):
+			allowedSeen[server] = true
+		default:
+			dnsLeaks[server] = true
 		}
 	}
 	res.ProbeLeaks = sortedAddrs(leaks)
 	res.DNSLeaks = sortedAddrs(dnsLeaks)
+	res.AllowedDNSSeen = sortedAddrs(allowedSeen)
 
 	// The gateway resolver's own DNS to a probe address is not a probe hit.
 	hit := map[netip.Addr]bool{}

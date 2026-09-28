@@ -137,7 +137,7 @@ go run golang.org/x/mobile/cmd/gomobile bind \
     -trimpath \
     -target=android/arm64,android/amd64 \
     -androidapi=26 \
-    -javapkg=com.tailcat.vpn \
+    -javapkg=com.tailcat.golib \
     -o "${STAGED_AAR}" \
     .
 
@@ -147,7 +147,7 @@ unzip -l "${STAGED_AAR}"
 unzip -q "${STAGED_AAR}" -d "${TMP_VERIFY_DIR}"
 
 echo "==> Verifying Java API signatures..."
-JAVAP_OUT="$(javap -classpath "${TMP_VERIFY_DIR}/classes.jar" com.tailcat.vpn.engine.Engine)"
+JAVAP_OUT="$(javap -classpath "${TMP_VERIFY_DIR}/classes.jar" com.tailcat.golib.engine.Engine)"
 echo "${JAVAP_OUT}"
 
 REQUIRED_METHODS=(
@@ -174,6 +174,15 @@ for method in "${REQUIRED_METHODS[@]}"; do
     fi
 done
 echo "==> All required Java API methods verified."
+
+# gomobile's consumer ProGuard rule keeps everything under -javapkg. It must
+# stay outside the app namespace, or R8 can shrink and rename nothing in the app.
+echo "==> Verifying the consumer ProGuard rule..."
+if grep -v -E '^-keep class (go|com\.tailcat\.golib)\.\*\* \{ \*; \}$' "${TMP_VERIFY_DIR}/proguard.txt" | grep -q .; then
+    echo "ERROR: unexpected consumer ProGuard rule in the AAR:" >&2
+    cat "${TMP_VERIFY_DIR}/proguard.txt" >&2
+    exit 1
+fi
 
 echo "==> Verifying 16 KB ELF load alignment for ABIs..."
 for abi in "arm64-v8a" "x86_64"; do

@@ -1,9 +1,9 @@
 package com.tailcat.vpn.service
 
 import com.tailcat.vpn.core.model.NetworkMetrics
-import com.tailcat.vpn.engine.Engine
-import com.tailcat.vpn.engine.SocketProtector
-import com.tailcat.vpn.engine.SpeedProgress
+import com.tailcat.golib.engine.Engine
+import com.tailcat.golib.engine.SocketProtector
+import com.tailcat.golib.engine.SpeedProgress
 import org.json.JSONObject
 
 data class EngineAvailability(

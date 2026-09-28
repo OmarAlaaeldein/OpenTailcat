@@ -27,6 +27,7 @@ func main() {
 	devices := fs.String("device-ip", "", "comma-separated phone addresses on the uplink capture")
 	peers := fs.String("tunnel-peer", "", "comma-separated gateway and DERP endpoint IPs the tunnel uses")
 	gwSources := fs.String("gateway-src", "", "optional comma-separated gateway tunnel-side source IPs; other gateway packets are not probe hits")
+	allowDNS := fs.String("allow-dns", "", "optional comma-separated resolvers the phone may query in plaintext outside the tunnel (the uplink network's own resolver); reported, not failed")
 	minTunnel := fs.Int("min-tunnel-packets", 5, "uplink device->peer packets required in the probe window")
 	skew := fs.Duration("max-skew", 2*time.Second, "allowed clock difference between the capture hosts")
 	if err := fs.Parse(os.Args[1:]); err != nil {
@@ -51,6 +52,7 @@ func main() {
 		DeviceIPs:        addrs("--device-ip", *devices),
 		TunnelPeers:      addrs("--tunnel-peer", *peers),
 		GatewaySources:   addrs("--gateway-src", *gwSources),
+		AllowedDNS:       addrs("--allow-dns", *allowDNS),
 		MinTunnelPackets: *minTunnel,
 		MaxClockSkew:     *skew,
 	}
@@ -77,6 +79,9 @@ func main() {
 	}
 	if len(res.DNSLeaks) > 0 {
 		fmt.Fprintf(os.Stderr, "FAIL uplink plaintext DNS outside the tunnel to: %v\n", res.DNSLeaks)
+	}
+	if len(res.AllowedDNSSeen) > 0 {
+		fmt.Printf("NOTE uplink plaintext DNS to allowed resolvers: %v\n", res.AllowedDNSSeen)
 	}
 	if len(res.ProbeLeaks) == 0 && len(res.DNSLeaks) == 0 {
 		fmt.Println("PASS uplink: probe destinations and plaintext DNS absent")
