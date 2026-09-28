@@ -722,6 +722,11 @@ func (p *netstackProxy) evictLRULocked() *udpFlow {
 	return victim
 }
 
+// runDNSOverTCPFlow carries one app UDP/53 socket over a single pipelined TCP
+// connection to the resolver: queries go out as they arrive and answers come
+// back as they are ready, so the A and AAAA lookups of one getaddrinfo share
+// a dial and run in parallel. A broken connection is redialed once for the
+// next query.
 func (p *netstackProxy) runDNSOverTCPFlow(ctx context.Context, flow *udpFlow, dst netip.AddrPort) {
 	defer p.recoverFlow("dns-over-tcp flow")
 	defer func() {
@@ -729,6 +734,12 @@ func (p *netstackProxy) runDNSOverTCPFlow(ctx context.Context, flow *udpFlow, ds
 		p.untrack(flow.localConn)
 		p.unregisterFlow(flow)
 		p.udpWg.Done()
+	}()
+	var sess *dnsTCPSession
+	defer func() {
+		if sess != nil {
+			sess.close()
+		}
 	}()
 	buf := make([]byte, maxDNSMessageSize)
 	for {
@@ -745,13 +756,40 @@ func (p *netstackProxy) runDNSOverTCPFlow(ctx context.Context, flow *udpFlow, ds
 		flow.sent.Add(1)
 		p.bridge.dnsQueries.Add(1)
 		query := append([]byte(nil), buf[:n]...)
-		if err := p.exchangeDNSOverTCP(ctx, dst, query, flow); err != nil {
+		if sess != nil && sess.send(query) == nil {
+			continue
+		}
+		// No connection yet, or it broke: dial once more for this query.
+		if sess != nil {
+			sess.close()
+		}
+		if sess, err = p.startDNSOverTCP(ctx, dst, flow); err != nil {
+			return
+		}
+		if err := sess.send(query); err != nil {
 			return
 		}
 	}
 }
 
-func (p *netstackProxy) exchangeDNSOverTCP(ctx context.Context, dst netip.AddrPort, query []byte, flow *udpFlow) error {
+// maxPendingDNSOverTCP bounds the queries remembered per connection for the
+// answer's UDP size limit; answers to others use the 512 B classic limit.
+const maxPendingDNSOverTCP = 256
+
+// dnsTCPSession is one pipelined TCP connection to the resolver through the
+// gateway (RFC 7766), shared by every query of one app UDP/53 socket.
+type dnsTCPSession struct {
+	p         *netstackProxy
+	conn      net.Conn
+	stopWatch func() bool
+	done      chan struct{} // closed when readAnswers returns
+
+	mu      sync.Mutex
+	broken  bool
+	pending map[uint16][]byte // query by DNS ID
+}
+
+func (p *netstackProxy) startDNSOverTCP(ctx context.Context, dst netip.AddrPort, flow *udpFlow) (*dnsTCPSession, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeoutFor(dst, tcpDialTimeout))
 	defer cancel()
 	conn, err := p.bridge.client.DialTCP(dialCtx, dst)
@@ -760,37 +798,86 @@ func (p *netstackProxy) exchangeDNSOverTCP(ctx context.Context, dst netip.AddrPo
 		if err == nil {
 			err = errors.New("gateway dial returned nil connection without error")
 		}
-		return err
+		return nil, err
 	}
-	// Track and bound I/O so Close()/Stop cannot hang on a silent resolver (AUDIT H4).
+	// Tracked so Close()/Stop cannot hang on a silent resolver (AUDIT H4); a
+	// resolver that never answers is also cut off when the flow idles out.
 	p.track(conn)
-	defer func() {
-		_ = conn.Close()
-		p.untrack(conn)
-	}()
-	if err := conn.SetDeadline(time.Now().Add(dnsTCPIOTimeout)); err != nil {
+	s := &dnsTCPSession{
+		p:       p,
+		conn:    conn,
+		done:    make(chan struct{}),
+		pending: make(map[uint16][]byte),
+	}
+	s.stopWatch = context.AfterFunc(ctx, func() { _ = conn.Close() })
+	go s.readAnswers(flow)
+	return s, nil
+}
+
+// send writes one query without waiting for earlier answers.
+func (s *dnsTCPSession) send(query []byte) error {
+	s.mu.Lock()
+	if s.broken {
+		s.mu.Unlock()
+		return net.ErrClosed
+	}
+	if len(query) >= 2 && len(s.pending) < maxPendingDNSOverTCP {
+		s.pending[binary.BigEndian.Uint16(query[:2])] = query
+	}
+	s.mu.Unlock()
+	frame := make([]byte, 2+len(query))
+	binary.BigEndian.PutUint16(frame, uint16(len(query)))
+	copy(frame[2:], query)
+	if err := s.conn.SetWriteDeadline(time.Now().Add(dnsTCPIOTimeout)); err != nil {
 		return err
 	}
-	stopWatch := context.AfterFunc(ctx, func() { _ = conn.Close() })
-	defer stopWatch()
-	if err := binary.Write(conn, binary.BigEndian, uint16(len(query))); err != nil {
-		return err
-	}
-	if _, err := conn.Write(query); err != nil {
-		return err
-	}
-	var ln uint16
-	if err := binary.Read(conn, binary.BigEndian, &ln); err != nil {
-		return err
-	}
-	resp := make([]byte, ln)
-	if _, err := io.ReadFull(conn, resp); err != nil {
-		return err
-	}
-	flow.touch()
-	flow.received.Add(1)
-	_, err = flow.localConn.Write(truncateDNSForUDP(query, resp))
+	_, err := s.conn.Write(frame)
 	return err
+}
+
+// readAnswers returns each answer to the app as it arrives, cut to the UDP
+// size its query allowed.
+func (s *dnsTCPSession) readAnswers(flow *udpFlow) {
+	defer close(s.done)
+	defer s.markBroken()
+	defer s.p.recoverFlow("dns-over-tcp answers")
+	var hdr [2]byte
+	for {
+		if _, err := io.ReadFull(s.conn, hdr[:]); err != nil {
+			return
+		}
+		resp := make([]byte, binary.BigEndian.Uint16(hdr[:]))
+		if _, err := io.ReadFull(s.conn, resp); err != nil {
+			return
+		}
+		var query []byte
+		if len(resp) >= 2 {
+			id := binary.BigEndian.Uint16(resp[:2])
+			s.mu.Lock()
+			query = s.pending[id]
+			delete(s.pending, id)
+			s.mu.Unlock()
+		}
+		flow.touch()
+		flow.received.Add(1)
+		if _, err := flow.localConn.Write(truncateDNSForUDP(query, resp)); err != nil {
+			return
+		}
+	}
+}
+
+func (s *dnsTCPSession) markBroken() {
+	s.mu.Lock()
+	s.broken = true
+	s.mu.Unlock()
+	_ = s.conn.Close()
+}
+
+func (s *dnsTCPSession) close() {
+	s.stopWatch()
+	s.markBroken()
+	s.p.untrack(s.conn)
+	<-s.done
 }
 
 func (p *netstackProxy) runUDPFlow(ctx context.Context, flow *udpFlow, remoteConn net.Conn) {

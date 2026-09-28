@@ -42,7 +42,9 @@ Critical current behavior:
 - UDP/53: gVisor netstack proxies datagrams via `Client.DialUDP` to the TUN
   destination (PROFILE_RESOLVER) or `ForcedDNS` (FORCED_RESOLVER). The engine
   does not inspect DNS TC bits on this path; a libc/app TCP/53 retry is a
-  normal TCP proxy. With `tcpOnly`, UDP/53 is carried as DNS-over-TCP and an
+  normal TCP proxy. With `tcpOnly`, UDP/53 is carried as DNS-over-TCP (one
+  pipelined gateway connection per app socket, redialed if the resolver
+  closes it) and an
   answer larger than the client's EDNS size (or 512 B) comes back as a
   TC-flagged header and question.
 - Other IPv4 UDP: gVisor netstack proxies datagrams via `Client.DialUDP` across
