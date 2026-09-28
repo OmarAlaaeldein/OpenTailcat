@@ -257,7 +257,7 @@ Checkpoint status:
 - Phase 4 — DNS routing code exists: pending DNS is stored before attach and applied on `attachTun`. Absent `dnsPolicy` in later `updateNetworkState` does not reset policy. `GATEWAY_RESOLVER` is unused (treated as PROFILE). The engine does not inspect DNS TC bits. IPv4 `dns` is test-enabled.
 - Phase 5 — IPv6 TCP/UDP proxied (public IPv6 is rejected before dial when `ipv6Egress` is false, otherwise IPv6 uses the IPv4 dial budget (15 s TCP / 10 s UDP)); ICMPv6 echo dropped; oversized IPv6 gets Packet Too Big; Android installs `::/0` after pumps are live. `ipv6` is true; `ipv6Egress` is session-measured.
 - Phase 6 — session context, short mutex, always-Close previous client, readiness barriers, pump-exit `FAILED` + `healthUnixSec`, bounded `Stop`, `DetachTun`, `DisarmPumps`. After `prepare`, Android establishes a host-only TUN (no VPN DNS), attaches, `detachTun`, then installs `0.0.0.0/0`/`::/0` with VPN DNS and reattaches. Sticky VPN service; TUN closed before native `stop`. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
-- Phase 7 — telemetry code exists: schema version 2. RTT is sampled from `DiscoPing` about every 5s while a bridge is running; jitter is null until three samples. WireGuard peer Tx/Rx stay 0 because upstream `Client` has no Status API. Kotlin requires version 2, does not synthesize missing `state` as `RUNNING`, and CONNECTED requires live `RUNNING` + fresh `healthUnixSec`. `liveStats` is test-enabled.
+- Phase 7 — telemetry code exists: schema version 2. RTT is sampled from `DiscoPing` about every 5s while a bridge is running; jitter is null until three samples. WireGuard peer Tx/Rx stay 0 because upstream `Client` has no Status API (the never-set `lastHandshakeSec`, `directEndpoint` and `wireguardTx/RxBytes` fields were removed). Kotlin requires version 2, does not synthesize missing `state` as `RUNNING`, and CONNECTED requires live `RUNNING` + fresh `healthUnixSec`. `liveStats` is test-enabled.
 - Phase 8 — host gates and Wireshark/tshark pcap analyzer exist (`scripts/phase8`, `cmd/phase8-analyze`). Physical dual-capture on ARM64 and production signing remain. `ipv6` is true; `ipv6Egress` is session-measured.
 
 ### Phase 0: restore fail-closed behavior
@@ -454,13 +454,13 @@ only Tailcat transport between client and gateway.
       profile vs forced; Settings default DNS is a free-form IP (examples
       1.1.1.1, 9.9.9.9).
    - Added `PreferencesStorage` interface and `defaultDns` setting.
-   - Integrated DNS validation and policy persistence in `ProfileRepository` (`addOrUpdateFromToken`, `updateProfileDns`) with fallback for corrupt legacy data.
+   - Integrated DNS validation and policy persistence in `ProfileRepository` (`addOrUpdateFromToken`, `updateProfileDns`) with fallback for corrupt legacy data. Saved profiles are parsed one entry at a time: a corrupt entry is dropped on its own, and only an unreadable list yields no profiles. Profile list and active-profile writes commit synchronously, so a process killed right after a delete cannot bring the profile back.
    - Enforced DNS validation in `TailcatVpnService` before calling `Builder.addDnsServer`. Native omit-means-preserve keeps pending DNS across roam `updateNetworkState` payloads that lack `dnsPolicy`.
    - Updated UI in `HomeScreen` (Add Profile dialog) and `SettingsScreen` (Defaults card) with real-time validation error feedback.
 
 3. **Automated test coverage:**
    - Go (`core-engine/dns_test.go`): `TestDNSTransactionIDPreservation`, `TestDNSParallelQueries`, `TestDNSEDNS0AndLargeResponses`, `TestDNSTruncationAndTCPRetryFallback`, `TestDNSConfiguredPolicyAndDestinationMatching`, `TestDNSIPv4AndIPv6Resolvers`, `TestDNSTimeoutAndCancellation`, and `TestDNSLeakPrevention`.
-   - Android (`app/src/test`): `DnsValidatorTest` (IPv4, IPv6, invalid octets, leading zeroes, loopback, broadcast, multicast, hostnames), `ProfileRepositoryTest` (valid creation, forced policy, rejection of invalid IPs, updating profile DNS, JSON persistence roundtrip, fallback for corrupt entries).
+   - Android (`app/src/test`): `DnsValidatorTest` (IPv4, IPv6, invalid octets, leading zeroes, loopback, broadcast, multicast, hostnames), `ProfileRepositoryTest` (valid creation, forced policy, rejection of invalid IPs, updating profile DNS, JSON persistence roundtrip, a corrupt entry dropped without losing the others).
 
 Acceptance condition: configured policy and observed resolver destination match, both UDP and TCP DNS leave through the gateway, later network-state updates preserve policy, and leak tests pass. Only then may `dns` become true.
 
@@ -568,7 +568,7 @@ Current code reports schema version 2 with:
 - engine state includes `STOPPED` / `PREPARING` / `PREPARED` / `ATTACHING` / `RUNNING` / `STOPPING` / `FAILED`; marshal-failure stub uses `ERROR`;
 - monotonic session ID;
 - WireGuard peer TX/RX stay 0: upstream `Client` has no Status API. Do not invent counters;
-- TUN accepted/dropped counters distinct from WG. `txBytes`/`rxBytes` are WireGuard peer counters only (never a TUN fallback);
+- TUN accepted/dropped counters distinct from WG. `txBytes`/`rxBytes` are WireGuard peer counters only (never a TUN fallback); `tunTxBytes`/`tunRxBytes` count each packet once as it crosses the TUN, and locally generated ICMP errors are not counted as received;
 - live `DiscoPing` RTT about every 5s while a bridge is running; failed pings are skipped; Endpoint set => DIRECT_P2P else DERP_RELAY;
 - jitter only after ≥3 `RecordRTT` samples, otherwise `null`. The formula is mean absolute consecutive difference, not RFC 3550 `J := J + (|D|-J)/16`;
 - packet/drop counters for TCP, UDP, DNS, malformed IP, MTU, queue exhaustion, and policy rejections;
@@ -646,14 +646,30 @@ scripts/phase8/run-host-gates.sh
 scripts/phase8/e2e-analyze.sh
 
 # Phone connected + Always-on lockdown. Start BOTH captures first (classic
-# pcap), then generate second-UID probes from adb shell (uid 2000, not the
-# VPN app). Optional CAPTURE_SECONDS=45 bounds each capture.
-CAPTURE_IFACE=en0 CAPTURE_SECONDS=45 scripts/phase8/capture-uplink.sh captures/uplink.pcap &
+# pcap, 128-byte headers only, BPF-filtered to the phone / probe IPs). The
+# uplink capture must see the phone's own frames: Mac Internet Sharing
+# (bridge100, the default), an AP/switch mirror port, or a rooted phone's
+# wlan0 (CAPTURE_TOPOLOGY=internet-sharing|mirror|rooted-wlan0). A Mac's en0
+# on a shared Wi-Fi LAN does not see another device's unicast traffic.
+DEVICE_IP=192.168.2.2 CAPTURE_SECONDS=45 scripts/phase8/capture-uplink.sh captures/uplink.pcap &
 CAPTURE_IFACE=eth0 CAPTURE_SECONDS=45 scripts/phase8/capture-gateway.sh captures/gateway.pcap &
-scripts/phase8/generate-probes.sh   # PROBE_IPS / PROBE_ROUNDS / PROBE_PORT
+# Probes come from a browser app's uid (VIEW intents), not adb shell or the VPN app.
+scripts/phase8/generate-probes.sh   # PROBE_IPS / PROBE_ROUNDS / PROBE_PACKAGE
 wait
-scripts/phase8/analyze-uplink.sh captures/uplink.pcap 1.1.1.1,8.8.8.8 captures/gateway.pcap
+DEVICE_IP=192.168.2.2 TUNNEL_PEERS=<gateway-and-DERP-IPs> \
+  scripts/phase8/analyze-uplink.sh captures/uplink.pcap 1.1.1.1,8.8.8.8 captures/gateway.pcap
 ```
+
+Exit codes: 0 PASS, 1 FAIL, 2 usage or capture error, 3 INCONCLUSIVE (not a
+pass). The analyzer has a positive control: the uplink capture must hold at
+least 5 packets from `DEVICE_IP` to a `TUNNEL_PEERS` address in the probe window, and the two
+captures must overlap in time (2 s skew allowed), or the result is
+INCONCLUSIVE. Plain DNS (port 53) from the phone to anything but a tunnel peer
+is a FAIL; the gateway's own DNS to a probe address never counts as a probe
+hit (`GATEWAY_SRC` narrows gateway matches to the tunnel-side source). Open
+question: Android's connectivity checks and DERP hostname lookups may send
+plain DNS outside the tunnel and fail a real capture under this rule; no
+allow-list exists yet.
 
 Pass: probe destinations are absent on the uplink pcap and present on the
 gateway pcap. Uplink may contain only Tailcat/WireGuard/DERP (and Magicsock
@@ -711,7 +727,7 @@ scripts/phase8/analyze-uplink.sh \
 # FAIL uplink leak dests: [1.1.1.1 8.8.8.8 9.9.9.9]  exit 1
 ```
 
-SLL2 bug fixed in `core-engine/phase8_pcap.go`: payload offset is a fixed
+SLL2 bug fixed in `core-engine/phase8_pcap.go` (now `core-engine/phase8/pcap.go`): payload offset is a fixed
 header of 20 bytes; `12+addr_len` is wrong when `addr_len=0` (common on
 `tcpdump -i any` — all 463 probe packets in this gateway pcap had `addr_len=0`).
 Test covers `addr_len` 0 and 8. AAR rebuilt: sha256

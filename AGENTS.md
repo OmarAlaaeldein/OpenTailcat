@@ -2,7 +2,7 @@
 
 > Project root: `/Users/omar/Developer/OpenTailcat`  
 > Android: min API 26, compile/target API 35  
-> Android toolchain: Kotlin 2.2.10, AGP 9.3.0, Gradle 9.5.0, JDK 21  
+> Android toolchain: Kotlin 2.2.10, AGP 9.4.1, Gradle 9.6.0, JDK 21  
 > Native toolchain in `core-engine/go.mod`: Go 1.27.1
 
 Read this file and `handoff.md` completely before changing code.
@@ -75,7 +75,9 @@ Critical current behavior:
 - Speed test: when CONNECTED, ping/download/upload use `Client.DialTCP` through
   the gateway (`speed.cloudflare.com` is resolved with DNS-over-TCP via
   `Client.DialTCP` to `1.1.1.1:53`); otherwise ordinary app sockets on the
-  device's current routes (not a tunnel measurement).
+  device's current routes (not a tunnel measurement). Both paths report the
+  running rate while measuring (the gateway path through a `SpeedProgress`
+  callback about every 250 ms), so the gauge moves during either.
 - Telemetry: schema version 2. RTT is sampled from `DiscoPing` about every 5s
   while a bridge is running; jitter is null until three samples. Transport
   follows the last successful `DiscoPing` (Endpoint set => DIRECT_P2P).
@@ -86,7 +88,10 @@ Critical current behavior:
   datagrams dropped on a full local UDP receive buffer. `dnsQueries` counts
   plain DNS forwarded to the gateway (each UDP/53 datagram and each proxied
   TCP/53 connection); encrypted DNS (Android Private DNS) is not counted.
-  WireGuard peer Tx/Rx stay 0 because upstream `Client` has no Status API.
+  WireGuard peer Tx/Rx (`txBytes`/`rxBytes`) stay 0 because upstream `Client`
+  has no Status API; `tunTxBytes`/`tunRxBytes` count each packet once as it
+  crosses the TUN. `lastHandshakeSec`, `directEndpoint` and
+  `wireguardTx/RxBytes` are no longer sent (they were never set).
   Kotlin rejects v1 and requires `RUNNING` plus fresh `healthUnixSec` for
   CONNECTED. `liveStats` is test-enabled.
 - Logging: the Tailcat client's logger drops upstream lines (public IP from
@@ -103,7 +108,12 @@ Critical current behavior:
   `tunnelMtu` is forwarded in `updateNetworkState` so the native bridge and
   netstack use the same MTU as `VpnService.Builder`.
 - Tests: unit, integration, race, lint, and build tests pass; complete live
-  physical hardware tunnel test pending.
+  physical hardware tunnel test pending. CI (`.github/workflows/ci.yml`) also
+  runs gofmt, staticcheck and govulncheck; `emulator.yml` runs an emulator
+  smoke test on `main` pushes and pull requests, and on `main` pushes, nightly
+  and on demand a live-gateway emulator run (pairing from the
+  `OTC_LIVE_TOKEN` secret; skipped without it). Scripts are in
+  `scripts/emulator/`.
 
 Do not call this build secure, protected, complete, production-ready, or
 leak-free. Do not publish or sign it as a VPN release.
@@ -180,13 +190,17 @@ stop()
 updateNetworkState(json)
 parseToken(token)
 measureTunnelPingMS()
-measureTunnelDownloadMbps()
-measureTunnelUploadMbps()
+measureTunnelDownloadMbps(SpeedProgress)
+measureTunnelUploadMbps(SpeedProgress)
+setSocketProtector(SocketProtector)
+ensureTransportProtect()
 ```
 
 Keep the original five methods for Android compatibility while versioning their
 payloads. `updateNetworkState` is used by Kotlin. `parseToken` is exported for
-the AAR verifier; Kotlin uses its own `TokenParser`.
+the AAR verifier; Kotlin uses its own `TokenParser`. Kotlin's `TunnelEngine`
+calls `Engine` directly (no reflection); if the native library cannot load, the
+engine reports itself unavailable and Connect stays disabled.
 
 Current lifecycle:
 
@@ -297,6 +311,12 @@ go vet ./...
 
 cd ..
 ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease
+
+# Emulator (see scripts/emulator/README.md): no-gateway smoke test, and the
+# live-gateway checks with an app already paired (or OTC_LIVE_TOKEN set).
+./gradlew assembleDebug assembleDebugAndroidTest
+scripts/emulator/ci-smoke.sh
+scripts/emulator/ci-live.sh
 ```
 
 After native changes, rebuild and inspect `app/libs/libtailcat.aar`, including

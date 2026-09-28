@@ -25,7 +25,7 @@ be relied on as a production privacy VPN.
 
 - The native Meow/Meowed gateway handshake runs during `prepare`. Kotlin will not
   call `prepare` or create a TUN while the IPv4 capability set is incomplete.
-- The Android reflection boundary enforces an API v2 native capability contract.
+- The Android engine boundary (`TunnelEngine`) enforces an API v2 native capability contract.
   IPv4 default-route installation requires `dataPlane`, `wireGuard`,
   `magicsock`, `twoPhaseStart`, `ipv4`, `tcp`, `udp`, `dns`, `liveStats`, and
   `cancelSafeLifecycle`. `requireIpv6` exists but production Connect uses
