@@ -79,7 +79,11 @@ Critical current behavior:
   follows the last successful `DiscoPing` (Endpoint set => DIRECT_P2P).
   `lastDiscoOkUnixSec` is the bridge start or the last successful `DiscoPing`;
   sub-millisecond RTTs report as 1 ms. `dropCounters.udpEvictions` counts
-  UDP flows evicted from a full table.
+  UDP flows evicted from a full table; `linkQueueDrops` counts local-stack
+  packets dropped on a full queue to the TUN writer and `udpBufferDrops`
+  datagrams dropped on a full local UDP receive buffer. `dnsQueries` counts
+  plain DNS forwarded to the gateway (each UDP/53 datagram and each proxied
+  TCP/53 connection); encrypted DNS (Android Private DNS) is not counted.
   WireGuard peer Tx/Rx stay 0 because upstream `Client` has no Status API.
   Kotlin rejects v1 and requires `RUNNING` plus fresh `healthUnixSec` for
   CONNECTED. `liveStats` is test-enabled.

@@ -112,6 +112,19 @@ class SpeedTroubleshooterTest {
     }
 
     @Test
+    fun linkQueueAndUdpBufferDropsAloneWarn() {
+        val findings = SpeedTroubleshooter.diagnose(
+            tunnelState = TunnelState.CONNECTED,
+            metrics = liveMetrics(drops = DropCounters(linkQueueDrops = 7L, udpBufferDrops = 2L)),
+            stage = SpeedTestStage.COMPLETED,
+            errorMessage = null,
+            viaGateway = true,
+            nowUnixSec = 1_000L
+        )
+        assertTrue(findings.any { it.message.contains("link=7") && it.message.contains("udpbuf=2") })
+    }
+
+    @Test
     fun discoStaleDerpTcpOnlyAndDropsWarn() {
         val findings = SpeedTroubleshooter.diagnose(
             tunnelState = TunnelState.CONNECTED,

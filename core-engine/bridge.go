@@ -52,12 +52,13 @@ type TunBridge struct {
 	// Protocol and drop metrics
 	tcpPackets       atomic.Int64
 	udpPackets       atomic.Int64
-	dnsQueries       atomic.Int64
+	dnsQueries       atomic.Int64 // plain DNS forwarded: UDP/53 datagrams + TCP/53 connections
 	malformedIP      atomic.Int64
 	mtuExceeded      atomic.Int64
 	queueExhaustion  atomic.Int64
 	policyRejections atomic.Int64
 	udpEvictions     atomic.Int64 // idle UDP flows evicted to admit new ones
+	linkQueueDrops   atomic.Int64 // gVisor packets dropped on a full queue to the TUN writer
 
 	// ICMP error rate limit (errors per wall-clock second).
 	icmpErrSecond atomic.Int64
@@ -551,23 +552,11 @@ func (b *TunBridge) handleIPv4(pkt []byte) {
 		b.policyRejections.Add(1)
 	case 6: // TCP
 		b.tcpPackets.Add(1)
-		if !fragment && len(pkt) >= ihl+4 {
-			dstPort := binary.BigEndian.Uint16(pkt[ihl+2 : ihl+4])
-			if dstPort == 53 {
-				b.dnsQueries.Add(1)
-			}
-		}
 		b.netstack.inject(pkt, false)
 	case 17: // UDP
 		b.udpPackets.Add(1)
-		if !fragment && len(pkt) >= ihl+8 {
-			if b.dropOversizeUDP(pkt, ihl, false) {
-				return
-			}
-			dstPort := binary.BigEndian.Uint16(pkt[ihl+2 : ihl+4])
-			if dstPort == 53 {
-				b.dnsQueries.Add(1)
-			}
+		if !fragment && len(pkt) >= ihl+8 && b.dropOversizeUDP(pkt, ihl, false) {
+			return
 		}
 		b.netstack.inject(pkt, false)
 	default:
@@ -591,23 +580,11 @@ func (b *TunBridge) handleIPv6(pkt []byte) {
 		return
 	case 6:
 		b.tcpPackets.Add(1)
-		if !fragment && len(pkt) >= l4off+4 {
-			dstPort := binary.BigEndian.Uint16(pkt[l4off+2 : l4off+4])
-			if dstPort == 53 {
-				b.dnsQueries.Add(1)
-			}
-		}
 		b.netstack.inject(pkt, true)
 	case 17:
 		b.udpPackets.Add(1)
-		if !fragment && len(pkt) >= l4off+8 {
-			if b.dropOversizeUDP(pkt, l4off, true) {
-				return
-			}
-			dstPort := binary.BigEndian.Uint16(pkt[l4off+2 : l4off+4])
-			if dstPort == 53 {
-				b.dnsQueries.Add(1)
-			}
+		if !fragment && len(pkt) >= l4off+8 && b.dropOversizeUDP(pkt, l4off, true) {
+			return
 		}
 		b.netstack.inject(pkt, true)
 	default:
@@ -1000,7 +977,11 @@ func (b *TunBridge) GetStats() EngineStats {
 			QueueExhaustion:  b.queueExhaustion.Load(),
 			PolicyRejections: b.policyRejections.Load(),
 			UDPEvictions:     b.udpEvictions.Load(),
+			LinkQueueDrops:   b.linkQueueDrops.Load(),
 		},
+	}
+	if b.netstack != nil {
+		stats.DropCounters.UDPBufferDrops = b.netstack.udpReceiveBufferDrops()
 	}
 
 	if b.egressTimestamp.Load() > 0 {

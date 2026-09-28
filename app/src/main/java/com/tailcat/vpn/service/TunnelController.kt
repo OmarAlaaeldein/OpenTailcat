@@ -355,6 +355,7 @@ class TunnelController(
             " healthAge=${healthAge}s rtt=${metrics.rttLatencyMs}ms" +
             " dns=${metrics.dnsQueries} tcp=${metrics.tcpPackets} udp=${metrics.udpPackets}" +
             " drops=${drops.malformedIp}/${drops.mtuExceeded}/${drops.queueExhaustion}/${drops.policyRejections}" +
+            "/${drops.linkQueueDrops}/${drops.udpBufferDrops}" +
             " egressErr=${metrics.egressAuditError ?: "-"}]"
     }
 

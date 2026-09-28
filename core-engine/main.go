@@ -298,6 +298,11 @@ type DropCounters struct {
 	// UDPEvictions counts idle UDP flows closed early because the flow
 	// table was full. Not a packet drop; additive in schema v2.
 	UDPEvictions int64 `json:"udpEvictions"`
+	// LinkQueueDrops counts packets from the local stack dropped because the
+	// queue to the TUN writer was full; UDPBufferDrops counts datagrams the
+	// local stack dropped on a full socket receive buffer. Additive in v2.
+	LinkQueueDrops int64 `json:"linkQueueDrops"`
+	UDPBufferDrops int64 `json:"udpBufferDrops"`
 }
 
 // EngineStats encapsulates authoritative measured telemetry reported to Android.

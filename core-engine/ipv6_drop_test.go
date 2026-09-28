@@ -161,10 +161,12 @@ func TestIPv6UDPDNSInjected(t *testing.T) {
 		[]byte("dns-query"),
 	)
 	bridge.handleOutboundPacket(pkt)
-	if bridge.dnsQueries.Load() != 1 {
-		t.Fatalf("expected 1 ipv6 dnsQuery, got %d", bridge.dnsQueries.Load())
-	}
 	waitAtomic(t, dialUDP, 1, 2*time.Second, "DialUDP for IPv6 UDP/53")
+	// The test dial fails, so the query never reaches a gateway and is not
+	// counted (TestDNSQueriesCountForwardedQueriesOnly covers counting).
+	if got := bridge.dnsQueries.Load(); got != 0 {
+		t.Fatalf("dnsQueries = %d for a query whose dial failed, want 0", got)
+	}
 }
 
 func TestIPv6ICMPEchoDroppedNoReply(t *testing.T) {
@@ -390,9 +392,6 @@ func TestIPv4TCPUDPICMPStillHandled(t *testing.T) {
 	bridge.handleOutboundPacket(udpPkt)
 	if bridge.udpPackets.Load() != 1 {
 		t.Fatalf("expected 1 ipv4 udpPacket, got %d", bridge.udpPackets.Load())
-	}
-	if bridge.dnsQueries.Load() != 1 {
-		t.Fatalf("expected 1 ipv4 dnsQuery, got %d", bridge.dnsQueries.Load())
 	}
 	waitAtomic(t, dialUDP, 1, 2*time.Second, "DialUDP for IPv4 UDP")
 

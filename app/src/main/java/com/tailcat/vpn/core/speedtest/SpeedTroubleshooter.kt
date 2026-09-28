@@ -156,13 +156,12 @@ object SpeedTroubleshooter {
                         )
                     }
                     val drops = metrics.dropCounters
-                    val dropTotal = drops.malformedIp + drops.mtuExceeded +
-                        drops.queueExhaustion + drops.policyRejections
-                    if (dropTotal > 0) {
+                    if (drops.total > 0) {
                         findings += TroubleshootFinding(
                             FindingSeverity.WARNING,
                             "Data-plane drops: malformed=${drops.malformedIp}, mtu=${drops.mtuExceeded}, " +
-                                "queue=${drops.queueExhaustion}, policy=${drops.policyRejections}"
+                                "queue=${drops.queueExhaustion}, policy=${drops.policyRejections}, " +
+                                "link=${drops.linkQueueDrops}, udpbuf=${drops.udpBufferDrops}"
                         )
                     }
                     if (metrics.egressAuditError != null) {

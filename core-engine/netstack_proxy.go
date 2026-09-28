@@ -216,7 +216,11 @@ func newNetstackProxy(bridge *TunBridge) (*netstackProxy, error) {
 	}
 	linkEP := channel.New(netstackQueueSize, stackMTU, "")
 	linkEP.LinkEPCapabilities |= stack.CapabilityRXChecksumOffload
-	if err := ipStack.CreateNIC(netstackNIC, linkEP); err != nil {
+	var linkDrops *atomic.Int64
+	if bridge != nil {
+		linkDrops = &bridge.linkQueueDrops
+	}
+	if err := ipStack.CreateNIC(netstackNIC, &countingLink{Endpoint: linkEP, drops: linkDrops}); err != nil {
 		ipStack.Destroy()
 		return nil, fmt.Errorf("create netstack NIC: %v", err)
 	}
@@ -258,6 +262,31 @@ func newNetstackProxy(bridge *TunBridge) (*netstackProxy, error) {
 	ipStack.SetTransportProtocolHandler(udp.ProtocolNumber, udpForwarder.HandlePacket)
 
 	return proxy, nil
+}
+
+// countingLink is the channel endpoint plus a count of the outbound packets
+// it drops because its queue to the TUN writer is full, which
+// channel.Endpoint does not report.
+type countingLink struct {
+	*channel.Endpoint
+	drops *atomic.Int64
+}
+
+func (l *countingLink) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {
+	n, err := l.Endpoint.WritePackets(pkts)
+	if dropped := pkts.Len() - n; dropped > 0 && l.drops != nil {
+		l.drops.Add(int64(dropped))
+	}
+	return n, err
+}
+
+// udpReceiveBufferDrops returns the datagrams the local stack dropped
+// because a flow's socket receive buffer was full.
+func (p *netstackProxy) udpReceiveBufferDrops() int64 {
+	if p == nil || p.stack == nil {
+		return 0
+	}
+	return int64(p.stack.Stats().UDP.ReceiveBufferErrors.Value())
 }
 
 func (p *netstackProxy) inject(pkt []byte, ipv6Packet bool) {
@@ -397,6 +426,8 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest, resolvedDst neti
 		p.tcpActive.Add(-1)
 		p.tcpWg.Done()
 	}()
+	// Read before Complete, which releases the request's segment.
+	isDNS := request.ID().LocalPort == 53
 
 	type dialResult struct {
 		conn net.Conn
@@ -433,6 +464,11 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest, resolvedDst neti
 		return
 	}
 	remote := res.conn
+	if isDNS {
+		// DNS over TCP from the app: count the proxied connection, not its
+		// segments (the queries inside are not parsed).
+		p.bridge.dnsQueries.Add(1)
+	}
 
 	p.track(local)
 	p.track(remote)
@@ -707,6 +743,7 @@ func (p *netstackProxy) runDNSOverTCPFlow(ctx context.Context, flow *udpFlow, ds
 		}
 		flow.touch()
 		flow.sent.Add(1)
+		p.bridge.dnsQueries.Add(1)
 		query := append([]byte(nil), buf[:n]...)
 		if err := p.exchangeDNSOverTCP(ctx, dst, query, flow); err != nil {
 			return
@@ -788,6 +825,9 @@ func (p *netstackProxy) runUDPFlow(ctx context.Context, flow *udpFlow, remoteCon
 			p.bridge.txBytes.Add(int64(n))
 			if _, err := remoteConn.Write(buf[:n]); err != nil {
 				break
+			}
+			if flow.isDNS {
+				p.bridge.dnsQueries.Add(1)
 			}
 		}
 		done <- struct{}{}

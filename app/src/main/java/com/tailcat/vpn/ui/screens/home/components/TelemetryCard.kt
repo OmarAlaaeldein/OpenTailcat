@@ -274,7 +274,9 @@ fun TelemetryCard(
                 Column {
                     if (metrics.dnsQueries > 0) {
                         Text(
-                            text = "DNS queries: ${metrics.dnsQueries}",
+                            // UDP/53 queries plus TCP/53 connections forwarded to
+                            // the gateway; encrypted DNS (Private DNS) is not counted.
+                            text = "Plain DNS queries: ${metrics.dnsQueries}",
                             style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
                         )
                     }

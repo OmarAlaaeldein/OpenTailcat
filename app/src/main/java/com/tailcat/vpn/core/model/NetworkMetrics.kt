@@ -12,8 +12,16 @@ data class DropCounters(
     val malformedIp: Long = 0,
     val mtuExceeded: Long = 0,
     val queueExhaustion: Long = 0,
-    val policyRejections: Long = 0
-)
+    val policyRejections: Long = 0,
+    /** Local-stack packets dropped on a full queue to the TUN writer. */
+    val linkQueueDrops: Long = 0,
+    /** Datagrams dropped on a full local UDP socket receive buffer. */
+    val udpBufferDrops: Long = 0
+) {
+    val total: Long
+        get() = malformedIp + mtuExceeded + queueExhaustion + policyRejections +
+            linkQueueDrops + udpBufferDrops
+}
 
 data class NetworkMetrics(
     val version: Int = 2,
@@ -99,7 +107,9 @@ data class NetworkMetrics(
                     malformedIp = dropJson.optLong("malformedIp", 0L),
                     mtuExceeded = dropJson.optLong("mtuExceeded", 0L),
                     queueExhaustion = dropJson.optLong("queueExhaustion", 0L),
-                    policyRejections = dropJson.optLong("policyRejections", 0L)
+                    policyRejections = dropJson.optLong("policyRejections", 0L),
+                    linkQueueDrops = dropJson.optLong("linkQueueDrops", 0L),
+                    udpBufferDrops = dropJson.optLong("udpBufferDrops", 0L)
                 )
             } else {
                 DropCounters()

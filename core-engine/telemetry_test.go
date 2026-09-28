@@ -270,19 +270,20 @@ func TestPacketAndDropCounters(t *testing.T) {
 		t.Fatalf("expected 1 tcpPacket, got %d", bridge.tcpPackets.Load())
 	}
 
-	// 4. Valid IPv4 UDP packet to port 53 (DNS) -> udpPackets++, dnsQueries++
+	// 4. Valid IPv4 UDP packet to port 53 (DNS) -> udpPackets++. With no
+	// client nothing reaches the gateway, so it is not a forwarded DNS query.
 	dnsPkt := buildIPv4Packet(17, 54321, 53, []byte("QUERY"))
 	bridge.handleOutboundPacket(dnsPkt)
 	if bridge.udpPackets.Load() != 1 {
 		t.Fatalf("expected 1 udpPacket, got %d", bridge.udpPackets.Load())
 	}
-	if bridge.dnsQueries.Load() != 1 {
-		t.Fatalf("expected 1 dnsQuery, got %d", bridge.dnsQueries.Load())
+	if bridge.dnsQueries.Load() != 0 {
+		t.Fatalf("expected 0 dnsQueries for a query that was never forwarded, got %d", bridge.dnsQueries.Load())
 	}
 
 	// Check that GetStats reports these exact counters
 	stats := bridge.GetStats()
-	if stats.TCPPackets != 1 || stats.UDPPackets != 1 || stats.DNSQueries != 1 {
+	if stats.TCPPackets != 1 || stats.UDPPackets != 1 || stats.DNSQueries != 0 {
 		t.Fatalf("stats packet counts mismatch: tcp=%d udp=%d dns=%d", stats.TCPPackets, stats.UDPPackets, stats.DNSQueries)
 	}
 	if stats.DropCounters.MalformedIP != 1 || stats.DropCounters.MTUExceeded != 1 {

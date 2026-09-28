@@ -266,7 +266,9 @@ class TunnelEngineTest {
                 "malformedIp": 2,
                 "mtuExceeded": 1,
                 "queueExhaustion": 0,
-                "policyRejections": 0
+                "policyRejections": 0,
+                "linkQueueDrops": 4,
+                "udpBufferDrops": 5
             },
             "egressAuditTimestampSec": 1725301200,
             "egressAuditError": null
@@ -298,6 +300,9 @@ class TunnelEngineTest {
         assertEquals(1L, metrics.dropCounters.mtuExceeded)
         assertEquals(0L, metrics.dropCounters.queueExhaustion)
         assertEquals(0L, metrics.dropCounters.policyRejections)
+        assertEquals(4L, metrics.dropCounters.linkQueueDrops)
+        assertEquals(5L, metrics.dropCounters.udpBufferDrops)
+        assertEquals(12L, metrics.dropCounters.total)
         // discoStale / ipv6Egress absent in this payload must default to false
         assertFalse(metrics.discoStale)
         assertFalse(metrics.ipv6Egress)

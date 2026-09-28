@@ -54,11 +54,13 @@ object SpeedTestReport {
         val drops = metrics.dropCounters
         val dropLine = String.format(
             Locale.US,
-            "drops: malformed=%d mtu=%d queue=%d policy=%d",
+            "drops: malformed=%d mtu=%d queue=%d policy=%d link=%d udpbuf=%d",
             drops.malformedIp,
             drops.mtuExceeded,
             drops.queueExhaustion,
-            drops.policyRejections
+            drops.policyRejections,
+            drops.linkQueueDrops,
+            drops.udpBufferDrops
         )
         val egressErr = metrics.egressAuditError
             ?.let { SpeedTroubleshooter.sanitizeMessage(it) }
