@@ -3,33 +3,33 @@
 **OpenTailcat**  
 Copyright (c) 2026 Omar Alaaeldein. All rights reserved.
 
-This file is an overview, not a substitute for the license files distributed with resolved dependencies. Generate and review a complete dependency/license report before every production release.
+## Complete notices
 
-## Android application dependencies
+The full list of third-party components that ship in the APK, with their
+versions, license types, and full license texts, is generated into
+[`app/src/main/assets/THIRD_PARTY_NOTICES.txt`](app/src/main/assets/THIRD_PARTY_NOTICES.txt)
+by `scripts/licenses/generate-notices.sh`. The app shows the same file under
+Settings > About & legal > Open-source licenses.
 
-- AndroidX Core, Activity, Lifecycle, Compose UI, Material, test libraries, and AndroidX Security Crypto — Apache License 2.0.
-- Kotlin and kotlinx.coroutines — Apache License 2.0.
-- JUnit 4 — Eclipse Public License 1.0.
+The generator covers:
 
-Exact versions are defined in `gradle/libs.versions.toml` and the resolved Gradle dependency graph.
+- every Go module linked into `libgojni.so` in the checked-in
+  `app/libs/libtailcat.aar`, read with `go version -m`, with license texts
+  collected by `go-licenses`, plus the Go standard library;
+- every library on the Android release runtime classpath (AndroidX, Compose,
+  Kotlin, kotlinx.coroutines, AndroidX Security Crypto and Tink, and their
+  transitive dependencies).
 
-## Native engine & Go module dependencies
+Re-run the script after changing Gradle dependencies or rebuilding the AAR.
+Test-only libraries (JUnit 4 under the Eclipse Public License 1.0, AndroidX
+Test) are not shipped and are not listed there.
 
-The native development engine (`core-engine` and `libtailcat.aar`) incorporates:
+## Tailcat provenance
 
-- **Tailcat / Tailscale**: `github.com/tailscale/tailcat` git submodule pinned
-  to unmodified `0c31395bfd1ae0c0ef2917c0ec20432466087417` (application-layer
-  UDP). Licensed under the BSD 3-Clause License. Not the signed `v0.4.0` tag.
-  See `third_party/PROVENANCE.md`.
-- **Google gVisor Netstack**: `gvisor.dev/gvisor/pkg/tcpip`, licensed under the Apache License 2.0.
-- **Go Mobile**: `golang.org/x/mobile`, licensed under the BSD 3-Clause License.
-- **CBOR Go**: `github.com/fxamacker/cbor/v2`, licensed under the MIT License.
-- **Mem**: `go4.org/mem`, licensed under the Apache License 2.0.
-
-The list above is not a complete SBOM. The checked-in AAR also links transitive
-Go dependencies recorded by `go version -m`, and the Tailcat submodule has
-its own module graph. Generate, archive, and manually review a complete
-Android/Go dependency and license report before any release.
+`github.com/tailscale/tailcat` is a git submodule pinned to unmodified
+`0c31395bfd1ae0c0ef2917c0ec20432466087417` (application-layer UDP), licensed
+under the BSD 3-Clause License. It is not the signed `v0.4.0` tag. See
+`third_party/PROVENANCE.md`.
 
 ## External services
 
