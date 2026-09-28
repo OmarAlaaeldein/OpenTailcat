@@ -41,6 +41,11 @@ type TunBridge struct {
 	tcpOnly    atomic.Bool
 	ipv6Egress atomic.Bool
 
+	// udpUnanswered counts UDP flows in a row that ended without a reply;
+	// udpRelatching guards the probe it starts (noteUDPFlowEnded).
+	udpUnanswered atomic.Int32
+	udpRelatching atomic.Bool
+
 	ctx    context.Context
 	cancel context.CancelFunc
 

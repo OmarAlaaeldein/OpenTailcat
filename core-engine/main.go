@@ -362,26 +362,10 @@ type udpCapability interface {
 	SupportsUDP(ctx context.Context) bool
 }
 
+// SupportsUDP reports whether the gateway forwards generic (non-DNS) UDP; see
+// probeGatewayUDP.
 func (c *engineClient) SupportsUDP(ctx context.Context) bool {
-	dst := netip.MustParseAddrPort("1.1.1.1:53")
-	conn, err := c.DialUDP(ctx, dst)
-	if err != nil || isNilConn(conn) {
-		return false
-	}
-	defer conn.Close()
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = conn.SetDeadline(deadline)
-	}
-	query := []byte{
-		0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x01, 'a', 0x00, 0x00, 0x01, 0x00, 0x01,
-	}
-	if _, err := conn.Write(query); err != nil {
-		return false
-	}
-	buf := make([]byte, 512)
-	n, err := conn.Read(buf)
-	return err == nil && n >= 12
+	return probeGatewayUDP(ctx, c.DialUDP)
 }
 
 var newTailcatClient = func(blob tailcat.ConnBlob) preparedClient {

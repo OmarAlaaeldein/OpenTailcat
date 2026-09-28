@@ -543,6 +543,7 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 	p.udpWg.Add(1)
 	p.udpMu.Unlock()
 	if evicted != nil {
+		p.bridge.noteUDPFlowEnded(evicted.sent.Load(), evicted.received.Load())
 		evicted.close()
 	}
 
@@ -827,10 +828,17 @@ func (p *netstackProxy) cleanupIdleUDPFlows(ready chan struct{}) {
 		case <-p.bridge.ctx.Done():
 			return
 		case <-ticker.C:
-			for _, f := range p.expiredUDPFlows(time.Now()) {
-				f.close()
-			}
+			p.expireIdleUDPFlows(time.Now())
 		}
+	}
+}
+
+// expireIdleUDPFlows closes the flows idle past their timeout at now and
+// reports how each ended, so gateway UDP loss can re-latch tcpOnly.
+func (p *netstackProxy) expireIdleUDPFlows(now time.Time) {
+	for _, f := range p.expiredUDPFlows(now) {
+		p.bridge.noteUDPFlowEnded(f.sent.Load(), f.received.Load())
+		f.close()
 	}
 }
 

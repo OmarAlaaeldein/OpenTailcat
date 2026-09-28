@@ -185,7 +185,12 @@ the AAR verifier; Kotlin uses its own `TokenParser`.
 Current lifecycle:
 
 - `prepare` validates an official token, completes a Meow/Meowed handshake, and
-  allows TCP-only gateways (DNS over TCP; other UDP dropped). Session context lets `stop`
+  allows TCP-only gateways (DNS over TCP; other UDP dropped). `tcpOnly` is
+  decided by STUN binding requests through `Client.DialUDP` to Cloudflare and
+  Google STUN (a DNS answer alone does not count, since gateways treat port 53
+  specially). While latched it is re-probed every 30 s; while off, 8 UDP flows
+  in a row that end without a reply trigger a probe, and a failed probe
+  latches it mid-session. Session context lets `stop`
   cancel a blocked `prepare`. Mutex is not held across Ping/DiscoPing.
 - A second `prepare` always closes a previous prepared client.
 - `attachTun` returns after TUN read, gVisor write, UDP GC, and health loops
