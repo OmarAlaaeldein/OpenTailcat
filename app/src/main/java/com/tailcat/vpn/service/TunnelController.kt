@@ -6,6 +6,7 @@ import android.net.VpnService
 import androidx.core.content.ContextCompat
 import com.tailcat.vpn.core.NetworkMonitor
 import com.tailcat.vpn.core.NetworkType
+import com.tailcat.vpn.core.ip.IpAuditor
 import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TunnelState
 import com.tailcat.vpn.core.token.TokenParser
@@ -35,7 +36,7 @@ class TunnelController(
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val ipAuditor = com.tailcat.vpn.core.ip.IpAuditor()
+    val ipAuditor = IpAuditor()
     val egressInfo = ipAuditor.egressInfo
 
     private val _tunnelState = MutableStateFlow(TunnelState.DISCONNECTED)
@@ -240,7 +241,7 @@ class TunnelController(
                             EngineHealth.TeardownReason.Healthy -> false
                             is EngineHealth.TeardownReason.HealthStale ->
                                 EngineHealth.stalePollsRequireTeardown(consecutiveStaleHealth)
-                            else -> true // PumpFailed / TransportLost: fail closed immediately
+                            else -> true // PumpFailed / GatewayLost: fail closed immediately
                         }
                         if (tearDown) {
                             onSessionFailed(dataPlaneFailureMessage(reason, metrics))
@@ -253,11 +254,6 @@ class TunnelController(
                             } else {
                                 TunnelState.CONNECTED
                             }
-                        } else if (_tunnelState.value == TunnelState.RECONNECTING &&
-                            networkMonitor.isOnline &&
-                            EngineHealth.shouldConnect(metrics, unixNow())
-                        ) {
-                            _tunnelState.value = TunnelState.CONNECTED
                         }
                     }
                     .onFailure {

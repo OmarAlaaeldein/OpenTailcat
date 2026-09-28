@@ -1,5 +1,6 @@
 package com.tailcat.vpn.core.update
 
+import com.tailcat.vpn.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.currentCoroutineContext
@@ -98,7 +99,7 @@ class ApkDownloader(private val cacheDir: File) {
             connection.instanceFollowRedirects = false
             connection.setRequestProperty(
                 "User-Agent",
-                "OpenTailcat-Android/${com.tailcat.vpn.BuildConfig.VERSION_NAME}"
+                "OpenTailcat-Android/${BuildConfig.VERSION_NAME}"
             )
             val code = connection.responseCode
             if (code in 300..399) {

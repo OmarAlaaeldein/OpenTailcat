@@ -1,66 +1,29 @@
 package com.tailcat.vpn.ui.screens.home
 
-import android.app.Activity
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Router
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SignalWifiOff
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.WarningAmber
-import androidx.compose.material3.AlertDialog
-import androidx.compose.ui.window.SecureFlagPolicy
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -71,30 +34,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tailcat.vpn.core.NetworkType
+import com.tailcat.vpn.core.model.GatewayProfile
 import com.tailcat.vpn.core.model.TunnelState
-import com.tailcat.vpn.core.token.TokenParser
-import com.tailcat.vpn.core.token.TokenValidationState
 import com.tailcat.vpn.ui.screens.home.components.PowerToggleRing
 import com.tailcat.vpn.ui.screens.home.components.TelemetryCard
 import com.tailcat.vpn.ui.screens.home.components.TelemetryDisplay
 import com.tailcat.vpn.ui.theme.AccentCyan
 import com.tailcat.vpn.ui.theme.BgDark
-import com.tailcat.vpn.ui.theme.BorderSubtle
 import com.tailcat.vpn.ui.theme.EmeraldConnected
 import com.tailcat.vpn.ui.theme.RedDegraded
-import com.tailcat.vpn.ui.theme.SurfaceDark
 import com.tailcat.vpn.ui.theme.SurfaceElevated
 import com.tailcat.vpn.ui.theme.TextMuted
 import com.tailcat.vpn.ui.theme.TextPrimary
-import com.tailcat.vpn.ui.theme.TextSecondary
 import com.tailcat.vpn.ui.theme.YellowWarning
 import kotlinx.coroutines.flow.collectLatest
 
@@ -122,8 +79,7 @@ fun HomeScreen(
     }
 
     var showAddDialog by remember { mutableStateOf(false) }
-    var pendingDelete by remember { mutableStateOf<com.tailcat.vpn.core.model.GatewayProfile?>(null) }
-    var showProfileDropdown by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<GatewayProfile?>(null) }
 
     DisposableEffect(showAddDialog) {
         val window = (context as? Activity)?.window
@@ -205,118 +161,13 @@ fun HomeScreen(
             }
         },
         topBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 12.dp)
-                ) {
-                    Column {
-                        Text(
-                            text = "OpenTailcat",
-                            style = MaterialTheme.typography.headlineLarge
-                        )
-                        Text(
-                            text = "Private gateway for Tailcat",
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    }
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(
-                            onClick = onNavigateToSpeedTest,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(SurfaceDark)
-                                .border(1.dp, BorderSubtle, RoundedCornerShape(10.dp))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Speed,
-                                contentDescription = "Speed Test",
-                                tint = AccentCyan
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        IconButton(
-                            onClick = onNavigateToSettings,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(SurfaceDark)
-                                .border(1.dp, BorderSubtle, RoundedCornerShape(10.dp))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Settings",
-                                tint = TextSecondary
-                            )
-                        }
-                    }
-                }
-
-                // Offline Alarm Banner
-                AnimatedVisibility(
-                    visible = isDeviceOffline,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(RedDegraded.copy(alpha = 0.15f))
-                            .border(1.dp, RedDegraded.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                            .padding(horizontal = 14.dp, vertical = 10.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.SignalWifiOff,
-                                contentDescription = "Offline",
-                                tint = RedDegraded,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = "No Internet Connection • Connect to Wi-Fi or mobile data",
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    color = RedDegraded,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            )
-                        }
-                    }
-                }
-
-                AnimatedVisibility(
-                    visible = !viewModel.engineAvailability.isAvailable,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
-                    StatusBanner(
-                        message = viewModel.engineAvailability.message,
-                        color = YellowWarning,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                    )
-                }
-
-                AnimatedVisibility(
-                    visible = lastError != null && viewModel.engineAvailability.isAvailable,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
-                    StatusBanner(
-                        message = lastError.orEmpty(),
-                        color = RedDegraded,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                    )
-                }
-            }
+            HomeTopBar(
+                isDeviceOffline = isDeviceOffline,
+                engineAvailability = viewModel.engineAvailability,
+                lastError = lastError,
+                onNavigateToSpeedTest = onNavigateToSpeedTest,
+                onNavigateToSettings = onNavigateToSettings
+            )
         }
     ) { innerPadding ->
         Column(
@@ -329,104 +180,13 @@ fun HomeScreen(
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Profile Selector Dropdown Chip
-            Box {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(SurfaceDark)
-                        .border(1.dp, BorderSubtle, RoundedCornerShape(20.dp))
-                        .clickable { showProfileDropdown = true }
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Router,
-                        contentDescription = "Profile",
-                        tint = if (activeProfile != null) AccentCyan else TextMuted,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = activeProfile?.name ?: "No Gateway Paired",
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            color = if (activeProfile != null) TextPrimary else TextMuted,
-                            fontWeight = FontWeight.Medium
-                        )
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Select",
-                        tint = TextSecondary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                DropdownMenu(
-                    expanded = showProfileDropdown,
-                    onDismissRequest = { showProfileDropdown = false },
-                    modifier = Modifier.background(SurfaceElevated)
-                ) {
-                    if (profiles.isEmpty()) {
-                        DropdownMenuItem(
-                            text = { Text("No saved profiles", color = TextSecondary) },
-                            onClick = {
-                                showProfileDropdown = false
-                                showAddDialog = true
-                            }
-                        )
-                    } else {
-                        profiles.forEach { profile ->
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(
-                                            text = profile.name,
-                                            color = if (profile.id == activeProfile?.id) AccentCyan else TextPrimary,
-                                            fontWeight = if (profile.id == activeProfile?.id) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                        Text(
-                                            text = "Region ${profile.derpRegionId ?: "Default"}",
-                                            color = TextMuted,
-                                            fontSize = 11.sp
-                                        )
-                                    }
-                                },
-                                onClick = {
-                                    viewModel.selectProfile(profile)
-                                    showProfileDropdown = false
-                                },
-                                trailingIcon = {
-                                    IconButton(
-                                        onClick = {
-                                            pendingDelete = profile
-                                            showProfileDropdown = false
-                                        }
-                                    ) {
-                                        Icon(
-                                            Icons.Default.DeleteOutline,
-                                            contentDescription = "Delete ${profile.name}",
-                                            tint = RedDegraded
-                                        )
-                                    }
-                                }
-                            )
-                        }
-                        HorizontalDivider(color = BorderSubtle)
-                        DropdownMenuItem(
-                            text = { Text("Pair another gateway", color = AccentCyan) },
-                            leadingIcon = {
-                                Icon(Icons.Default.Add, contentDescription = null, tint = AccentCyan)
-                            },
-                            onClick = {
-                                showProfileDropdown = false
-                                showAddDialog = true
-                            }
-                        )
-                    }
-                }
-            }
+            ProfileSelector(
+                activeProfile = activeProfile,
+                profiles = profiles,
+                onSelectProfile = viewModel::selectProfile,
+                onDeleteProfile = { pendingDelete = it },
+                onAddProfile = { showAddDialog = true }
+            )
 
             Spacer(modifier = Modifier.height(36.dp))
 
@@ -480,365 +240,23 @@ fun HomeScreen(
         }
     }
 
-    // Add Profile Dialog with Live Token Validation & Offline Indication
     pendingDelete?.let { profile ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            containerColor = SurfaceElevated,
-            title = { Text("Delete ${profile.name}?", color = TextPrimary) },
-            text = {
-                Text(
-                    "Its token is removed from this device and cannot be recovered here. " +
-                        "A running VPN on this gateway is disconnected.",
-                    color = TextSecondary
-                )
+        DeleteProfileDialog(
+            profile = profile,
+            onConfirm = {
+                viewModel.deleteProfile(profile.id)
+                pendingDelete = null
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteProfile(profile.id)
-                    pendingDelete = null
-                }) {
-                    Text("Delete", color = RedDegraded)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) {
-                    Text("Cancel", color = TextSecondary)
-                }
-            }
+            onDismiss = { pendingDelete = null }
         )
     }
 
+    // Add Profile Dialog with Live Token Validation & Offline Indication
     if (showAddDialog) {
-        var tokenInput by remember { mutableStateOf("") }
-        var nameInput by remember { mutableStateOf("") }
-        var dnsInput by remember {
-            mutableStateOf(com.tailcat.vpn.TailcatApplication.instance.preferencesStore.defaultDns)
-        }
-        var dnsPolicy by remember {
-            mutableStateOf(com.tailcat.vpn.core.model.DnsPolicy.PROFILE_RESOLVER)
-        }
-        var errorMessage by remember { mutableStateOf<String?>(null) }
-
-        val validationState = remember(tokenInput) {
-            TokenParser.validate(tokenInput)
-        }
-        val dnsValidation = remember(dnsInput) {
-            com.tailcat.vpn.core.dns.DnsValidator.validate(dnsInput)
-        }
-
-        AlertDialog(
-            onDismissRequest = { showAddDialog = false },
-            // The dialog is its own window: the Activity's FLAG_SECURE does not cover it.
-            properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
-            containerColor = SurfaceElevated,
-            title = {
-                Text("Pair Gateway Token", color = TextPrimary)
-            },
-            text = {
-                Column {
-                    Text(
-                        text = "Paste a Tailcat connection token (tc...) to establish a Tailcat gateway session.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Offline Warning Badge inside Dialog
-                    if (isDeviceOffline) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(YellowWarning.copy(alpha = 0.15f))
-                                .border(1.dp, YellowWarning.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                                .padding(10.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.WarningAmber,
-                                    contentDescription = "Offline Notice",
-                                    tint = YellowWarning,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Device is offline. Token will save locally, but connection requires internet.",
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        color = YellowWarning,
-                                        fontSize = 11.sp
-                                    )
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(10.dp))
-                    }
-
-                    OutlinedTextField(
-                        value = tokenInput,
-                        onValueChange = {
-                            tokenInput = it
-                            errorMessage = null
-                        },
-                        label = { Text("Connection Token (tc...)") },
-                        // Password type tells keyboards not to learn or suggest the credential.
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Password,
-                            autoCorrectEnabled = false
-                        ),
-                        supportingText = {
-                            Text(
-                                "Generated by an exit gateway (e.g. tailcat serve exit-node)",
-                                fontSize = 11.sp,
-                                color = TextMuted
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    OutlinedTextField(
-                        value = nameInput,
-                        onValueChange = { nameInput = it },
-                        label = { Text("Gateway Name (Optional)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    OutlinedTextField(
-                        value = dnsInput,
-                        onValueChange = {
-                            dnsInput = it
-                            errorMessage = null
-                        },
-                        label = { Text("DNS Resolver IP") },
-                        supportingText = {
-                            if (dnsValidation is com.tailcat.vpn.core.dns.DnsValidationResult.Invalid) {
-                                Text(dnsValidation.reason, color = RedDegraded, fontSize = 11.sp)
-                            } else {
-                                Text(
-                                    if (dnsPolicy == com.tailcat.vpn.core.model.DnsPolicy.FORCED_RESOLVER) {
-                                        "Forced resolver: all tunnel DNS goes here"
-                                    } else {
-                                        "Profile resolver: DNS follows the TUN destination"
-                                    },
-                                    color = TextMuted,
-                                    fontSize = 11.sp
-                                )
-                            }
-                        },
-                        isError = dnsValidation is com.tailcat.vpn.core.dns.DnsValidationResult.Invalid,
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        listOf(
-                            com.tailcat.vpn.core.model.DnsPolicy.PROFILE_RESOLVER to "Profile resolver",
-                            com.tailcat.vpn.core.model.DnsPolicy.FORCED_RESOLVER to "Forced resolver"
-                        ).forEach { (policy, label) ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.clickable { dnsPolicy = policy }
-                            ) {
-                                androidx.compose.material3.RadioButton(
-                                    selected = dnsPolicy == policy,
-                                    onClick = { dnsPolicy = policy },
-                                    colors = androidx.compose.material3.RadioButtonDefaults.colors(
-                                        selectedColor = AccentCyan,
-                                        unselectedColor = BorderSubtle
-                                    )
-                                )
-                                Text(label, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Live Token Validation Preview
-                    when (validationState) {
-                        is TokenValidationState.Valid -> {
-                            val parsed = validationState.parsed
-                            val expText = if (parsed.expirationFormatted != null) " • Exp: ${parsed.expirationFormatted}" else ""
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(EmeraldConnected.copy(alpha = 0.12f))
-                                    .border(1.dp, EmeraldConnected.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = "Valid",
-                                        tint = EmeraldConnected,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "${parsed.regionDisplayName} • Key: ${parsed.serverKeyShort}$expText",
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            color = EmeraldConnected,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                        is TokenValidationState.Expired -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(RedDegraded.copy(alpha = 0.15f))
-                                    .border(1.dp, RedDegraded.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.ErrorOutline,
-                                        contentDescription = "Expired",
-                                        tint = RedDegraded,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Token expired on ${validationState.expiredDate}. Request a new token.",
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            color = RedDegraded,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                        is TokenValidationState.LegacyReissueRequired -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(YellowWarning.copy(alpha = 0.12f))
-                                    .border(1.dp, YellowWarning.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.WarningAmber,
-                                        contentDescription = "Reissue Required",
-                                        tint = YellowWarning,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Legacy token format without disco key. Gateway reissue required.",
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            color = YellowWarning,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                        is TokenValidationState.Invalid -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(RedDegraded.copy(alpha = 0.12f))
-                                    .border(1.dp, RedDegraded.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.ErrorOutline,
-                                        contentDescription = "Invalid",
-                                        tint = RedDegraded,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = validationState.reason,
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            color = RedDegraded,
-                                            fontSize = 11.sp
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                        TokenValidationState.Empty -> {
-                            // Do nothing
-                        }
-                    }
-
-                    if (errorMessage != null) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(errorMessage!!, color = RedDegraded, fontSize = 12.sp)
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val result = viewModel.addProfileFromToken(nameInput, tokenInput, dnsInput, dnsPolicy)
-                        if (result.isSuccess) {
-                            showAddDialog = false
-                        } else {
-                            errorMessage = result.exceptionOrNull()?.message ?: "Invalid profile"
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentCyan),
-                    enabled = validationState is TokenValidationState.Valid && dnsValidation is com.tailcat.vpn.core.dns.DnsValidationResult.Valid
-                ) {
-                    Text("Save & Pair", color = BgDark)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddDialog = false }) {
-                    Text("Cancel", color = TextSecondary)
-                }
-            }
-        )
-    }
-}
-
-@Composable
-private fun StatusBanner(
-    message: String,
-    color: androidx.compose.ui.graphics.Color,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(color.copy(alpha = 0.14f))
-            .border(1.dp, color.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
-            .padding(horizontal = 14.dp, vertical = 10.dp)
-    ) {
-        Icon(
-            imageVector = Icons.Default.WarningAmber,
-            contentDescription = null,
-            tint = color,
-            modifier = Modifier.size(18.dp)
-        )
-        Spacer(modifier = Modifier.width(10.dp))
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodySmall.copy(
-                color = color,
-                fontWeight = FontWeight.Medium
-            )
+        AddProfileDialog(
+            isDeviceOffline = isDeviceOffline,
+            onSave = viewModel::addProfileFromToken,
+            onDismiss = { showAddDialog = false }
         )
     }
 }

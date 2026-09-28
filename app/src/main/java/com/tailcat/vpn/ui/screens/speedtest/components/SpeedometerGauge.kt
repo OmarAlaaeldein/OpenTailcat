@@ -30,6 +30,7 @@ import com.tailcat.vpn.ui.theme.EmeraldConnected
 import com.tailcat.vpn.ui.theme.TextPrimary
 import com.tailcat.vpn.ui.theme.TextSecondary
 import com.tailcat.vpn.ui.theme.VioletDerp
+import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -151,7 +152,7 @@ fun SpeedometerGauge(
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = String.format(java.util.Locale.US, "%.1f", currentSpeedMbps),
+                text = String.format(Locale.US, "%.1f", currentSpeedMbps),
                 style = MaterialTheme.typography.displayLarge.copy(
                     color = TextPrimary,
                     fontSize = 38.sp,

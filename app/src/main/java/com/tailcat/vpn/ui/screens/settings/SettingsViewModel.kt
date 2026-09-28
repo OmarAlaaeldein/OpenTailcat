@@ -1,10 +1,14 @@
 package com.tailcat.vpn.ui.screens.settings
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tailcat.vpn.BuildConfig
 import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.core.update.ApkDownloader
+import com.tailcat.vpn.core.update.ApkInstaller
 import com.tailcat.vpn.core.update.GitHubReleaseClient
 import com.tailcat.vpn.core.update.LatestRelease
 import com.tailcat.vpn.core.update.UpdatePolicy
@@ -66,7 +70,7 @@ class SettingsViewModel : ViewModel() {
     fun downloadUpdate(context: Context) {
         val available = _updateState.value as? UpdateState.Available ?: return
         if (downloadJob?.isActive == true) return
-        val abi = com.tailcat.vpn.core.update.ApkInstaller.preferredAbi()
+        val abi = ApkInstaller.preferredAbi()
         val asset = available.release.apkAssetForAbi(abi)
         if (asset == null) {
             _updateState.value = UpdateState.Error("No APK for this device ABI ($abi)")
@@ -86,7 +90,7 @@ class SettingsViewModel : ViewModel() {
                 .onSuccess { file ->
                     collectJob.cancel()
                     val mismatch = withContext(Dispatchers.IO) {
-                        com.tailcat.vpn.core.update.ApkInstaller.signatureMismatchReason(context, file)
+                        ApkInstaller.signatureMismatchReason(context, file)
                     }
                     if (mismatch != null) {
                         file.delete()
@@ -110,10 +114,10 @@ class SettingsViewModel : ViewModel() {
             _updateState.value = UpdateState.Error("Downloaded file is missing")
             return
         }
-        if (!com.tailcat.vpn.core.update.ApkInstaller.canRequestInstall(context)) {
+        if (!ApkInstaller.canRequestInstall(context)) {
             runCatching {
                 context.startActivity(
-                    com.tailcat.vpn.core.update.ApkInstaller.unknownSourcesIntent(context)
+                    ApkInstaller.unknownSourcesIntent(context)
                 )
             }
             viewModelScope.launch {
@@ -121,7 +125,7 @@ class SettingsViewModel : ViewModel() {
             }
             return
         }
-        val intent = com.tailcat.vpn.core.update.ApkInstaller.installIntent(context, file)
+        val intent = ApkInstaller.installIntent(context, file)
         runCatching { context.startActivity(intent) }
             .onFailure { e ->
                 _updateState.value = UpdateState.Error(e.message ?: "Could not start installer")
@@ -136,9 +140,9 @@ class SettingsViewModel : ViewModel() {
         }
         runCatching {
             context.startActivity(
-                android.content.Intent(
-                    android.content.Intent.ACTION_VIEW,
-                    android.net.Uri.parse(url)
+                Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse(url)
                 )
             )
         }
@@ -151,5 +155,5 @@ class SettingsViewModel : ViewModel() {
         _updateState.value = UpdateState.Idle
     }
 
-    private fun currentVersion(): String = com.tailcat.vpn.BuildConfig.VERSION_NAME
+    private fun currentVersion(): String = BuildConfig.VERSION_NAME
 }

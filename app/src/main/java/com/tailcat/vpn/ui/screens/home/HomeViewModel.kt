@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.core.NetworkType
+import com.tailcat.vpn.core.model.DnsPolicy
 import com.tailcat.vpn.core.model.GatewayProfile
 import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TunnelState
@@ -108,7 +109,7 @@ class HomeViewModel : ViewModel() {
         name: String,
         token: String,
         customDns: String = app.preferencesStore.defaultDns,
-        dnsPolicy: com.tailcat.vpn.core.model.DnsPolicy = com.tailcat.vpn.core.model.DnsPolicy.PROFILE_RESOLVER
+        dnsPolicy: DnsPolicy = DnsPolicy.PROFILE_RESOLVER
     ): Result<GatewayProfile> {
         val previous = activeProfile.value?.id
         return profileRepository.addOrUpdateFromToken(name, token, customDns, dnsPolicy).onSuccess { saved ->
@@ -122,7 +123,7 @@ class HomeViewModel : ViewModel() {
 
     fun updateActiveProfileDns(
         customDns: String,
-        dnsPolicy: com.tailcat.vpn.core.model.DnsPolicy
+        dnsPolicy: DnsPolicy
     ): Result<GatewayProfile> {
         val profile = activeProfile.value
             ?: return Result.failure(IllegalArgumentException("No gateway profile is selected"))

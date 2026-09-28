@@ -1,5 +1,7 @@
 package com.tailcat.vpn.core.token
 
+import java.net.Inet6Address
+import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.text.SimpleDateFormat
@@ -695,7 +697,7 @@ object TokenParser {
         return false
     }
 
-    private fun literalIpv4(value: String): java.net.InetAddress? {
+    private fun literalIpv4(value: String): InetAddress? {
         val parts = value.split('.')
         if (parts.size != 4) return null
         val bytes = ByteArray(4)
@@ -704,18 +706,18 @@ object TokenParser {
             if (n !in 0..255) return null
             bytes[i] = n.toByte()
         }
-        return java.net.InetAddress.getByAddress(bytes)
+        return InetAddress.getByAddress(bytes)
     }
 
-    private fun literalIp(value: String): java.net.InetAddress? {
+    private fun literalIp(value: String): InetAddress? {
         if (value.contains(':')) {
             val host = value.substringBefore('%')
             if (!host.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' || it == ':' || it == '.' }) {
                 return null
             }
             return runCatching {
-                val addr = java.net.InetAddress.getByName(host)
-                if (addr is java.net.Inet6Address) addr else null
+                val addr = InetAddress.getByName(host)
+                if (addr is Inet6Address) addr else null
             }.getOrNull()
         }
         return literalIpv4(value)

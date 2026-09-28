@@ -1,5 +1,6 @@
 package com.tailcat.vpn.core.ip
 
+import com.tailcat.vpn.BuildConfig
 import com.tailcat.vpn.core.model.EgressInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,7 +56,7 @@ class IpAuditor {
             connection.useCaches = false
             connection.setRequestProperty(
                 "User-Agent",
-                "OpenTailcat-Android/${com.tailcat.vpn.BuildConfig.VERSION_NAME}"
+                "OpenTailcat-Android/${BuildConfig.VERSION_NAME}"
             )
             check(connection.responseCode in 200..299) {
                 "Endpoint returned HTTP ${connection.responseCode}"

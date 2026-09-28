@@ -6,8 +6,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.ui.screens.home.HomeScreen
 import com.tailcat.vpn.ui.screens.settings.SettingsScreen
 import com.tailcat.vpn.ui.screens.speedtest.SpeedTestScreen
@@ -16,12 +18,12 @@ import com.tailcat.vpn.ui.theme.TailcatTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        com.tailcat.vpn.TailcatApplication.instance.tunnelController.onUiResumed()
+        TailcatApplication.instance.tunnelController.onUiResumed()
         enableEdgeToEdge()
 
         setContent {
             TailcatTheme {
-                var currentScreen by rememberSaveable { androidx.compose.runtime.mutableStateOf("home") }
+                var currentScreen by rememberSaveable { mutableStateOf("home") }
 
                 BackHandler(enabled = currentScreen != "home") {
                     currentScreen = "home"
@@ -45,6 +47,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        com.tailcat.vpn.TailcatApplication.instance.tunnelController.onUiResumed()
+        TailcatApplication.instance.tunnelController.onUiResumed()
     }
 }

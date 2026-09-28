@@ -6,8 +6,14 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import com.tailcat.vpn.TailcatApplication
+import com.tailcat.vpn.core.dns.DnsValidationResult
+import com.tailcat.vpn.core.dns.DnsValidator
+import com.tailcat.vpn.core.model.DnsPolicy
 import com.tailcat.vpn.core.model.GatewayProfile
 import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TunnelState
@@ -22,6 +28,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 class TailcatVpnService : VpnService() {
 
@@ -239,19 +246,19 @@ class TailcatVpnService : VpnService() {
         var routedOwned: ParcelFileDescriptor? = null
         try {
             // Validate resolver IP before configuring VPN interface
-            val dnsValidation = com.tailcat.vpn.core.dns.DnsValidator.validate(profile.customDns)
-            if (dnsValidation !is com.tailcat.vpn.core.dns.DnsValidationResult.Valid) {
-                val reason = (dnsValidation as? com.tailcat.vpn.core.dns.DnsValidationResult.Invalid)?.reason ?: "unknown error"
+            val dnsValidation = DnsValidator.validate(profile.customDns)
+            if (dnsValidation !is DnsValidationResult.Valid) {
+                val reason = (dnsValidation as? DnsValidationResult.Invalid)?.reason ?: "unknown error"
                 throw PermanentStartFailure("Invalid DNS resolver in profile: $reason")
             }
 
             // Provide current validated Android LinkProperties, interface state, and DNS policy to native engine
-            val networkState = org.json.JSONObject(app.networkMonitor.getNetworkStateJSON()).apply {
+            val networkState = JSONObject(app.networkMonitor.getNetworkStateJSON()).apply {
                 put("dnsPolicy", profile.dnsPolicy.name)
                 put("tunnelMtu", profile.mtu)
                 // Upstream engine logs name public/local IPs and peer endpoints.
                 put("verboseLogs", app.preferencesStore.debugMode)
-                if (profile.dnsPolicy == com.tailcat.vpn.core.model.DnsPolicy.FORCED_RESOLVER) {
+                if (profile.dnsPolicy == DnsPolicy.FORCED_RESOLVER) {
                     put("forcedDns", dnsValidation.ip)
                 }
             }.toString()
@@ -272,7 +279,7 @@ class TailcatVpnService : VpnService() {
 
             // Prepare measured gateway IPv6 egress; refuse a resolver it cannot reach
             // before any route or DNS server is installed.
-            com.tailcat.vpn.core.dns.DnsValidator.gatewayRejection(
+            DnsValidator.gatewayRejection(
                 dnsValidation,
                 app.tunnelEngine.getStats().ipv6Egress
             )?.let { throw PermanentStartFailure(it) }
@@ -416,7 +423,7 @@ class TailcatVpnService : VpnService() {
             var lastPostMs = 0L
             app.tunnelController.networkMetrics.collect { metrics ->
                 val state = app.tunnelController.tunnelState.value
-                val now = android.os.SystemClock.elapsedRealtime()
+                val now = SystemClock.elapsedRealtime()
                 if (!NotificationThrottle.shouldPost(state, lastState, now, lastPostMs)) return@collect
                 lastState = state
                 lastPostMs = now
@@ -464,7 +471,7 @@ class TailcatVpnService : VpnService() {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
-        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
             // Native stop can wait up to its bound; never block the main thread
             // (onDestroy, rejected starts). The TUN is already closed, so routes
             // are gone before this runs; the next start joins it first.
@@ -474,7 +481,7 @@ class TailcatVpnService : VpnService() {
             finish()
         } else {
             runCatching { TailcatApplication.instance.tunnelEngine.stop() }
-            android.os.Handler(android.os.Looper.getMainLooper()).post(finish)
+            Handler(Looper.getMainLooper()).post(finish)
         }
     }
 

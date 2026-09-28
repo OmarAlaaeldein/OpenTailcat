@@ -44,6 +44,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -56,6 +57,7 @@ import com.tailcat.vpn.core.speedtest.FindingSeverity
 import com.tailcat.vpn.core.speedtest.SpeedTestReport
 import com.tailcat.vpn.core.speedtest.SpeedTestStage
 import com.tailcat.vpn.ui.screens.speedtest.components.SpeedometerGauge
+import java.util.Locale
 import kotlinx.coroutines.launch
 import com.tailcat.vpn.ui.theme.AccentCyan
 import com.tailcat.vpn.ui.theme.BgDark
@@ -223,7 +225,7 @@ fun SpeedTestScreen(
                 ) {
                     MetricTile(
                         title = "DOWNLOAD",
-                        value = if (testState.downloadMbps > 0) String.format(java.util.Locale.US, "%.1f Mbps", testState.downloadMbps) else "--",
+                        value = if (testState.downloadMbps > 0) String.format(Locale.US, "%.1f Mbps", testState.downloadMbps) else "--",
                         icon = Icons.Default.ArrowDownward,
                         tint = EmeraldConnected,
                         isActive = testState.stage == SpeedTestStage.TESTING_DOWNLOAD,
@@ -231,7 +233,7 @@ fun SpeedTestScreen(
                     )
                     MetricTile(
                         title = "UPLOAD",
-                        value = if (testState.uploadMbps > 0) String.format(java.util.Locale.US, "%.1f Mbps", testState.uploadMbps) else "--",
+                        value = if (testState.uploadMbps > 0) String.format(Locale.US, "%.1f Mbps", testState.uploadMbps) else "--",
                         icon = Icons.Default.ArrowUpward,
                         tint = VioletDerp,
                         isActive = testState.stage == SpeedTestStage.TESTING_UPLOAD,
@@ -327,7 +329,7 @@ private fun MetricTile(
     title: String,
     value: String,
     icon: ImageVector,
-    tint: androidx.compose.ui.graphics.Color,
+    tint: Color,
     isActive: Boolean,
     modifier: Modifier = Modifier
 ) {
