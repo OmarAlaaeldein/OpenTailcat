@@ -8,8 +8,9 @@ source "$(dirname "$0")/lib.sh"
 adb shell am start -n "$PKG/.ui.MainActivity" >/dev/null
 sleep 2
 if ui_nodes | grep -q "TAP TO CONNECT"; then
-  # The caption is not clickable; the round button above it is.
-  tap_node "clickable .*\| Connect VPN$"
+  # Tap the round button above the caption. Compose 1.12 puts its label on a
+  # child of the clickable node (same bounds), so match the label itself.
+  tap_node "\| Connect VPN$"
   sleep 2
   # First connect after install: accept the system VPN consent dialog.
   tap_node '\| OK \|' 2>/dev/null || true

@@ -10,7 +10,7 @@ key, or traffic capture in a report; describe how to reproduce instead.
 
 ## Release status
 
-OpenTailcat 1.4.0 in the current source tree is a development build. It has an
+OpenTailcat 1.5.0 in the current source tree is a development build. It has an
 integrated Go Mobile Tailcat engine with Phase 0 fail-closed capability gates,
 Phase 1 reproducible builds, Phase 2 official token validation, and Phase 3
 tunneled UDP userspace netstack code. IPv4 test-routing capabilities are true so

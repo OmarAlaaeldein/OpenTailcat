@@ -1,7 +1,7 @@
 # OpenTailcat Android engineering guide
 
 > Project root: `/Users/omar/Developer/OpenTailcat`  
-> Android: min API 26, compile/target API 35  
+> Android: min API 26, compile API 37, target API 35  
 > Android toolchain: Kotlin 2.2.10, AGP 9.4.1, Gradle 9.6.0, JDK 21  
 > Native toolchain in `core-engine/go.mod`: Go 1.27.1
 
@@ -18,16 +18,9 @@ acceptance is unimplemented.
 The checked-in AAR is built reproducibly with Go 1.27.1, NDK r29 (29.0.14206865),
 16 KB ELF load alignment, and verified Java signatures.
 
-Current version: 1.4.0, with audit H1–H7 source fixes after the 1.2.2/1.2.3 audits,
-an S+-aware startup instrumented expectation, a behavior-neutral dead-code sweep,
-a strict interior-whitespace token error, a 5s UDP capability probe with
-periodic re-probe, `tcpOnly` telemetry, structured data-plane failure
-reporting with a debug diagnostics flag, nil-dial hardening with panic
-call-site reporting, a 200.x stale-DNS networking-corruption fix
-(`pendingDNS` cleared on `abandonPrepare`, `TelemetryCard` now `isLiveRunning`),
-working split-tunnel exclusions applied with `addDisallowedApplication`, and a
-Settings > Apps picker that lists every installed package (not only launcher
-apps) with `QUERY_ALL_PACKAGES` plus a search field.
+Current version: 1.5.0 (versionCode 39). Per-release changes are in
+`docs/releases/`; the 2026-09-26 review and its fix logs are in
+`docs/review-2026-09-26.md`.
 IPv4 Connect is test-enabled. `ipv6` is true; `ipv6Egress` is measured per session.
 
 Critical current behavior:
@@ -141,8 +134,8 @@ the Android app.
 
 Data-plane interoperability still requires a compatible gateway. Tailcat
 v0.4.0 `serve exit-node` was TCP-only; signed v0.7.0 (2026-09-16) adds UDP
-forwarding through `--serve=exit-node`. This submodule pin
-(`v0.5.0-25-g0c31395bf`) exports `Client.DialUDP` and `Server.OnUDPForward`. If the live user-controlled Tailcat gateway
+forwarding through `--serve=exit-node`. The submodule is pinned to that
+signed `v0.7.0` tag, which exports `Client.DialUDP` and `Server.OnUDPForward`. If the live user-controlled Tailcat gateway
 already supports native tunneled UDP, prove and version that capability.
 Otherwise a matching gateway-side Tailcat UDP deployment is required. A
 client-only direct socket is never an acceptable substitute.
@@ -150,9 +143,9 @@ client-only direct socket is never an acceptable substitute.
 ## Upstream provenance
 
 `third_party/tailcat` is a git submodule of
-`https://github.com/tailscale/tailcat`, pinned to unmodified
-`0c31395bfd1ae0c0ef2917c0ec20432466087417` (application-layer UDP). Do not
-claim it is the signed `v0.4.0` tag. See `third_party/PROVENANCE.md`. Do not
+`https://github.com/tailscale/tailcat`, pinned to the unmodified signed
+`v0.7.0` tag (`15ab9e68bfc6534a61797d7af28cedd42b54a3a5`). See
+`third_party/PROVENANCE.md`. Do not
 add OpenTailcat patches in the submodule. Android supplies LinkProperties and
 the underlying default interface via `updateNetworkState`; the engine hands
 the interface to netmon and calls `InjectEvent` on the client's monitor
@@ -177,7 +170,7 @@ Follow the detailed methods and acceptance conditions in `handoff.md`:
 
 ## Native API
 
-The current AAR exports `com.tailcat.vpn.engine.Engine`:
+The current AAR exports `com.tailcat.golib.engine.Engine`:
 
 ```text
 getCapabilitiesJSON() -> String

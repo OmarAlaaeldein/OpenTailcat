@@ -7,8 +7,11 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.4.0 on `main` (all 1.3.3–1.3.7 changes — audit H1–H7 source fixes after the 1.2.2/1.2.3, S+-aware startup instrumented expectation, dead-code sweep, strict interior-whitespace token error, 5s UDP capability probe with periodic re-probe, `tcpOnly` telemetry, private-DNS rejection, native pump panic containment, disco-failure transport downgrade with `discoStale`, dead `GATEWAY_RESOLVER` removal, structured data-plane failure reporting with a debug diagnostics flag, nil-dial hardening with panic call-site reporting, typed-nil Close fix and per-flow panic isolation, HealthStale 15s/3-poll grace for intermittent 6s auto-close, notification/TelemetryCard live TUN rates instead of always-zero WG txBytes, 200.x stale-DNS networking-corruption fix (`pendingDNS` cleared on `abandonPrepare`, `TelemetryCard` now `isLiveRunning`), working split-tunnel exclusions with `addDisallowedApplication`, all-apps picker with search, PREPARED `rttMs` reporting, a speed-test troubleshooter that surfaces silent stage failures and tunnel diagnostics, a speed-test **troubleshooter clipboard export** (TopAppBar copy → `SpeedTestReport`, metrics/tunnel snapshot on `SpeedTestResult`, IP-sanitized free text), and a Settings **Updates** card that checks `api.github.com/.../releases/latest`, downloads the ABI-matching APK into cache (1.4.0 does not verify SHA-256; unreleased source now requires GitHub's asset digest), signature-compares the archive, and installs via FileProvider + `REQUEST_INSTALL_PACKAGES` — see the dated sections below). IPv4 test-routing capabilities are
-  true so Connect can be exercised with a live token. `ipv6` is true; `ipv6Egress` is session-measured.
+- Android repository: version 1.5.0 (versionCode 39) on `main`. Per-release
+  changes are in `docs/releases/`; the review and its fix logs are in
+  `docs/review-2026-09-26.md`. IPv4 test-routing capabilities are true so
+  Connect can be exercised with a live token. `ipv6` is true; `ipv6Egress` is
+  session-measured.
 - Safe Android-shell checkpoint: `e475abc`.
 - Phase 0 fail-closed checkpoint: `877942a`.
 - Phase 1 reproducible-build checkpoint: `76563c9`.
@@ -18,17 +21,16 @@ unsafe shortcuts already found in the tree.
 - Phase 5 IPv6 TCP/UDP is proxied (public IPv6 is rejected before dial when `ipv6Egress` is false, otherwise IPv6 uses the IPv4 dial budget (15 s TCP / 10 s UDP)); ICMPv6 echo is dropped; oversized IPv6 gets a local Packet Too Big; Android installs `::/0` only after pumps are live; `ipv6` is true; `ipv6Egress` is session-measured.
 - Phase 6 cancellable session context, readiness barriers, pump-failure `FAILED`, bounded `Stop`, `DetachTun`, and `DisarmPumps` exist. After `prepare`, Android establishes a host-only TUN (no VPN DNS), attaches pumps, `detachTun`, then installs `0.0.0.0/0` and `::/0` with VPN DNS and reattaches. The VPN service is `START_STICKY` with `stopWithTask=false`; shutdown closes the TUN before native `stop`. IPv4 test-routing enables `twoPhaseStart` and `cancelSafeLifecycle`.
 - Phase 7 telemetry schema and WireGuard counters exist; RTT is sampled from live `DiscoPing` while a bridge is running; Kotlin rejects schema v1 and does not synthesize `RUNNING`; the measured `tcpOnly` latch (5s STUN probe of generic gateway UDP at prepare, 30s re-probe while latched, re-latched mid-session after 8 unanswered UDP flows in a row and a failed probe) is reported in stats and the UI; `liveStats` is test-enabled.
-- Upstream Tailcat base: unsigned `main` commit `v0.5.0-25-g0c31395bf` (an
-  ancestor of the signed `v0.6.0` and `v0.7.0` tags). It is not `v0.4.0`.
-- Tailcat source: git submodule of `github.com/tailscale/tailcat` at
-  unmodified `0c31395bfd1ae0c0ef2917c0ec20432466087417` (application-layer UDP).
+- Upstream Tailcat base: the signed `v0.7.0` tag (2026-09-16; GitHub reports
+  the tag signature as verified), commit
+  `15ab9e68bfc6534a61797d7af28cedd42b54a3a5`, unmodified, as a git submodule of
+  `github.com/tailscale/tailcat`. It adds UDP forwarding through
+  `--serve=exit-node` on the gateway side and links upstream's
+  `feature/androiddns` and `feature/androidbin` into Android builds.
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
-  reproducibly with Go 1.27.1 and NDK 29.0.14206865. Current SHA-256:
-   `986c21150a4da2890b78023523a9b2bd6415ddc68de301000e792af6c16a2436`
-  (previous source-fixed AAR SHAs `9e3256a9449347159913215cad258acbd528601a39175d310dda0e3bfd6b311c`,
-   `c5b479c0b5710ed926804cb0b827472e5648b6bd356679195815ac888fa1b606`,
-   `aa0fa1bdda9ae102d3ef7a7153c2d1ceca3f5165c8c707e8b490d97997a75999`, and
-   1.3.2 SHA `a03e832082535bc4f8f860147bd1fa523e42d1c716e24d71a26c0041034b0976`).
+  reproducibly with Go 1.27.1 and NDK 29.0.14206865; the Java API is
+  `com.tailcat.golib.engine` (outside the app namespace, so the AAR's consumer
+  ProGuard rule keeps only the engine). Current SHA-256 and source hash:
   Sidecars: `app/libs/libtailcat.aar.sha256`, `app/libs/libtailcat.aar.sourcehash`.
   Liveprobe token for host tests is read from `OPENTAILCAT_LIVE_TOKEN` or
   `~/.opentailcat-private/live-token.txt` (never committed).
@@ -44,106 +46,16 @@ unsafe shortcuts already found in the tree.
 Passing these build checks is not a data-plane release gate. No current test
 establishes a full Android VPN or proves leak-free traffic.
 
-### Networking corruption on failed Connect — fixed in tree (200.x forced resolver)
-
-In 1.3.2 and earlier (including the 1.2.14 checkpoint above) a failed `prepare`
-— e.g. `gateway handshake failed: context deadline exceeded` after dialing a
-`200.111.5.10:443`/`[2001:db8::1]:443` DERP or a user `FORCED_RESOLVER`
-`200.160.0.8:53` — corrupted networking for **some time** (observed as “forces
-me to use an IP that starts with 200”):
-
-* `core-engine/lifecycle.go:219` `abandonPrepare()` cleared `sess/state` but
-  left `globalCore.pendingDNS` (`core-engine/main.go:214`
-  `globalCore.pendingDNS.Store(&cfg)`) from the `TailcatVpnService.kt:126`
-  `updateNetworkState` that ran **before** `prepare`. The next `AttachTun`
-  (`lifecycle.go:256` `dns := globalCore.pendingDNS.Load()`) therefore `Load()`ed
-  the stale `FORCED_RESOLVER` (`app/libs/libtailcat.aar:19509312` build) and
-  `bridge.go:97` `SetDNSConfig` forced subsequent port-53 flows through
-  `Client.DialUDP` to the stale `200.x:53` (`netstack_proxy.go:resolveDNSDestination`).
-  When that `200.x` was unreachable, `policyRejections`/`queueExhaustion`
-  dropped DNS and, with the 5s `udpProbeTimeout` (`bridge.go:697`) latched
-  `tcpOnly=true`, non-DNS UDP was also dropped until the 30s
-  `udpReprobeInterval` (`bridge.go:701`) or an explicit `Stop()` finally cleared
-  `pendingDNS` (`lifecycle.go:408`). The window was typically 30s + the 15s
-  `HealthStale` grace (`service/EngineHealth.kt:13` `STALE_TEARDOWN_POLLS=3`) —
-  i.e. “for some time” after a single failed tap.
-* `app/src/main/java/com/tailcat/vpn/ui/screens/home/components/TelemetryCard.kt:57`
-  used `tunnelActive = transportType != UNKNOWN`. After `FAILED`/`HealthStale`,
-  `NetworkMetrics.kt:50` `isLiveRunning()` was already false (`state != "RUNNING"`
-  or `healthUnixSec` stale) but `transportType` could remain `DIRECT_P2P`/`DERP_RELAY`,
-  so the card kept showing `Exit IP: 200.x` (`metrics.tunnelEgressIp` from the
-  previous session’s `bridge.go:894` `egressIP`) instead of `Device IP:`.
-  Users saw a stale `200.` exit and perceived a forced `200.` route.
-
-Fix in this tree (AAR `aa0fa1bd...`, `app/src/main/java/com/tailcat/vpn/ui/screens/home/components/TelemetryCard.kt:60`
-now `isLiveRunning(nowSec)`; `core-engine/lifecycle.go:225` `pendingDNS.Store(nil)`
-on `abandonPrepare`): a failed `prepare` no longer leaves a stale
-`FORCED_RESOLVER`. Verified: `go test -race ./...`, `testDebugUnitTest`/`lintDebug`,
-and `VpnStartupInstrumentedTest` (synthetic `tc…` with embedded `200.111.5.10`
-DERP) now goes `CONNECTING (10s) → DISCONNECTED` with `lastError=gateway handshake
-failed: context deadline exceeded`, `networkMetrics=UNKNOWN`/`tunnelEgressIp=null`,
-`ip route` shows no `200.` TUN route, and a subsequent profile with `1.1.1.1`
-correctly uses `1.1.1.1` — no forced `200.`.
-
-Documented here per `AGENTS.md:Documentation rule` — `README.md`/`docs/releases/`
-describe verified shipped behavior only; this handoff records the corrected
-failure path.
-
-## Split-tunnel exclusions now apply to the VPN interface (2026-09-21)
-
-Through 1.3.3, Settings > Apps stored `splitTunnelExcludedApps`, but
-`TunnelController.validateStartRequest` and `LeakGuard.refusalReasonForStartup`
-refused Connect whenever the list was non-empty (`SPLIT_TUNNEL_BLOCKED`), and
-`VpnService.Builder.addDisallowedApplication` was never called. A user could
-select apps to bypass the VPN, but Connect then failed with
-"Disable split-tunnel exclusions before connecting".
-
-Fix in this tree (Kotlin-only; AAR unchanged):
-
-- `TailcatVpnService.vpnBuilder` now applies each stored exclusion with
-  `Builder.addDisallowedApplication` on both the warm (host-only) and routed
-  (`0.0.0.0/0` + `::/0`) interfaces. The list is snapshotted once per start and
-  filtered by `SplitTunnelExclusions.validPackages`, which skips blank entries
-  and packages no longer installed so a stale entry cannot fail `establish`.
-- The split-tunnel Connect refusal is removed from
-  `TunnelController.validateStartRequest` and the service startup path;
-  `LeakGuard` is deleted and `LOCKDOWN_REQUIRED_API` moved into `LockdownProbe`.
-  Lockdown still never gates Connect (status only).
-- Bypass remains leak-by-design per invariant 3: excluded apps use the ordinary
-  OS network. UI copy states checked apps bypass the VPN and that the tunnel is
-  not leak-free while any app is checked, and that with Always-on lockdown
-  Android blocks checked apps from the network entirely (documented platform
-  behavior for disallowed applications under lockdown).
-- OpenTailcat's own UID is never on the list; the Settings picker filters out
-  the app package. Magicsock/DERP bypass still relies on `VpnService.protect`
-  (`TransportSocketProtect`); the app does not exclude its own UID.
-- Tests: `SplitTunnelExclusionsTest` (blank/uninstalled filtering, ordering);
-  `LeakGuardTest` deleted; `LockdownProbeTest` updated.
-
-Still pending: the Phase 8 split-tunnel acceptance evidence above (second-UID
-probe traffic must appear directly on the uplink pcap and be absent from the
-gateway pcap while exclusions are set). Pass locally only after that capture.
-
-## Settings > Apps picker now lists all installed apps (2026-09-21)
-
-Through 1.3.4 the split-tunnel picker used `LauncherApps.getActivityList`,
-which returns only apps with a launcher icon. Background and headless apps
-never appeared. In 1.3.5 the picker enumerates every package installed for
-the user via `PackageManager.getInstalledApplications` (`SettingsScreen.kt`),
-adds a search field filtering by app name or package name, and declares
-`QUERY_ALL_PACKAGES` in the manifest (required on API 30+ for full package
-enumeration; lint advisory suppressed with `tools:ignore`). Exclusion
-application, leak-by-design copy, and the Phase 8 split-tunnel packet-capture
-acceptance are unchanged.
+Dated fix narratives (200.x stale DNS, split-tunnel exclusions, the all-apps
+picker) and the 2026-09-23 Phase 8 capture run log are in
+[`docs/history/handoff-2026-09.md`](docs/history/handoff-2026-09.md).
 
 ## Release status
 
-The current tree is **1.4.0** versionCode **38** (AAR `986c21150a4da2890b78023523a9b2bd6415ddc68de301000e792af6c16a2436`,
-Go 1.27.1, NDK 29.0.14206865, 16 KB) with the Phase 8 analyzer SLL2 fix,
-the 200.x stale-DNS fix, the split-tunnel exclusion fix, the all-apps picker
-fix, PREPARED `rttMs` reporting, the speed-test troubleshooter, the
-troubleshooter clipboard report, and the Settings Updates card above.
-1.3.7 used versionCode 37; 1.3.6 used versionCode 36; 1.3.5 used versionCode 35; 1.3.4 used
+The current tree is **1.5.0** versionCode **39** (AAR SHA-256 in
+`app/libs/libtailcat.aar.sha256`; Go 1.27.1, NDK 29.0.14206865, 16 KB) with the
+review P0–P3 fixes listed in `docs/review-2026-09-26.md` and
+`docs/releases/1.5.0.md`. 1.4.0 used versionCode 38; 1.3.7 used versionCode 37; 1.3.6 used versionCode 36; 1.3.5 used versionCode 35; 1.3.4 used
 versionCode 34; the 1.2.14 checkpoint used versionCode 27. The `development`
 build type is release R8/resource optimization with the existing development
 certificate and no debug UI tooling. `release` signing remains separate. To
@@ -491,6 +403,13 @@ connected, and neither family reaches the Internet directly on pump failure.
 
 ### Phase 6: lifecycle, readiness, and roaming
 
+Decision (2026-09-28, review item 18): the warm-TUN two-phase start stays.
+Routing `0.0.0.0/0` and `::/0` into a TUN before its pumps attach would be
+fail-closed (packets queue or drop, they do not leak), and one establish after
+`prepare` would drop a detach/reattach cycle. But it would install default
+routes for an engine that has not yet proven live pumps, which invariant 1
+forbids; the host-only warm attach is that proof.
+
 Startup crash correction (2026-09-05): the controller checks Android VPN consent
 before requesting a foreground service, and the service checks it again before
 starting native work. Foreground-promotion exceptions are handled. A rejected
@@ -683,78 +602,8 @@ Do not commit pcaps or live tokens. `ipv6` is true on the client; treat `ipv6Egr
 capture as the honesty bar for public IPv6 egress. Host analyzer unit tests and
 `e2e-analyze.sh` synthetic fixtures are tooling checks, not Phase 8 acceptance.
 
-#### Phase 8 dual-capture run log (2026-09-23)
-
-Physical phone + live Tailcat gateway (nullexit stack in Colima/Docker on the
-same Mac). Phone app connected (token from `~/.opentailcat-private/live-token.txt`);
-user opened `https://1.1.1.1`, `https://8.8.8.8`, `https://9.9.9.9` on the phone
-during the capture window. Pcaps are gitignored under `captures/`.
-
-**What was captured**
-
-| File | Where | How |
-|---|---|---|
-| `captures/gateway.pcap` | Inside the `warp` / tailcat container network namespace (after WireGuard decrypt, before WARP encapsulation) | `colima ssh` → `sudo nsenter -t $(docker inspect -f '{{.State.Pid}}' warp) -n tcpdump -i any -s 0 -w /tmp/p8cap/gateway.pcap` |
-| `captures/outer.pcap` | Colima **host** namespace (outer view: DERP/WARP/docker bridge — **not** the phone radio) | `colima ssh` → `sudo tcpdump -i any -s 0 -w /tmp/p8cap/outer.pcap` |
-
-Classic pcap (magic `a1b2c3d4`), link type LINUX_SLL2 (276). Sizes ~104 MB /
-~166 MB, ~136k / ~234k packets. Stopped with `pkill tcpdump`, copied out via
-`colima ssh cat`.
-
-**Counts (non-DNS probe dests only; DNS:53 to those IPs is ignored by the analyzer)**
-
-| File | `1.1.1.1` | `8.8.8.8` | `9.9.9.9` |
-|---|---|---|---|
-| gateway | 297 | 40 | 26 |
-| outer | 0 | 0 | 0 |
-
-Gateway flows are mostly `172.16.0.2 → 1.1.1.1/8.8.8.8/9.9.9.9:443` (TCP) plus
-ICMP to `1.1.1.1`. `172.16.0.2` is the WARP `tun0` address inside the netns —
-i.e. decrypted phone traffic being forwarded out the gateway path.
-
-**Analyzer (after SLL2 fix)**
-
-```bash
-scripts/phase8/analyze-uplink.sh \
-  captures/outer.pcap 1.1.1.1,8.8.8.8,9.9.9.9 captures/gateway.pcap
-# PASS uplink: probe destinations absent
-# PASS gateway: probe destinations present
-# exit 0
-
-# Control: gateway misused as uplink must fail
-scripts/phase8/analyze-uplink.sh \
-  captures/gateway.pcap 1.1.1.1,8.8.8.8,9.9.9.9 captures/gateway.pcap
-# FAIL uplink leak dests: [1.1.1.1 8.8.8.8 9.9.9.9]  exit 1
-```
-
-SLL2 bug fixed in `core-engine/phase8_pcap.go` (now `core-engine/phase8/pcap.go`): payload offset is a fixed
-header of 20 bytes; `12+addr_len` is wrong when `addr_len=0` (common on
-`tcpdump -i any` — all 463 probe packets in this gateway pcap had `addr_len=0`).
-Test covers `addr_len` 0 and 8. AAR rebuilt: sha256
-`986c21150a4da2890b78023523a9b2bd6415ddc68de301000e792af6c16a2436`,
-sourcehash `1916945b42a9ae78ffa2ad070752c1d60063f1276eaa5d968e2fb8af2764a075`.
-`scripts/phase8/run-host-gates.sh` green after the fix.
-
-**Scope (plain)**
-
-- Proven for this run: phone probe traffic reached the gateway and left toward
-  the probe destinations on the gateway path; cleartext probe dests were not
-  seen on the Colima host outer capture taken at the same time.
-- Not proven: that the **phone’s own radio / home AP** never saw cleartext
-  `1.1.1.1`. `outer.pcap` is this Mac’s outer interfaces, not the phone’s
-  Wi‑Fi hop. Session path was **DERP relay** (`path=relay nyc`, 0 direct peers),
-  so the phone’s first hop is Cloudflare, not this Mac. Full Phase 8 still needs
-  a simultaneous capture on the phone’s actual uplink (AP/next hop, or rooted
-  `wlan0`) paired with the gateway pcap, then the same analyzer invocation.
-- Synthetic `e2e-analyze.sh` and host gates are tooling only (see above).
-
-Commands used for host gates after the fix:
-
-```bash
-cd core-engine && GOPROXY=off go test ./... && GOPROXY=off go vet ./...
-bash core-engine/build-aar.sh
-scripts/phase8/run-host-gates.sh
-```
+The 2026-09-23 dual-capture run log is in
+[`docs/history/handoff-2026-09.md`](docs/history/handoff-2026-09.md).
 
 #### Release artifacts
 
@@ -821,7 +670,7 @@ cd ..
 # Inspect native API/ABIs after rebuilding
 unzip -l app/libs/libtailcat.aar
 # Extract classes.jar to a temporary directory, then:
-javap -classpath classes.jar com.tailcat.vpn.engine.Engine
+javap -classpath classes.jar com.tailcat.golib.engine.Engine
 
 # Verify repository state
 git status --short

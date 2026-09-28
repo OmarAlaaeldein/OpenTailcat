@@ -8,15 +8,15 @@ val enableAbiSplits = gradle.startParameter.taskNames.none { it.contains("bundle
 
 android {
     namespace = "com.tailcat.vpn"
-    compileSdk = 35
+    compileSdk = 37
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "com.tailcat.vpn"
         minSdk = 26
         targetSdk = 35
-        versionCode = 38
-        versionName = "1.4.0"
+        versionCode = 39
+        versionName = "1.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         if (!enableAbiSplits) {
