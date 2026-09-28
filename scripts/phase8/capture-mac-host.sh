@@ -1,16 +1,11 @@
 #!/usr/bin/env bash
-# One-shot Mac host capture (prompts for Mac admin password via sudo).
-# Uplink view: what arrives/leaves en0 while the phone probes.
+# One-shot uplink capture on a Mac that shares its Internet connection to the
+# phone (System Settings > General > Sharing > Internet Sharing), so the
+# phone's traffic crosses bridge100. The Mac's en0 on an ordinary Wi-Fi LAN
+# does not see the phone's frames. Prompts for the Mac admin password.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-OUT="${1:-$ROOT/captures/mac-en0.pcap}"
-SECONDS_LIMIT="${CAPTURE_SECONDS:-60}"
-mkdir -p "$(dirname "$OUT")"
-echo "Capturing en0 for ${SECONDS_LIMIT}s -> $OUT (enter Mac password if prompted)"
-sudo tcpdump -i en0 -s 0 -w "$OUT" "not port 22" &
-PID=$!
-sleep "$SECONDS_LIMIT"
-sudo kill "$PID" 2>/dev/null || kill "$PID" 2>/dev/null || true
-wait "$PID" 2>/dev/null || true
-ls -la "$OUT"
-echo "done"
+OUT="${1:-$ROOT/captures/uplink.pcap}"
+export CAPTURE_TOPOLOGY=internet-sharing
+export CAPTURE_SECONDS="${CAPTURE_SECONDS:-60}"
+exec "$ROOT/scripts/phase8/capture-uplink.sh" "$OUT"

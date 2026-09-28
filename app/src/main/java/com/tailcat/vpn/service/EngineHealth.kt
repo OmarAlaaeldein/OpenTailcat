@@ -6,7 +6,7 @@ import com.tailcat.vpn.core.model.TransportType
 object EngineHealth {
     /**
      * Consecutive HealthStale poll observations required before teardown.
-     * PumpFailed and TransportLost still tear down on the first observation.
+     * PumpFailed and GatewayLost still tear down on the first observation.
      * With a 1s metrics poll, three stale polls after the freshness window
      * already expired avoids single-sample flaps without hiding a dead engine.
      */
@@ -28,9 +28,6 @@ object EngineHealth {
         /** Native engine entered FAILED (a required packet pump exited). */
         data class PumpFailed(val detail: String?) : TeardownReason
 
-        /** Engine runs but Magicsock reports neither a direct endpoint nor DERP. */
-        data object TransportLost : TeardownReason
-
         /** No fresh native health heartbeat within the live window. */
         data class HealthStale(val ageSec: Long, val state: String) : TeardownReason
 
@@ -43,9 +40,6 @@ object EngineHealth {
         return metrics.isLiveRunning(nowUnixSec)
     }
 
-    fun shouldTearDown(metrics: NetworkMetrics, nowUnixSec: Long): Boolean =
-        teardownReason(metrics, nowUnixSec) != TeardownReason.Healthy
-
     /**
      * Whether a HealthStale observation should tear down after
      * [consecutiveStalePolls] inclusive counts (1 = this poll).
@@ -56,7 +50,7 @@ object EngineHealth {
     /**
      * Next consecutive HealthStale counter given this poll's [reason].
      * Non-stale reasons reset the counter to 0 (caller still applies
-     * immediate teardown for PumpFailed / TransportLost).
+     * immediate teardown for PumpFailed / GatewayLost).
      */
     fun nextStalePollCount(reason: TeardownReason, consecutiveStalePolls: Int): Int =
         if (reason is TeardownReason.HealthStale) consecutiveStalePolls + 1 else 0
@@ -64,9 +58,6 @@ object EngineHealth {
     fun teardownReason(metrics: NetworkMetrics, nowUnixSec: Long): TeardownReason {
         if (metrics.state == "FAILED") {
             return TeardownReason.PumpFailed(metrics.egressAuditError)
-        }
-        if (metrics.state == "RUNNING" && metrics.transportType == TransportType.UNKNOWN) {
-            return TeardownReason.TransportLost
         }
         if (!metrics.isLiveRunning(nowUnixSec)) {
             val age = (nowUnixSec - metrics.healthUnixSec).coerceAtLeast(0L)
@@ -87,7 +78,6 @@ object EngineHealth {
         is TeardownReason.PumpFailed ->
             if (reason.detail.isNullOrBlank()) "engine packet pump failed"
             else "engine packet pump failed: ${reason.detail}"
-        TeardownReason.TransportLost -> "transport lost (no direct or DERP path)"
         is TeardownReason.HealthStale -> "no fresh engine health for ${reason.ageSec}s (state ${reason.state})"
         is TeardownReason.GatewayLost -> "gateway not responding for ${reason.ageSec}s"
     }

@@ -35,8 +35,6 @@ const (
 	tcpDialTimeout    = 15 * time.Second
 	dnsTCPIOTimeout   = 10 * time.Second
 	udpDialTimeout    = 10 * time.Second
-	// Legacy short IPv6 budget (replaced by ipv6Egress fail-closed + full timeout).
-	ipv6DialTimeout = 250 * time.Millisecond
 
 	// maxActiveUDPFlows bounds the UDP flow table. Every Android app shares
 	// the single TUN source address, so the bound is device-wide: when it is
@@ -319,7 +317,7 @@ func (p *netstackProxy) writeLoop(ready chan struct{}) error {
 			packet.DecRef()
 			continue
 		}
-		p.bridge.rxBytes.Add(int64(len(out)))
+		n := len(out)
 		err := p.bridge.writeTunPacket(out)
 		view.Release()
 		packet.DecRef()
@@ -329,6 +327,7 @@ func (p *netstackProxy) writeLoop(ready chan struct{}) error {
 			}
 			return err
 		}
+		p.bridge.rxBytes.Add(int64(n))
 	}
 }
 
@@ -344,14 +343,6 @@ func (p *netstackProxy) resolveDNSDestination(dstAP netip.AddrPort) (netip.AddrP
 		return cfg.ForcedDNS, true
 	}
 	return netip.AddrPort{}, false
-}
-
-func dialTimeoutFor(dst netip.AddrPort, v4Timeout time.Duration) time.Duration {
-	// Public IPv6 without measured gateway WAN is fail-closed before dial.
-	// When ipv6Egress is true, use the same budget as IPv4 (DERP-relayed
-	// dual-stack paths need more than the historical 250ms fail-fast).
-	_ = dst
-	return v4Timeout
 }
 
 // rejectPublicIPv6WithoutEgress RSTs/drops Internet IPv6 when prepare measured
@@ -436,7 +427,7 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest, resolvedDst neti
 	dialed := make(chan dialResult, 1)
 	go func() {
 		defer p.recoverFlow("tcp dial")
-		ctx, cancel := context.WithTimeout(p.bridge.ctx, dialTimeoutFor(resolvedDst, tcpDialTimeout))
+		ctx, cancel := context.WithTimeout(p.bridge.ctx, tcpDialTimeout)
 		conn, err := p.bridge.client.DialTCP(ctx, resolvedDst)
 		cancel()
 		dialed <- dialResult{conn, err}
@@ -643,7 +634,7 @@ func (p *netstackProxy) dialAndRunUDPFlow(ctx context.Context, flow *udpFlow, re
 			p.udpWg.Done()
 		}
 	}()
-	dialCtx, dialCancel := context.WithTimeout(ctx, dialTimeoutFor(resolvedDst, udpDialTimeout))
+	dialCtx, dialCancel := context.WithTimeout(ctx, udpDialTimeout)
 	remoteConn, err := p.bridge.client.DialUDP(dialCtx, resolvedDst)
 	dialCancel()
 	if err != nil || isNilConn(remoteConn) {
@@ -790,7 +781,7 @@ type dnsTCPSession struct {
 }
 
 func (p *netstackProxy) startDNSOverTCP(ctx context.Context, dst netip.AddrPort, flow *udpFlow) (*dnsTCPSession, error) {
-	dialCtx, cancel := context.WithTimeout(ctx, dialTimeoutFor(dst, tcpDialTimeout))
+	dialCtx, cancel := context.WithTimeout(ctx, tcpDialTimeout)
 	defer cancel()
 	conn, err := p.bridge.client.DialTCP(dialCtx, dst)
 	if err != nil || isNilConn(conn) {
@@ -909,7 +900,6 @@ func (p *netstackProxy) runUDPFlow(ctx context.Context, flow *udpFlow, remoteCon
 				continue
 			}
 			flow.sent.Add(1)
-			p.bridge.txBytes.Add(int64(n))
 			if _, err := remoteConn.Write(buf[:n]); err != nil {
 				break
 			}
@@ -930,7 +920,6 @@ func (p *netstackProxy) runUDPFlow(ctx context.Context, flow *udpFlow, remoteCon
 			}
 			flow.touch()
 			flow.received.Add(1)
-			p.bridge.rxBytes.Add(int64(n))
 			if _, err := flow.localConn.Write(buf[:n]); err != nil {
 				break
 			}

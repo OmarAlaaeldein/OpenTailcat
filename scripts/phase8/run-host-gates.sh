@@ -14,7 +14,7 @@ echo "==> go test -race / vet"
 echo "==> phase8-analyze unit self-check"
 (
   cd core-engine
-  go test -count=1 -run 'TestProbeIPs' .
+  go test -count=1 ./phase8
 )
 
 echo "==> phase8-analyze synthetic e2e (not physical acceptance)"
@@ -57,9 +57,10 @@ else
 fi
 
 echo "==> host Phase 8 gates passed"
-echo "physical dual capture (still required for acceptance):"
-echo "  CAPTURE_IFACE=en0 scripts/phase8/capture-uplink.sh captures/uplink.pcap &"
-echo "  CAPTURE_IFACE=eth0 scripts/phase8/capture-gateway.sh captures/gateway.pcap &"
+echo "physical dual capture (still required for acceptance; uplink via Mac Internet"
+echo "Sharing bridge100, an AP mirror port, or a rooted wlan0 — see capture-uplink.sh -h):"
+echo "  DEVICE_IP=<phone IP> CAPTURE_SECONDS=60 scripts/phase8/capture-uplink.sh captures/uplink.pcap &"
+echo "  CAPTURE_IFACE=eth0 CAPTURE_SECONDS=60 scripts/phase8/capture-gateway.sh captures/gateway.pcap &  # on the gateway"
 echo "  scripts/phase8/generate-probes.sh"
-echo "  scripts/phase8/analyze-uplink.sh captures/uplink.pcap 1.1.1.1,8.8.8.8 captures/gateway.pcap"
+echo "  DEVICE_IP=<phone IP> TUNNEL_PEERS=<gateway/DERP IPs> scripts/phase8/analyze-uplink.sh captures/uplink.pcap 1.1.1.1,8.8.8.8 captures/gateway.pcap"
 echo "production signing still requires OPENTAILCAT_RELEASE_*"

@@ -36,8 +36,6 @@ class TrafficFormatTest {
             // WG peer counters unavailable — always 0 in production
             txBytes = 0,
             rxBytes = 0,
-            wireguardTxBytes = 0,
-            wireguardRxBytes = 0,
             // TUN accounting + rateCalcLoop are authoritative
             tunTxBytes = 480_000,
             tunRxBytes = 870_000,

@@ -1,3 +1,5 @@
+//lint:file-ignore SA1019 fixed test keys are built from raw bytes on purpose
+
 package engine
 
 import (
@@ -164,7 +166,7 @@ func TestChecksumCalculations(t *testing.T) {
 		t.Fatalf("IPv4 packet too short: %d", len(v4Pkt))
 	}
 
-	chk := ipv4Checksum(v4Pkt[:20])
+	chk := checksum(v4Pkt[:20])
 	if chk != 0 {
 		t.Errorf("IPv4 header checksum validation failed: %x", chk)
 	}
@@ -398,7 +400,7 @@ func TestPrepareUsesUpstreamUDPDial(t *testing.T) {
 
 	fake := &prepareTestClient{}
 	originalFactory := newTailcatClient
-	newTailcatClient = func(tailcat.ConnBlob) preparedClient { return fake }
+	newTailcatClient = func(tailcat.Addr) preparedClient { return fake }
 	defer func() {
 		newTailcatClient = originalFactory
 		_ = Stop()

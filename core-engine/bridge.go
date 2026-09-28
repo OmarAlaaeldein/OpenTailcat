@@ -76,7 +76,6 @@ type TunBridge struct {
 	rttMu       sync.Mutex
 	rttSamples  []int64
 	rttSampling atomic.Bool
-	pingFails   atomic.Int32
 
 	// Egress probe audit results
 	egressIP        atomic.Value // string
@@ -288,8 +287,7 @@ func panicSite() string {
 			base == "panicSite" ||
 			strings.HasSuffix(base, ".panicSite") ||
 			strings.Contains(base, "recoverFlow") ||
-			strings.Contains(base, "recoverPump") ||
-			strings.Contains(base, "recoverLikeProduction") {
+			strings.Contains(base, "recoverPump") {
 			if !more {
 				break
 			}
@@ -692,7 +690,6 @@ func (b *TunBridge) writeICMPv6PacketTooBig(pkt []byte, mtu int) {
 	pseudo[39] = 58
 	chk := checksum(pseudo, reply[40:])
 	binary.BigEndian.PutUint16(reply[42:44], chk)
-	b.rxBytes.Add(int64(len(reply)))
 	_ = b.writeTunPacket(reply)
 }
 
@@ -727,17 +724,18 @@ func (b *TunBridge) writeIPv4FragNeeded(pkt []byte, mtu int) {
 	reply[9] = 1
 	copy(reply[12:16], pkt[16:20])
 	copy(reply[16:20], pkt[12:16])
-	binary.BigEndian.PutUint16(reply[10:12], ipv4Checksum(reply[:20]))
+	binary.BigEndian.PutUint16(reply[10:12], checksum(reply[:20]))
 	reply[20] = 3
 	reply[21] = 4
 	binary.BigEndian.PutUint16(reply[26:28], uint16(mtu))
 	copy(reply[28:], pkt[:quoted])
 	icmpChk := checksum(reply[20:])
 	binary.BigEndian.PutUint16(reply[22:24], icmpChk)
-	b.rxBytes.Add(int64(len(reply)))
 	_ = b.writeTunPacket(reply)
 }
 
+// writeTunPacket writes pkt to the TUN. It does not count rxBytes: those
+// count only gateway traffic (writeLoop), not locally generated ICMP errors.
 func (b *TunBridge) writeTunPacket(pkt []byte) error {
 	b.tunWriteMu.Lock()
 	defer b.tunWriteMu.Unlock()
@@ -809,7 +807,6 @@ func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 						// not mark the session FAILED.
 						defer b.recoverPumpLogOnly("rtt sample")
 						defer b.rttSampling.Store(false)
-						b.sampleGatewayPing()
 						b.sampleLiveRTT()
 					}()
 				}
@@ -838,13 +835,11 @@ func (b *TunBridge) sampleLiveRTT() {
 	if err != nil || res == nil || res.LatencySeconds <= 0 {
 		// A failed DiscoPing must not kill a relayed tunnel: user traffic
 		// can flow over DERP while disco probes fail. Keep the last known
-		// transport, mark disco stale, and keep counting failures. Only a
-		// real required-pump exit marks FAILED via reportPumpDead.
+		// transport and mark disco stale. Only a real required-pump exit
+		// marks FAILED via reportPumpDead.
 		b.discoFresh.Store(false)
-		b.pingFails.Add(1)
 		return
 	}
-	b.pingFails.Store(0)
 	b.discoFresh.Store(true)
 	b.lastDiscoOK.Store(time.Now().Unix())
 	if b.onHealth != nil {
@@ -886,14 +881,6 @@ func (b *TunBridge) reprobeUDP() {
 	if prober.SupportsUDP(ctx) {
 		b.tcpOnly.Store(false)
 	}
-}
-
-func (b *TunBridge) sampleGatewayPing() {
-	// Client.Ping waits on a channel closed after the first Meowed reply.
-	// Subsequent calls can succeed without a fresh gateway observation, so
-	// this must not refresh health or clear ping failures (AUDIT H5).
-	// Liveness is owned by sampleLiveRTT / DiscoPing.
-	_ = b.client
 }
 
 // GetStats returns current measured metrics from the live bridge and client.
@@ -998,108 +985,15 @@ func (b *TunBridge) GetStats() EngineStats {
 		}
 	}
 
-	stats.TxBytes = stats.WireguardTxBytes
-	stats.RxBytes = stats.WireguardRxBytes
-
 	stats.RTTMs = b.currentRTTMs()
 	stats.JitterMs = b.currentJitterMs()
 
 	return stats
 }
 
-func buildIPv4UDPPacket(srcAP, dstAP netip.AddrPort, payload []byte) []byte {
-	totalLen := 20 + 8 + len(payload)
-	pkt := make([]byte, totalLen)
-
-	// IPv4 Header
-	pkt[0] = 0x45 // Version 4, IHL 5 (20 bytes)
-	pkt[1] = 0x00 // DSCP / ECN
-	binary.BigEndian.PutUint16(pkt[2:4], uint16(totalLen))
-	binary.BigEndian.PutUint16(pkt[4:6], 0x1234) // Identification
-	pkt[6] = 0x40                                // Don't fragment
-	pkt[7] = 0x00
-	pkt[8] = 64 // TTL
-	pkt[9] = 17 // Protocol UDP
-
-	srcBytes := srcAP.Addr().As4()
-	dstBytes := dstAP.Addr().As4()
-	copy(pkt[12:16], srcBytes[:])
-	copy(pkt[16:20], dstBytes[:])
-
-	ipChk := ipv4Checksum(pkt[:20])
-	binary.BigEndian.PutUint16(pkt[10:12], ipChk)
-
-	// UDP Header
-	binary.BigEndian.PutUint16(pkt[20:22], srcAP.Port())
-	binary.BigEndian.PutUint16(pkt[22:24], dstAP.Port())
-	binary.BigEndian.PutUint16(pkt[24:26], uint16(8+len(payload)))
-
-	// UDP Payload
-	copy(pkt[28:], payload)
-
-	// UDP Checksum with Pseudo-header
-	pseudo := make([]byte, 12)
-	copy(pseudo[0:4], srcBytes[:])
-	copy(pseudo[4:8], dstBytes[:])
-	pseudo[9] = 17
-	binary.BigEndian.PutUint16(pseudo[10:12], uint16(8+len(payload)))
-
-	udpChk := checksum(pseudo, pkt[20:])
-	binary.BigEndian.PutUint16(pkt[26:28], udpChk)
-
-	return pkt
-}
-
-func buildIPv6UDPPacket(srcAP, dstAP netip.AddrPort, payload []byte) []byte {
-	totalLen := 40 + 8 + len(payload)
-	pkt := make([]byte, totalLen)
-
-	// IPv6 Header
-	pkt[0] = 0x60 // Version 6
-	binary.BigEndian.PutUint16(pkt[4:6], uint16(8+len(payload)))
-	pkt[6] = 17 // Next header UDP
-	pkt[7] = 64 // Hop limit
-
-	srcBytes := srcAP.Addr().As16()
-	dstBytes := dstAP.Addr().As16()
-	copy(pkt[8:24], srcBytes[:])
-	copy(pkt[24:40], dstBytes[:])
-
-	// UDP Header
-	binary.BigEndian.PutUint16(pkt[40:42], srcAP.Port())
-	binary.BigEndian.PutUint16(pkt[42:44], dstAP.Port())
-	binary.BigEndian.PutUint16(pkt[44:46], uint16(8+len(payload)))
-
-	// UDP Payload
-	copy(pkt[48:], payload)
-
-	// UDP Checksum with IPv6 Pseudo-header
-	pseudo := make([]byte, 40)
-	copy(pseudo[0:16], srcBytes[:])
-	copy(pseudo[16:32], dstBytes[:])
-	binary.BigEndian.PutUint32(pseudo[32:36], uint32(8+len(payload)))
-	pseudo[39] = 17
-
-	udpChk := checksum(pseudo, pkt[40:])
-	binary.BigEndian.PutUint16(pkt[46:48], udpChk)
-
-	return pkt
-}
-
-func ipv4Checksum(b []byte) uint16 {
-	var sum uint32
-	for i := 0; i < len(b)-1; i += 2 {
-		sum += uint32(binary.BigEndian.Uint16(b[i : i+2]))
-	}
-	if len(b)%2 == 1 {
-		sum += uint32(b[len(b)-1]) << 8
-	}
-	for sum > 0xffff {
-		sum = (sum >> 16) + (sum & 0xffff)
-	}
-	return ^uint16(sum)
-}
-
+// checksum is the Internet checksum (RFC 1071) over parts, each of even
+// length except the last. Over data that includes its checksum field it is
+// 0 when the checksum is valid.
 func checksum(parts ...[]byte) uint16 {
 	var sum uint32
 	for _, b := range parts {
@@ -1113,9 +1007,5 @@ func checksum(parts ...[]byte) uint16 {
 	for sum > 0xffff {
 		sum = (sum >> 16) + (sum & 0xffff)
 	}
-	res := ^uint16(sum)
-	if res == 0 {
-		return 0xffff
-	}
-	return res
+	return ^uint16(sum)
 }

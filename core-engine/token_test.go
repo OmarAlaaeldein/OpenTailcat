@@ -69,10 +69,10 @@ func TestVerifyCanonicalFixtures(t *testing.T) {
 				t.Errorf("[%s] HasEmbeddedRegion mismatch: expected %v, got %v", f.Name, f.HasEmbeddedRegion, pt.HasEmbeddedRegion)
 			}
 
-			// Must be accepted directly by upstream tailcat.ParseConnBlob
-			ci, err := tailcat.ParseConnBlob(tailcat.ConnBlob(f.Token))
+			// Must be accepted directly by upstream tailcat.ParseAddr
+			ci, err := tailcat.ParseAddr(tailcat.Addr(f.Token))
 			if err != nil {
-				t.Errorf("[%s] Upstream ParseConnBlob failed on valid token: %v", f.Name, err)
+				t.Errorf("[%s] Upstream ParseAddr failed on valid token: %v", f.Name, err)
 			}
 			if ci.ServerPublic.NodePublic.String() != pt.ServerPublic.String() {
 				t.Errorf("[%s] Upstream NodePublic mismatch", f.Name)

@@ -219,7 +219,7 @@ func readTunWrite(r *os.File, timeout time.Duration) []byte {
 func clearIPv4DF(pkt []byte) {
 	pkt[6] &^= 0x40
 	pkt[10], pkt[11] = 0, 0
-	binary.BigEndian.PutUint16(pkt[10:12], ipv4Checksum(pkt[:20]))
+	binary.BigEndian.PutUint16(pkt[10:12], checksum(pkt[:20]))
 }
 
 func countingUDPClient(dials *atomic.Int32) *mockTunnelClient {
@@ -338,7 +338,7 @@ func fragmentIPv4(pkt []byte, firstPayload int) [][]byte {
 		binary.BigEndian.PutUint16(f[4:6], 0x4242)
 		binary.BigEndian.PutUint16(f[6:8], flags)
 		f[10], f[11] = 0, 0
-		binary.BigEndian.PutUint16(f[10:12], ipv4Checksum(f[:20]))
+		binary.BigEndian.PutUint16(f[10:12], checksum(f[:20]))
 		return f
 	}
 	return [][]byte{build(data[:firstPayload], 0, true), build(data[firstPayload:], firstPayload, false)}
@@ -658,7 +658,7 @@ func TestTruncateDNSForUDPHonorsClientLimit(t *testing.T) {
 func TestExportedPrepareRecoversPanicAndResets(t *testing.T) {
 	_ = Stop()
 	original := newTailcatClient
-	newTailcatClient = func(tailcat.ConnBlob) preparedClient { panic("boom") }
+	newTailcatClient = func(tailcat.Addr) preparedClient { panic("boom") }
 	t.Cleanup(func() {
 		newTailcatClient = original
 		_ = Stop()
@@ -672,7 +672,7 @@ func TestExportedPrepareRecoversPanicAndResets(t *testing.T) {
 		t.Fatalf("state after contained panic = %v, want STOPPED", st)
 	}
 
-	newTailcatClient = func(tailcat.ConnBlob) preparedClient { return &prepareTestClient{} }
+	newTailcatClient = func(tailcat.Addr) preparedClient { return &prepareTestClient{} }
 	if err := Prepare(officialTestToken(t)); err != nil {
 		t.Fatalf("Prepare after a contained panic: %v", err)
 	}

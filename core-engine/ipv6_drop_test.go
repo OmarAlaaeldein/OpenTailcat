@@ -538,7 +538,7 @@ func buildIPv4TCPSyn(srcAP, dstAP netip.AddrPort) []byte {
 	dst := dstAP.Addr().As4()
 	copy(pkt[12:16], src[:])
 	copy(pkt[16:20], dst[:])
-	binary.BigEndian.PutUint16(pkt[10:12], ipv4Checksum(pkt[:20]))
+	binary.BigEndian.PutUint16(pkt[10:12], checksum(pkt[:20]))
 	binary.BigEndian.PutUint16(pkt[20:22], srcAP.Port())
 	binary.BigEndian.PutUint16(pkt[22:24], dstAP.Port())
 	binary.BigEndian.PutUint32(pkt[24:28], 1)
@@ -589,7 +589,7 @@ func buildIPv4ICMPEcho(src, dst netip.Addr, payload []byte) []byte {
 	dstB := dst.As4()
 	copy(pkt[12:16], srcB[:])
 	copy(pkt[16:20], dstB[:])
-	binary.BigEndian.PutUint16(pkt[10:12], ipv4Checksum(pkt[:20]))
+	binary.BigEndian.PutUint16(pkt[10:12], checksum(pkt[:20]))
 	pkt[20] = 8
 	copy(pkt[28:], payload)
 	chk := checksum(pkt[20:])

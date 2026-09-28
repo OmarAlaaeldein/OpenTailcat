@@ -46,8 +46,19 @@ func TestAuthoritativeWireGuardVsTUNCounters(t *testing.T) {
 	if stats.TxBytes != 0 || stats.RxBytes != 0 {
 		t.Fatalf("TxBytes/RxBytes must not fall back to TUN: tx=%d rx=%d", stats.TxBytes, stats.RxBytes)
 	}
-	if stats.WireguardTxBytes != 0 || stats.WireguardRxBytes != 0 {
-		t.Fatalf("WireGuard counters must stay zero without a Client.Status API: tx=%d rx=%d", stats.WireguardTxBytes, stats.WireguardRxBytes)
+	raw, err := json.Marshal(stats)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	// Never-measured fields are absent rather than a synthetic 0.
+	for _, k := range []string{"lastHandshakeSec", "wireguardTxBytes", "wireguardRxBytes", "directEndpoint"} {
+		if _, ok := fields[k]; ok {
+			t.Fatalf("stats JSON has unmeasured field %q: %s", k, raw)
+		}
 	}
 }
 
@@ -60,9 +71,6 @@ func TestSessionTransportIsReported(t *testing.T) {
 	stats := bridge.GetStats()
 	if stats.Transport != "DERP_RELAY" {
 		t.Fatalf("expected DERP_RELAY, got %s", stats.Transport)
-	}
-	if stats.DirectEndpoint != "" {
-		t.Fatalf("expected empty direct endpoint, got %s", stats.DirectEndpoint)
 	}
 
 	bridge.transport = "DIRECT_P2P"
@@ -369,9 +377,8 @@ func TestRateCalcLoopFromTunCounters(t *testing.T) {
 	if stats.TunTxBytes != 50_000 || stats.TunRxBytes != 100_000 {
 		t.Fatalf("TUN counters mismatch: tx=%d rx=%d", stats.TunTxBytes, stats.TunRxBytes)
 	}
-	// Schema rule: txBytes/rxBytes stay WireGuard-only (0 without Status API).
+	// Schema rule: txBytes/rxBytes never fall back to TUN counters.
 	if stats.TxBytes != 0 || stats.RxBytes != 0 {
 		t.Fatalf("txBytes/rxBytes must remain WG zeros, got tx=%d rx=%d", stats.TxBytes, stats.RxBytes)
 	}
 }
-

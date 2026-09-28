@@ -181,7 +181,7 @@ func Prepare(tokenStr string) (err error) {
 
 	closeSession(prev)
 
-	client := newTailcatClient(tailcat.ConnBlob(pt.RawToken))
+	client := newTailcatClient(tailcat.Addr(pt.RawToken))
 
 	pingCtx, pingCancel := context.WithTimeout(sess.ctx, 10*time.Second)
 	res, err := client.Ping(pingCtx)

@@ -1,9 +1,10 @@
 package com.tailcat.vpn.service
 
 import com.tailcat.vpn.core.model.NetworkMetrics
+import com.tailcat.vpn.engine.Engine
+import com.tailcat.vpn.engine.SocketProtector
+import com.tailcat.vpn.engine.SpeedProgress
 import org.json.JSONObject
-import java.lang.reflect.InvocationTargetException
-import java.lang.reflect.Method
 
 data class EngineAvailability(
     val isAvailable: Boolean,
@@ -89,7 +90,7 @@ data class EngineCapabilities(
 }
 
 /**
- * Fail-closed boundary around the optional Go Mobile AAR.
+ * Fail-closed boundary around the Go Mobile AAR.
  *
  * A compatible engine must explicitly advertise a working data plane with complete
  * protocol capabilities (API v2). Bundling a scaffold, outdated AAR, or incomplete
@@ -97,131 +98,90 @@ data class EngineCapabilities(
  */
 class TunnelEngine : NativeEngine {
 
-    private val engineClass: Class<*>? by lazy {
-        ENGINE_CLASS_NAMES.firstNotNullOfOrNull { name ->
-            runCatching { Class.forName(name) }.getOrNull()
-        }
-    }
-
-    private val methodCache = java.util.concurrent.ConcurrentHashMap<String, Method>()
+    /** False when the Go library cannot be loaded (for example on a host JVM). */
+    private val loaded: Boolean by lazy { runCatching { Engine.touch() }.isSuccess }
 
     override val availability: EngineAvailability by lazy { inspectAvailability() }
 
     override fun prepare(token: String) {
         check(availability.isAvailable) { availability.message }
         require(token.isNotBlank()) { "Connection token is empty" }
-        invoke(requireMethod("prepare", parameterCount = 1), token)
+        call("prepare") { Engine.prepare(token) }
     }
 
     override fun attachTun(tunFd: Int) {
         check(availability.isAvailable) { availability.message }
         require(tunFd >= 0) { "Invalid TUN file descriptor" }
-        val method = requireMethod("attachTun", parameterCount = 1)
-        val fdArgument: Any = when (method.parameterTypes.firstOrNull()) {
-            java.lang.Long.TYPE, java.lang.Long::class.java -> tunFd.toLong()
-            else -> tunFd
-        }
-        invoke(method, fdArgument)
+        call("attachTun") { Engine.attachTun(tunFd.toLong()) }
     }
 
     override fun detachTun() {
-        val klass = engineClass ?: return
-        val method = klass.methods.firstOrNull {
-            it.name.equals("detachTun", ignoreCase = true) && it.parameterCount == 0
-        } ?: return
-        invoke(method)
+        if (!loaded) return
+        call("detachTun") { Engine.detachTun() }
     }
 
     override fun disarmPumps() {
-        val klass = engineClass ?: return
-        val method = klass.methods.firstOrNull {
-            it.name.equals("disarmPumps", ignoreCase = true) && it.parameterCount == 0
-        } ?: return
-        invoke(method)
+        if (!loaded) return
+        call("disarmPumps") { Engine.disarmPumps() }
     }
 
     override fun setSocketProtector(protect: (Int) -> Boolean) {
-        val klass = engineClass ?: return
-        val setter = klass.methods.firstOrNull {
-            it.name.equals("setSocketProtector", ignoreCase = true) && it.parameterCount == 1
-        } ?: return
-        val iface = setter.parameterTypes.firstOrNull() ?: return
-        val proxy = java.lang.reflect.Proxy.newProxyInstance(
-            iface.classLoader,
-            arrayOf(iface)
-        ) { self, method, args ->
-            when {
-                method.name.equals("protect", ignoreCase = true) && !args.isNullOrEmpty() ->
-                    protect((args[0] as Number).toInt())
-                method.name == "toString" -> "SocketProtector"
-                method.name == "hashCode" -> System.identityHashCode(self)
-                method.name == "equals" -> self === args.getOrNull(0)
-                else -> null
-            }
+        if (!loaded) return
+        call("setSocketProtector") {
+            Engine.setSocketProtector(SocketProtector { fd -> protect(fd.toInt()) })
         }
-        invoke(setter, proxy)
     }
 
     override fun ensureTransportProtect() {
-        val klass = engineClass ?: return
-        val method = klass.methods.firstOrNull {
-            it.name.equals("ensureTransportProtect", ignoreCase = true) && it.parameterCount == 0
-        } ?: return
-        invoke(method)
+        if (!loaded) return
+        call("ensureTransportProtect") { Engine.ensureTransportProtect() }
     }
 
     override fun updateNetworkState(networkStateJson: String) {
-        val klass = engineClass ?: return
-        val method = klass.methods.firstOrNull {
-            it.name.equals("updateNetworkState", ignoreCase = true) && it.parameterCount == 1
-        } ?: return
-        runCatching { invoke(method, networkStateJson) }
+        if (!loaded) return
+        runCatching { call("updateNetworkState") { Engine.updateNetworkState(networkStateJson) } }
     }
 
     override fun stop() {
-        val klass = engineClass ?: return
-        val method = klass.methods.firstOrNull {
-            it.name.equals("stop", ignoreCase = true) && it.parameterCount == 0
-        } ?: return
-        invoke(method)
+        if (!loaded) return
+        call("stop") { Engine.stop() }
     }
 
     override fun getStats(): NetworkMetrics {
         check(availability.isAvailable) { availability.message }
-        val raw = invoke(requireMethod("getStatsJSON", parameterCount = 0)) as? String
+        val raw = call("getStatsJSON") { Engine.getStatsJSON() }
             ?: error("Tunnel engine returned invalid telemetry")
         return NetworkMetrics.fromJson(raw)
     }
 
     override fun measureTunnelPingMs(): Long {
         check(availability.isAvailable) { availability.message }
-        val value = invoke(requireMethod("measureTunnelPingMS", parameterCount = 0))
-        return (value as? Number)?.toLong() ?: error("Tunnel ping returned invalid data")
+        return call("measureTunnelPingMS") { Engine.measureTunnelPingMS() }
     }
 
-    override fun measureTunnelDownloadMbps(): Double {
+    override fun measureTunnelDownloadMbps(onProgress: (Double, Float) -> Unit): Double {
         check(availability.isAvailable) { availability.message }
-        val value = invoke(requireMethod("measureTunnelDownloadMbps", parameterCount = 0))
-        return (value as? Number)?.toDouble() ?: error("Tunnel download returned invalid data")
+        return call("measureTunnelDownloadMbps") { Engine.measureTunnelDownloadMbps(speedProgress(onProgress)) }
     }
 
-    override fun measureTunnelUploadMbps(): Double {
+    override fun measureTunnelUploadMbps(onProgress: (Double, Float) -> Unit): Double {
         check(availability.isAvailable) { availability.message }
-        val value = invoke(requireMethod("measureTunnelUploadMbps", parameterCount = 0))
-        return (value as? Number)?.toDouble() ?: error("Tunnel upload returned invalid data")
+        return call("measureTunnelUploadMbps") { Engine.measureTunnelUploadMbps(speedProgress(onProgress)) }
     }
+
+    private fun speedProgress(onProgress: (Double, Float) -> Unit) =
+        SpeedProgress { mbps, fraction -> onProgress(mbps, fraction.toFloat()) }
 
     private fun inspectAvailability(): EngineAvailability {
-        val klass = engineClass ?: return EngineAvailability(
-            isAvailable = false,
-            message = "VPN engine is not installed in this build"
-        )
+        if (!loaded) {
+            return EngineAvailability(
+                isAvailable = false,
+                message = "VPN engine is not installed in this build"
+            )
+        }
 
         return runCatching {
-            val capabilitiesMethod = klass.methods.firstOrNull {
-                it.name.equals("getCapabilitiesJSON", ignoreCase = true) && it.parameterCount == 0
-            } ?: error("VPN engine does not expose a capability handshake")
-            val raw = invoke(capabilitiesMethod) as? String
+            val raw = call("getCapabilitiesJSON") { Engine.getCapabilitiesJSON() }
                 ?: error("VPN engine returned invalid capabilities")
             val caps = EngineCapabilities.fromJson(raw)
 
@@ -244,40 +204,22 @@ class TunnelEngine : NativeEngine {
                 error("VPN engine data plane is not production-ready (missing: ${missing.joinToString(", ")})")
             }
 
-            requireMethod("prepare", parameterCount = 1)
-            requireMethod("attachTun", parameterCount = 1)
-            requireMethod("getStatsJSON", parameterCount = 0)
-            requireMethod("stop", parameterCount = 0)
             EngineAvailability(true, "VPN engine ready", testRouting = caps.testRouting)
         }.getOrElse { EngineAvailability(false, it.message ?: "VPN engine is unavailable") }
     }
 
-    private fun requireMethod(name: String, parameterCount: Int): Method {
-        val cacheKey = "$name:$parameterCount"
-        methodCache[cacheKey]?.let { return it }
-        val klass = engineClass ?: error("VPN engine is not installed in this build")
-        val method = klass.methods.firstOrNull {
-            it.name.equals(name, ignoreCase = true) && it.parameterCount == parameterCount
-        } ?: error("VPN engine is missing $name")
-        methodCache[cacheKey] = method
-        return method
-    }
-
-    private fun invoke(method: Method, vararg arguments: Any): Any? {
+    /**
+     * Go errors arrive as checked exceptions; callers expect
+     * IllegalStateException with the Go message. A LinkageError means this
+     * AAR lacks the method, which no retry can fix.
+     */
+    private inline fun <T> call(name: String, block: () -> T): T {
         return try {
-            method.invoke(null, *arguments)
-        } catch (error: InvocationTargetException) {
-            throw IllegalStateException(
-                error.targetException?.message ?: "VPN engine operation failed",
-                error.targetException ?: error
-            )
+            block()
+        } catch (error: LinkageError) {
+            throw IllegalStateException("VPN engine is missing $name", error)
+        } catch (error: Exception) {
+            throw IllegalStateException(error.message ?: "VPN engine operation failed", error)
         }
-    }
-
-    companion object {
-        private val ENGINE_CLASS_NAMES = listOf(
-            "engine.Engine",
-            "com.tailcat.vpn.engine.Engine"
-        )
     }
 }

@@ -14,6 +14,7 @@ interface NativeEngine {
     fun setSocketProtector(protect: (Int) -> Boolean)
     fun ensureTransportProtect()
     fun measureTunnelPingMs(): Long
-    fun measureTunnelDownloadMbps(): Double
-    fun measureTunnelUploadMbps(): Double
+    /** [onProgress] receives the running Mbps and the elapsed share (0..1) of the test window. */
+    fun measureTunnelDownloadMbps(onProgress: (mbps: Double, fraction: Float) -> Unit): Double
+    fun measureTunnelUploadMbps(onProgress: (mbps: Double, fraction: Float) -> Unit): Double
 }

@@ -5,7 +5,9 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"os"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -103,5 +105,97 @@ func TestLinkQueueDropsAreCounted(t *testing.T) {
 	pkts.Reset()
 	if n != 1 || drops.Load() != 2 {
 		t.Fatalf("wrote %d and counted %d drops; want 1 written and 2 drops for a queue of 1", n, drops.Load())
+	}
+}
+
+// TestTunByteCountersCountEachPacketOnce checks that TUN bytes are counted
+// once, where packets cross the TUN, and that a locally generated ICMP error
+// is not counted as received traffic.
+func TestTunByteCountersCountEachPacketOnce(t *testing.T) {
+	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_DGRAM, 0)
+	if err != nil {
+		t.Fatalf("socketpair: %v", err)
+	}
+	for _, fd := range fds {
+		if err := syscall.SetNonblock(fd, true); err != nil {
+			t.Fatalf("set non-blocking: %v", err)
+		}
+	}
+	app := os.NewFile(uintptr(fds[0]), "app")
+	tun := os.NewFile(uintptr(fds[1]), "tun")
+	defer app.Close()
+
+	// The gateway echoes every datagram.
+	echoDial := func(context.Context, netip.AddrPort) (net.Conn, error) {
+		c, s := net.Pipe()
+		go func() {
+			_, _ = io.Copy(s, s)
+			_ = s.Close()
+		}()
+		return c, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	b := &TunBridge{
+		sessionID: 1,
+		tunFile:   tun,
+		client:    &mockTunnelClient{dialUDPFn: echoDial},
+		mtu:       1280,
+		ctx:       ctx,
+		cancel:    cancel,
+	}
+	proxy, err := newNetstackProxy(b)
+	if err != nil {
+		t.Fatalf("newNetstackProxy: %v", err)
+	}
+	b.netstack = proxy
+	go func() { _ = b.readLoop(nil) }()
+	go func() { _ = proxy.writeLoop(nil) }()
+	defer func() {
+		b.closed.Store(true)
+		cancel()
+		_ = tun.Close()
+		proxy.Close()
+	}()
+
+	src := netip.MustParseAddrPort("100.64.0.2:40000")
+	dst := netip.MustParseAddrPort("198.51.100.1:5000")
+	out := buildIPv4UDPPacket(src, dst, []byte("payload"))
+	if _, err := app.Write(out); err != nil {
+		t.Fatalf("write to TUN: %v", err)
+	}
+	buf := make([]byte, 2048)
+	_ = app.SetReadDeadline(time.Now().Add(3 * time.Second))
+	n, err := app.Read(buf)
+	if err != nil {
+		t.Fatalf("read echoed datagram from TUN: %v", err)
+	}
+	reply := n
+	waitAtomic(t, &b.rxBytes, int64(reply), 2*time.Second, "rxBytes for the reply")
+	time.Sleep(100 * time.Millisecond)
+	if got := b.txBytes.Load(); got != int64(len(out)) {
+		t.Fatalf("txBytes = %d, want %d (one outbound packet)", got, len(out))
+	}
+	if got := b.rxBytes.Load(); got != int64(reply) {
+		t.Fatalf("rxBytes = %d, want %d (one reply packet)", got, reply)
+	}
+
+	// An oversized DF datagram is refused with a local ICMP error.
+	big := buildIPv4UDPPacket(src, dst, make([]byte, 1300))
+	if _, err := app.Write(big); err != nil {
+		t.Fatalf("write oversized packet: %v", err)
+	}
+	_ = app.SetReadDeadline(time.Now().Add(3 * time.Second))
+	n, err = app.Read(buf)
+	if err != nil {
+		t.Fatalf("read ICMP error from TUN: %v", err)
+	}
+	if n < 21 || buf[9] != 1 || buf[20] != 3 {
+		t.Fatalf("expected ICMP Destination Unreachable, got %d bytes proto %d", n, buf[9])
+	}
+	if got := b.txBytes.Load(); got != int64(len(out)+len(big)) {
+		t.Fatalf("txBytes = %d, want %d", got, len(out)+len(big))
+	}
+	if got := b.rxBytes.Load(); got != int64(reply) {
+		t.Fatalf("rxBytes = %d after a local ICMP error, want %d", got, reply)
 	}
 }

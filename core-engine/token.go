@@ -95,7 +95,7 @@ func (t *ParsedToken) IsConnectable() bool {
 }
 
 // ParseToken parses and classifies a Tailcat connection token using upstream Tailcat v0.4.0
-// ParseConnBlob as the authority. No silent trimming or mutations are performed.
+// ParseAddr as the authority. No silent trimming or mutations are performed.
 func ParseToken(raw string) (_ *ParsedToken, err error) {
 	defer recoverExported("ParseToken", &err)
 	if len(raw) == 0 {
@@ -544,8 +544,8 @@ func ParseToken(raw string) (_ *ParsedToken, err error) {
 		pt.Classification = ClassificationValidOfficialShort
 	}
 
-	// 6. Verify that upstream tailcat.ParseConnBlob accepts this exact unmutated token
-	ci, err := tailcat.ParseConnBlob(tailcat.ConnBlob(raw))
+	// 6. Verify that upstream tailcat.ParseAddr accepts this exact unmutated token
+	ci, err := tailcat.ParseAddr(tailcat.Addr(raw))
 	if err != nil {
 		pt.Classification = ClassificationInvalid
 		pt.ErrorCode = ErrCborMalformed

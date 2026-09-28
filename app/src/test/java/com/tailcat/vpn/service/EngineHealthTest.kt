@@ -27,7 +27,6 @@ class EngineHealthTest {
     fun healthyRunningIsNotTornDown() {
         val m = metrics(healthUnixSec = 1_000L)
         assertEquals(EngineHealth.TeardownReason.Healthy, EngineHealth.teardownReason(m, 1_002L))
-        assertFalse(EngineHealth.shouldTearDown(m, 1_002L))
         assertTrue(EngineHealth.shouldConnect(m, 1_002L))
     }
 
@@ -37,22 +36,8 @@ class EngineHealthTest {
         val reason = EngineHealth.teardownReason(m, 1_002L)
         assertTrue(reason is EngineHealth.TeardownReason.PumpFailed)
         assertEquals("gVisor output pump exited", (reason as EngineHealth.TeardownReason.PumpFailed).detail)
-        assertTrue(EngineHealth.shouldTearDown(m, 1_002L))
         assertTrue(
             EngineHealth.shortCause(reason).contains("engine packet pump failed")
-        )
-    }
-
-    @Test
-    fun runningWithoutTransportReportsTransportLost() {
-        val m = metrics(transport = TransportType.UNKNOWN)
-        assertEquals(
-            EngineHealth.TeardownReason.TransportLost,
-            EngineHealth.teardownReason(m, 1_002L)
-        )
-        assertTrue(EngineHealth.shouldTearDown(m, 1_002L))
-        assertTrue(
-            EngineHealth.shortCause(EngineHealth.TeardownReason.TransportLost).contains("transport lost")
         )
     }
 
@@ -64,7 +49,6 @@ class EngineHealthTest {
         val stale = reason as EngineHealth.TeardownReason.HealthStale
         assertEquals(100L, stale.ageSec)
         assertEquals("RUNNING", stale.state)
-        assertTrue(EngineHealth.shouldTearDown(m, 1_000L))
         assertTrue(EngineHealth.shortCause(reason).contains("100s"))
     }
 
@@ -74,7 +58,6 @@ class EngineHealthTest {
             EngineHealth.TeardownReason.Healthy,
             EngineHealth.TeardownReason.PumpFailed(null),
             EngineHealth.TeardownReason.PumpFailed("boom"),
-            EngineHealth.TeardownReason.TransportLost,
             EngineHealth.TeardownReason.HealthStale(7L, "PREPARED")
         )
         for (reason in reasons) {
@@ -89,13 +72,12 @@ class EngineHealthTest {
         val m = metrics(healthUnixSec = 1_000L)
         assertEquals(EngineHealth.TeardownReason.Healthy, EngineHealth.teardownReason(m, 1_006L))
         assertTrue(EngineHealth.shouldConnect(m, 1_006L))
-        assertFalse(EngineHealth.shouldTearDown(m, 1_006L))
     }
 
     @Test
     fun healthBeyondWindowIsStaleButNeedsConsecutivePolls() {
         val m = metrics(healthUnixSec = 1_000L)
-        val now = 1_000L + com.tailcat.vpn.core.model.NetworkMetrics.DEFAULT_HEALTH_MAX_AGE_SEC + 1L
+        val now = 1_000L + NetworkMetrics.DEFAULT_HEALTH_MAX_AGE_SEC + 1L
         val reason = EngineHealth.teardownReason(m, now)
         assertTrue(reason is EngineHealth.TeardownReason.HealthStale)
         assertFalse(EngineHealth.stalePollsRequireTeardown(1))
@@ -109,7 +91,6 @@ class EngineHealthTest {
         assertEquals(1, EngineHealth.nextStalePollCount(EngineHealth.TeardownReason.HealthStale(6L, "RUNNING"), 0))
         assertEquals(3, EngineHealth.nextStalePollCount(EngineHealth.TeardownReason.HealthStale(6L, "RUNNING"), 2))
         assertEquals(0, EngineHealth.nextStalePollCount(EngineHealth.TeardownReason.Healthy, 2))
-        assertEquals(0, EngineHealth.nextStalePollCount(EngineHealth.TeardownReason.TransportLost, 2))
         assertEquals(0, EngineHealth.nextStalePollCount(EngineHealth.TeardownReason.PumpFailed("x"), 2))
     }
 
@@ -119,7 +100,7 @@ class EngineHealthTest {
         val reason = EngineHealth.teardownReason(m, 1_002L)
         assertTrue(reason is EngineHealth.TeardownReason.PumpFailed)
         // Immediate path: caller tears down without waiting for stale polls.
-        assertTrue(EngineHealth.shouldTearDown(m, 1_002L))
+        assertEquals(0, EngineHealth.nextStalePollCount(reason, 2))
     }
 
     @Test

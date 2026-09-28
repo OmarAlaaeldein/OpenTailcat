@@ -110,7 +110,7 @@ func buildIPv4TCPAck(srcAP, dstAP netip.AddrPort, seq, ack uint32) []byte {
 	dst := dstAP.Addr().As4()
 	copy(pkt[12:16], src[:])
 	copy(pkt[16:20], dst[:])
-	binary.BigEndian.PutUint16(pkt[10:12], ipv4Checksum(pkt[:20]))
+	binary.BigEndian.PutUint16(pkt[10:12], checksum(pkt[:20]))
 	binary.BigEndian.PutUint16(pkt[20:22], srcAP.Port())
 	binary.BigEndian.PutUint16(pkt[22:24], dstAP.Port())
 	binary.BigEndian.PutUint32(pkt[24:28], seq)
@@ -220,8 +220,8 @@ func TestIsNilConn(t *testing.T) {
 //go:noinline
 func panicSiteHelper() { panic("boom") }
 
-// recoverLikeProduction mirrors recoverFlow/recoverPump nesting so panicSite
-// is exercised the same way as on device.
+// recoverLikeProduction calls panicSite from a deferred recover, as
+// recoverFlow/recoverPump do; panicSite skips its caller's frame.
 func recoverLikeProduction(site *string) {
 	if recover() != nil {
 		*site = panicSite()

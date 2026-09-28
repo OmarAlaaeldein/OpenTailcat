@@ -864,22 +864,3 @@ func waitAtomic32(t *testing.T, v *atomic.Int32, want int32, timeout time.Durati
 	}
 	t.Fatalf("timed out waiting for %s (got %d, want %d)", what, v.Load(), want)
 }
-
-func TestDialTimeoutForMatchesFamilyBudget(t *testing.T) {
-	v6 := netip.MustParseAddrPort("[2606:4700:4700::1111]:443")
-	v4 := netip.MustParseAddrPort("1.1.1.1:443")
-	// Fail-closed without egress replaces the old 250ms IPv6 budget; with
-	// egress, IPv6 uses the same dial timeout as IPv4.
-	if got := dialTimeoutFor(v6, tcpDialTimeout); got != tcpDialTimeout {
-		t.Fatalf("ipv6 tcp timeout %v, want %v", got, tcpDialTimeout)
-	}
-	if got := dialTimeoutFor(v4, tcpDialTimeout); got != tcpDialTimeout {
-		t.Fatalf("ipv4 tcp timeout %v, want %v", got, tcpDialTimeout)
-	}
-	if got := dialTimeoutFor(v6, udpDialTimeout); got != udpDialTimeout {
-		t.Fatalf("ipv6 udp timeout %v, want %v", got, udpDialTimeout)
-	}
-	if got := dialTimeoutFor(v4, udpDialTimeout); got != udpDialTimeout {
-		t.Fatalf("ipv4 udp timeout %v, want %v", got, udpDialTimeout)
-	}
-}

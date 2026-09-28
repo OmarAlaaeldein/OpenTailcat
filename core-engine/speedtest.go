@@ -41,7 +41,52 @@ func MeasureTunnelPingMS() (_ int64, err error) {
 	return ms, nil
 }
 
-func MeasureTunnelDownloadMbps() (_ float64, err error) {
+// SpeedProgress receives the running rate of a tunnel speed test so the UI
+// gauge can move during the measurement. fraction is the elapsed share of the
+// measurement window, from 0 to 1.
+type SpeedProgress interface {
+	OnProgress(mbps float64, fraction float64)
+}
+
+const (
+	speedProgressInterval = 250 * time.Millisecond
+	// The first moments of a transfer mostly measure TCP slow start.
+	speedProgressWarmup = 300 * time.Millisecond
+)
+
+// speedMeter reports a transfer's running rate to p at most every
+// speedProgressInterval. A nil p reports nothing.
+type speedMeter struct {
+	p      SpeedProgress
+	start  time.Time
+	window time.Duration
+	last   time.Time
+}
+
+func newSpeedMeter(p SpeedProgress, window time.Duration) *speedMeter {
+	return &speedMeter{p: p, start: time.Now(), window: window}
+}
+
+func (m *speedMeter) report(total int64) {
+	if m.p == nil {
+		return
+	}
+	now := time.Now()
+	elapsed := now.Sub(m.start)
+	if elapsed < speedProgressWarmup || now.Sub(m.last) < speedProgressInterval {
+		return
+	}
+	m.last = now
+	m.p.OnProgress(mbps(total, elapsed), min(1, elapsed.Seconds()/m.window.Seconds()))
+}
+
+func mbps(n int64, elapsed time.Duration) float64 {
+	return float64(n) * 8 / elapsed.Seconds() / 1_000_000
+}
+
+// MeasureTunnelDownloadMbps measures download speed through the gateway,
+// reporting the running rate to p (which may be nil) as it goes.
+func MeasureTunnelDownloadMbps(p SpeedProgress) (_ float64, err error) {
 	defer recoverExported("MeasureTunnelDownloadMbps", &err)
 	client, err := runningClient()
 	if err != nil {
@@ -53,17 +98,19 @@ func MeasureTunnelDownloadMbps() (_ float64, err error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	n, elapsed, err := tunnelHTTPRead(ctx, client, net.JoinHostPort(host, "443"), "speed.cloudflare.com", "/__down?bytes=25000000", 5*time.Second)
+	n, elapsed, err := tunnelHTTPRead(ctx, client, net.JoinHostPort(host, "443"), "speed.cloudflare.com", "/__down?bytes=25000000", 5*time.Second, p)
 	if err != nil {
 		return 0, err
 	}
 	if elapsed <= 0 || n <= 0 {
 		return 0, errors.New("download test returned no data")
 	}
-	return float64(n) * 8 / elapsed.Seconds() / 1_000_000, nil
+	return mbps(n, elapsed), nil
 }
 
-func MeasureTunnelUploadMbps() (_ float64, err error) {
+// MeasureTunnelUploadMbps measures upload speed through the gateway,
+// reporting the running rate to p (which may be nil) as it goes.
+func MeasureTunnelUploadMbps(p SpeedProgress) (_ float64, err error) {
 	defer recoverExported("MeasureTunnelUploadMbps", &err)
 	client, err := runningClient()
 	if err != nil {
@@ -75,14 +122,14 @@ func MeasureTunnelUploadMbps() (_ float64, err error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	n, elapsed, err := tunnelHTTPPost(ctx, client, net.JoinHostPort(host, "443"), "speed.cloudflare.com", "/__up", 4*time.Second)
+	n, elapsed, err := tunnelHTTPPost(ctx, client, net.JoinHostPort(host, "443"), "speed.cloudflare.com", "/__up", 4*time.Second, p)
 	if err != nil {
 		return 0, err
 	}
 	if elapsed <= 0 || n <= 0 {
 		return 0, errors.New("upload test returned no data")
 	}
-	return float64(n) * 8 / elapsed.Seconds() / 1_000_000, nil
+	return mbps(n, elapsed), nil
 }
 
 func lookupSpeedHost(client TunnelClient) (string, error) {
@@ -143,7 +190,7 @@ func tunnelHTTPGet(ctx context.Context, client TunnelClient, addr, sni, path str
 	return err
 }
 
-func tunnelHTTPRead(ctx context.Context, client TunnelClient, addr, sni, path string, duration time.Duration) (int64, time.Duration, error) {
+func tunnelHTTPRead(ctx context.Context, client TunnelClient, addr, sni, path string, duration time.Duration, p SpeedProgress) (int64, time.Duration, error) {
 	tlsConn, err := tunnelDialTLS(ctx, client, addr, sni)
 	if err != nil {
 		return 0, 0, err
@@ -165,11 +212,13 @@ func tunnelHTTPRead(ctx context.Context, client TunnelClient, addr, sni, path st
 	buf := make([]byte, 32*1024)
 	var n int64
 	start := time.Now()
+	meter := newSpeedMeter(p, duration)
 	for time.Now().Before(deadline) {
 		_ = tlsConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 		got, readErr := resp.Body.Read(buf)
 		if got > 0 {
 			n += int64(got)
+			meter.report(n)
 		}
 		if readErr != nil {
 			break
@@ -178,7 +227,7 @@ func tunnelHTTPRead(ctx context.Context, client TunnelClient, addr, sni, path st
 	return n, time.Since(start), nil
 }
 
-func tunnelHTTPPost(ctx context.Context, client TunnelClient, addr, sni, path string, duration time.Duration) (int64, time.Duration, error) {
+func tunnelHTTPPost(ctx context.Context, client TunnelClient, addr, sni, path string, duration time.Duration, p SpeedProgress) (int64, time.Duration, error) {
 	tlsConn, err := tunnelDialTLS(ctx, client, addr, sni)
 	if err != nil {
 		return 0, 0, err
@@ -194,6 +243,7 @@ func tunnelHTTPPost(ctx context.Context, client TunnelClient, addr, sni, path st
 	deadline := time.Now().Add(duration)
 	var n int64
 	start := time.Now()
+	meter := newSpeedMeter(p, duration)
 	for time.Now().Before(deadline) {
 		hdr := fmt.Sprintf("%x\r\n", len(chunk))
 		if _, err := io.WriteString(tlsConn, hdr); err != nil {
@@ -206,6 +256,7 @@ func tunnelHTTPPost(ctx context.Context, client TunnelClient, addr, sni, path st
 			break
 		}
 		n += int64(len(chunk))
+		meter.report(n)
 	}
 	_, _ = io.WriteString(tlsConn, "0\r\n\r\n")
 	resp, err := http.ReadResponse(bufio.NewReader(tlsConn), &http.Request{Method: http.MethodPost})

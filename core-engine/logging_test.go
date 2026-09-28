@@ -68,7 +68,7 @@ func TestTailcatLogsHideAddressesUnlessVerbose(t *testing.T) {
 func TestTailcatClientUsesTheQuietLogger(t *testing.T) {
 	buf := captureLog(t)
 	setVerbose(t, false)
-	ec, ok := newTailcatClient(tailcat.ConnBlob("tc")).(*engineClient)
+	ec, ok := newTailcatClient(tailcat.Addr("tc")).(*engineClient)
 	if !ok || ec.Client.Logf == nil {
 		t.Fatal("newTailcatClient must set the client's Logf")
 	}

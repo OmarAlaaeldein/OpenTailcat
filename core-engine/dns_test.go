@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"net/netip"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,7 +19,7 @@ import (
 func buildDNSQuery(txID uint16, domain string, qtype uint16) []byte {
 	var buf bytes.Buffer
 	// Header (12 bytes)
-	binary.Write(&buf, binary.BigEndian, txID)   // ID
+	binary.Write(&buf, binary.BigEndian, txID)           // ID
 	binary.Write(&buf, binary.BigEndian, uint16(0x0100)) // Flags: QR=0, RD=1
 	binary.Write(&buf, binary.BigEndian, uint16(1))      // QDCOUNT=1
 	binary.Write(&buf, binary.BigEndian, uint16(0))      // ANCOUNT=0
@@ -35,7 +35,7 @@ func buildDNSQuery(txID uint16, domain string, qtype uint16) []byte {
 	}
 	buf.WriteByte(0) // Root null label
 
-	binary.Write(&buf, binary.BigEndian, qtype)  // QTYPE (1 = A)
+	binary.Write(&buf, binary.BigEndian, qtype)     // QTYPE (1 = A)
 	binary.Write(&buf, binary.BigEndian, uint16(1)) // QCLASS (1 = IN)
 	return buf.Bytes()
 }
@@ -73,8 +73,8 @@ func buildDNSResponse(txID uint16, domain string, truncated bool, answerIP netip
 	if !truncated {
 		// Answer Section: pointer to domain name (0xc00c)
 		binary.Write(&buf, binary.BigEndian, uint16(0xc00c))
-		binary.Write(&buf, binary.BigEndian, uint16(1))  // TYPE A
-		binary.Write(&buf, binary.BigEndian, uint16(1))  // CLASS IN
+		binary.Write(&buf, binary.BigEndian, uint16(1))   // TYPE A
+		binary.Write(&buf, binary.BigEndian, uint16(1))   // CLASS IN
 		binary.Write(&buf, binary.BigEndian, uint32(300)) // TTL 300s
 
 		if answerIP.Is4() {
@@ -97,12 +97,7 @@ func buildDNSResponse(txID uint16, domain string, truncated bool, answerIP netip
 	return buf.Bytes()
 }
 
-// pairedStreamConn models a bidirectional stream connection in memory for TCP tests
-type pairedStreamConn struct {
-	reader *io.PipeReader
-	writer *io.PipeWriter
-}
-
+// newPairedStreamConns models a bidirectional stream connection in memory for TCP tests.
 func newPairedStreamConns() (c1, c2 *streamHalfConn) {
 	r1, w1 := io.Pipe()
 	r2, w2 := io.Pipe()
@@ -114,12 +109,16 @@ type streamHalfConn struct {
 	w *io.PipeWriter
 }
 
-func (s *streamHalfConn) Read(b []byte) (int, error)         { return s.r.Read(b) }
-func (s *streamHalfConn) Write(b []byte) (int, error)        { return s.w.Write(b) }
-func (s *streamHalfConn) Close() error                       { _ = s.r.Close(); return s.w.Close() }
-func (s *streamHalfConn) CloseWrite() error                  { return s.w.Close() }
-func (s *streamHalfConn) LocalAddr() net.Addr                { return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1000} }
-func (s *streamHalfConn) RemoteAddr() net.Addr               { return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 2000} }
+func (s *streamHalfConn) Read(b []byte) (int, error)  { return s.r.Read(b) }
+func (s *streamHalfConn) Write(b []byte) (int, error) { return s.w.Write(b) }
+func (s *streamHalfConn) Close() error                { _ = s.r.Close(); return s.w.Close() }
+func (s *streamHalfConn) CloseWrite() error           { return s.w.Close() }
+func (s *streamHalfConn) LocalAddr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1000}
+}
+func (s *streamHalfConn) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 2000}
+}
 func (s *streamHalfConn) SetDeadline(t time.Time) error      { return nil }
 func (s *streamHalfConn) SetReadDeadline(t time.Time) error  { return nil }
 func (s *streamHalfConn) SetWriteDeadline(t time.Time) error { return nil }
@@ -796,9 +795,9 @@ func TestDNSLeakPrevention(t *testing.T) {
 
 // silentDeadlineConn blocks reads until Close or deadline, modeling a silent DNS TCP peer.
 type silentDeadlineConn struct {
-	mu       sync.Mutex
-	closed   chan struct{}
-	deadline time.Time
+	mu        sync.Mutex
+	closed    chan struct{}
+	deadline  time.Time
 	closeOnce sync.Once
 }
 
@@ -841,9 +840,18 @@ func (c *silentDeadlineConn) Close() error {
 	c.closeOnce.Do(func() { close(c.closed) })
 	return nil
 }
-func (c *silentDeadlineConn) LocalAddr() net.Addr                { return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1} }
-func (c *silentDeadlineConn) RemoteAddr() net.Addr               { return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 53} }
-func (c *silentDeadlineConn) SetDeadline(t time.Time) error      { c.mu.Lock(); c.deadline = t; c.mu.Unlock(); return nil }
+func (c *silentDeadlineConn) LocalAddr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1}
+}
+func (c *silentDeadlineConn) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 53}
+}
+func (c *silentDeadlineConn) SetDeadline(t time.Time) error {
+	c.mu.Lock()
+	c.deadline = t
+	c.mu.Unlock()
+	return nil
+}
 func (c *silentDeadlineConn) SetReadDeadline(t time.Time) error  { return c.SetDeadline(t) }
 func (c *silentDeadlineConn) SetWriteDeadline(t time.Time) error { return c.SetDeadline(t) }
 
@@ -862,10 +870,10 @@ func TestDNSTCPFallbackStopDoesNotHang(t *testing.T) {
 		},
 	}
 	bridge := &TunBridge{
-		ctx:     ctx,
-		cancel:  cancel,
-		client:  mockClient,
-		token:   &ParsedToken{RegionID: 1},
+		ctx:    ctx,
+		cancel: cancel,
+		client: mockClient,
+		token:  &ParsedToken{RegionID: 1},
 	}
 	bridge.tcpOnly.Store(true)
 	proxy, err := newNetstackProxy(bridge)

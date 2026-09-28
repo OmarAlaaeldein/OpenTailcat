@@ -22,7 +22,7 @@ func init() {
 	}
 
 	// On Android, /etc/resolv.conf does not exist, causing Go's pure Go resolver to query [::1]:53 or 127.0.0.1:53.
-	// We configure a default DNS resolver fallback to 8.8.8.8 / 1.1.1.1 so outbound HTTP/DNS lookups succeed.
+	// Resolve only through the DNS servers Android supplies in updateNetworkState, on protected sockets.
 	net.DefaultResolver = &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -325,16 +325,12 @@ type EngineStats struct {
 	// start or successful DiscoPing). Kotlin treats a long gap as gateway
 	// loss and reconnects. Additive in schema v2.
 	LastDiscoOkSec          int64        `json:"lastDiscoOkUnixSec,omitempty"`
-	DirectEndpoint          string       `json:"directEndpoint,omitempty"`
 	DerpRegionID            int          `json:"derpRegionId"`
 	DerpRegionCode          string       `json:"derpRegionCode,omitempty"`
 	DerpRegionName          string       `json:"derpRegionName"`
 	TunnelEgressIP          string       `json:"tunnelEgressIp,omitempty"`
 	RTTMs                   int64        `json:"rttMs"`
 	JitterMs                *int64       `json:"jitterMs"`
-	LastHandshakeSec        int64        `json:"lastHandshakeSec"`
-	WireguardTxBytes        int64        `json:"wireguardTxBytes"`
-	WireguardRxBytes        int64        `json:"wireguardRxBytes"`
 	TunTxBytes              int64        `json:"tunTxBytes"`
 	TunRxBytes              int64        `json:"tunRxBytes"`
 	TxBytes                 int64        `json:"txBytes"`
@@ -373,7 +369,7 @@ func (c *engineClient) SupportsUDP(ctx context.Context) bool {
 	return probeGatewayUDP(ctx, c.DialUDP)
 }
 
-var newTailcatClient = func(blob tailcat.ConnBlob) preparedClient {
+var newTailcatClient = func(blob tailcat.Addr) preparedClient {
 	c := tailcat.NewClient(blob)
 	c.Logf = tailcatLogf
 	return &engineClient{Client: c}

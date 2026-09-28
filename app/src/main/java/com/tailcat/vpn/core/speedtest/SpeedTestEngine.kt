@@ -1,6 +1,7 @@
 package com.tailcat.vpn.core.speedtest
 
 import com.tailcat.vpn.TailcatApplication
+import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TunnelState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -78,24 +79,21 @@ class SpeedTestEngine {
                 progress = 0.20f
             )
 
-            val downloadSpeed = if (viaGateway) {
-                runCatching { TailcatApplication.instance.tunnelEngine.measureTunnelDownloadMbps() }
-                    .getOrElse { throw IllegalStateException(it.message ?: "Tunnel download failed", it) }
-                    .also { mbps ->
-                        check(mbps > 0.0) { "Download test returned no data" }
-                        _testState.value = _testState.value.copy(
-                            downloadMbps = mbps,
-                            currentSpeedGauge = mbps,
-                            progress = 0.60f
-                        )
-                    }
-            } else measureDownloadSpeed { currentMbps, stageProgress ->
+            // The gateway and device-route tests report the running rate the
+            // same way, so the gauge moves during either.
+            val onDownload: (Double, Float) -> Unit = { currentMbps, stageProgress ->
+                val shown = round(currentMbps * 10.0) / 10.0
                 _testState.value = _testState.value.copy(
-                    downloadMbps = currentMbps,
-                    currentSpeedGauge = currentMbps,
+                    downloadMbps = shown,
+                    currentSpeedGauge = shown,
                     progress = 0.20f + (stageProgress * 0.40f)
                 )
             }
+            val downloadSpeed = if (viaGateway) {
+                runCatching { TailcatApplication.instance.tunnelEngine.measureTunnelDownloadMbps(onDownload) }
+                    .getOrElse { throw IllegalStateException(it.message ?: "Tunnel download failed", it) }
+                    .also { mbps -> check(mbps > 0.0) { "Download test returned no data" } }
+            } else measureDownloadSpeed(onDownload)
 
             currentStage = SpeedTestStage.TESTING_UPLOAD
             stageDetail = if (viaGateway) "gateway upload via Client.DialTCP" else "device-route upload"
@@ -106,17 +104,19 @@ class SpeedTestEngine {
                 progress = 0.60f
             )
 
-            val uploadSpeed = if (viaGateway) {
-                runCatching { TailcatApplication.instance.tunnelEngine.measureTunnelUploadMbps() }
-                    .getOrElse { throw IllegalStateException(it.message ?: "Tunnel upload failed", it) }
-                    .also { mbps -> check(mbps > 0.0) { "Upload test returned no data" } }
-            } else measureUploadSpeed { currentMbps, stageProgress ->
+            val onUpload: (Double, Float) -> Unit = { currentMbps, stageProgress ->
+                val shown = round(currentMbps * 10.0) / 10.0
                 _testState.value = _testState.value.copy(
-                    uploadMbps = currentMbps,
-                    currentSpeedGauge = currentMbps,
+                    uploadMbps = shown,
+                    currentSpeedGauge = shown,
                     progress = 0.60f + (stageProgress * 0.40f)
                 )
             }
+            val uploadSpeed = if (viaGateway) {
+                runCatching { TailcatApplication.instance.tunnelEngine.measureTunnelUploadMbps(onUpload) }
+                    .getOrElse { throw IllegalStateException(it.message ?: "Tunnel upload failed", it) }
+                    .also { mbps -> check(mbps > 0.0) { "Upload test returned no data" } }
+            } else measureUploadSpeed(onUpload)
 
             // Stage 4: Completed
             val metrics = snapshotMetrics(viaGateway)
@@ -177,7 +177,7 @@ class SpeedTestEngine {
         TailcatApplication.instance.tunnelController.tunnelState.value
     }.getOrDefault(TunnelState.DISCONNECTED)
 
-    private fun snapshotMetrics(viaGateway: Boolean): com.tailcat.vpn.core.model.NetworkMetrics? {
+    private fun snapshotMetrics(viaGateway: Boolean): NetworkMetrics? {
         if (!viaGateway && tunnelState() != TunnelState.CONNECTED) return null
         return runCatching {
             TailcatApplication.instance.tunnelEngine.getStats()

@@ -46,9 +46,6 @@ func TestDiscoFailureNoLongerKillsRelayedTunnel(t *testing.T) {
 	if bridge.startupFailed.Load() {
 		t.Fatal("disco failures must not set startupFailed")
 	}
-	if got := bridge.pingFails.Load(); got != 5 {
-		t.Fatalf("expected 5 counted ping failures, got %d", got)
-	}
 	if bridge.discoFresh.Load() {
 		t.Fatal("disco must stay stale after failures")
 	}

@@ -1,3 +1,5 @@
+//lint:file-ignore SA1019 fixed test keys are built from raw bytes on purpose
+
 package engine
 
 import (
@@ -38,7 +40,7 @@ func officialTestToken(t *testing.T) string {
 func installClient(t *testing.T, client preparedClient) {
 	t.Helper()
 	original := newTailcatClient
-	newTailcatClient = func(tailcat.ConnBlob) preparedClient { return client }
+	newTailcatClient = func(tailcat.Addr) preparedClient { return client }
 	t.Cleanup(func() {
 		newTailcatClient = original
 		_ = Stop()
@@ -149,7 +151,7 @@ func TestSecondPrepareClosesUnattachedClient(t *testing.T) {
 	}
 
 	second := &prepareTestClient{}
-	newTailcatClient = func(tailcat.ConnBlob) preparedClient { return second }
+	newTailcatClient = func(tailcat.Addr) preparedClient { return second }
 	if err := Prepare(officialTestToken(t)); err != nil {
 		t.Fatalf("second Prepare: %v", err)
 	}
@@ -324,10 +326,10 @@ func TestTunnelSpeedTestRequiresRunning(t *testing.T) {
 	if _, err := MeasureTunnelPingMS(); err == nil {
 		t.Fatal("expected ping to fail when stopped")
 	}
-	if _, err := MeasureTunnelDownloadMbps(); err == nil {
+	if _, err := MeasureTunnelDownloadMbps(nil); err == nil {
 		t.Fatal("expected download to fail when stopped")
 	}
-	if _, err := MeasureTunnelUploadMbps(); err == nil {
+	if _, err := MeasureTunnelUploadMbps(nil); err == nil {
 		t.Fatal("expected upload to fail when stopped")
 	}
 }

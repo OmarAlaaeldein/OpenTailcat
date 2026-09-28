@@ -1,3 +1,5 @@
+//lint:file-ignore SA1019 fixed test keys are built from raw bytes on purpose
+
 package main
 
 import (
@@ -56,7 +58,7 @@ func main() {
 		ServerDiscoPublic: tailcat.DiscoPublic{DiscoPublic: discoPub},
 		RegionID:          302,
 	}
-	officialShortToken := string(shortCI.ConnBlob())
+	officialShortToken := string(shortCI.Addr())
 
 	// 2. Official valid resolved token (p, k, r)
 	region301 := &tailcfg.DERPRegion{
@@ -78,7 +80,7 @@ func main() {
 		ServerDiscoPublic: tailcat.DiscoPublic{DiscoPublic: discoPub},
 		Region:            []*tailcfg.DERPRegion{region301},
 	}
-	officialResolvedToken := string(resolvedCI.ConnBlob())
+	officialResolvedToken := string(resolvedCI.Addr())
 
 	// 3. Valid with future expiration and iat
 	futureExpMap := map[string]any{
