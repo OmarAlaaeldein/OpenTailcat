@@ -1,0 +1,103 @@
+name: emulator
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 3 * * *"
+
+permissions:
+  contents: read
+
+env:
+  EMULATOR_API: 35
+
+jobs:
+  smoke:
+    name: emulator smoke (no gateway)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build debug and test APKs
+        run: ./gradlew assembleDebug assembleDebugAndroidTest
+      - name: Smoke test on the emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ env.EMULATOR_API }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-save
+          script: scripts/emulator/ci-smoke.sh
+
+  live:
+    name: emulator live gateway
+    # Never on pull requests: the job uses the gateway token secret.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: emulator-live-gateway
+      cancel-in-progress: false
+    env:
+      OTC_LIVE_TOKEN: ${{ secrets.OTC_LIVE_TOKEN }}
+    steps:
+      - name: Check for the gateway token
+        id: token
+        run: |
+          if [ -n "$OTC_LIVE_TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::OTC_LIVE_TOKEN is not set; skipping the live gateway checks"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.token.outputs.present == 'true'
+        with:
+          submodules: true
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        if: steps.token.outputs.present == 'true'
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: steps.token.outputs.present == 'true'
+        with:
+          go-version: "1.27.1"
+          cache: false
+      - name: Enable KVM
+        if: steps.token.outputs.present == 'true'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build debug and test APKs
+        if: steps.token.outputs.present == 'true'
+        run: ./gradlew assembleDebug assembleDebugAndroidTest
+      - name: Live gateway checks on the emulator
+        if: steps.token.outputs.present == 'true'
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ env.EMULATOR_API }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-save
+          script: scripts/emulator/ci-live.sh

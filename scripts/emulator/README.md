@@ -16,6 +16,19 @@ reuse it. Build output and logs go to the git-ignored `build/`.
 | `log-privacy-check.sh` | Reconnects with Debug failure reports off and fails if the engine's logcat lines hold an IP address other than the probed Cloudflare services or tunnel-internal ones. |
 | `probe.sh ARGS` | Builds `probe/` for the device and runs it from the shell uid: `burst N`, `stun SIZE...`, `halfclose HOST`, `http HOST`. |
 
+| `pair.sh` | Pairs the gateway from `OTC_LIVE_TOKEN` through `PairGatewayInstrumentedTest` (token never printed) and grants VPN consent. |
+| `ci-smoke.sh` | CI, no secrets: `VpnStartupInstrumentedTest` plus a home-screen check. |
+| `ci-live.sh` | CI, live gateway: pair, connect, then every check above; fails if any check fails. |
+
+## CI
+
+`.github/workflows/emulator.yml` runs `ci-smoke.sh` on an API 35 x86_64
+emulator for every push and pull request. The `live` job runs `ci-live.sh` on
+pushes to `main`, nightly, and on manual dispatch (never on pull requests),
+and only when the repository secret `OTC_LIVE_TOKEN` holds a gateway token.
+Set it with `gh secret set OTC_LIVE_TOKEN < <file holding the token>`.
+`roam-test.sh` reports SKIP when the emulator has no mobile data network.
+
 The exit IP of the test gateway may equal the host's IP, so these checks rely
 on routes (`ip route get ... uid 2000`), engine logs and counters rather than
 the exit address. A passing run is emulator evidence, not the Phase 8

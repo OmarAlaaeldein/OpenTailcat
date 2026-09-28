@@ -35,8 +35,17 @@ sleep 2
 adb shell cmd statusbar expand-notifications
 sleep 2
 if ! ui_nodes | grep -q "| Disconnect |"; then
-  # Expand the OpenTailcat notification to reveal its action.
-  tap_node "Expand" || true
+  # Expand the OpenTailcat notification to reveal its action. Other
+  # notifications ("Set a screen lock", ...) have Expand buttons too, so pick
+  # the one whose row holds the OpenTailcat title.
+  title_y=$(ui_nodes | sed -n -E 's/^\[[0-9]+,([0-9]+)\]\[[0-9]+,([0-9]+)\] \| OpenTailcat: .*/\1 \2/p' | head -1)
+  if [ -n "$title_y" ]; then
+    read -r t1 t2 <<<"$title_y"
+    mid=$(( (t1 + t2) / 2 ))
+    expand=$(ui_nodes | sed -n -E 's/^\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\] clickable \|  \| Expand$/\1 \2 \3 \4/p' |
+      awk -v y="$mid" '$2 <= y && y <= $4 { print int(($1 + $3) / 2), int(($2 + $4) / 2); exit }')
+    [ -n "$expand" ] && adb shell input tap $expand
+  fi
   sleep 2
 fi
 if ! tap_node "\| Disconnect \|"; then
@@ -44,7 +53,8 @@ if ! tap_node "\| Disconnect \|"; then
   exit 1
 fi
 sleep 3
-bouncer=$(ui_nodes | grep -i -E "PIN|Enter|password" | head -1 || true)
+# The bouncer's own title; the "Set a screen lock" notification also says PIN.
+bouncer=$(ui_nodes | grep -E "\| Enter (your )?PIN \|" | head -1 || true)
 locked_dev=$(route_dev)
 echo "after tap: prompt: ${bouncer:-none} | route while locked: ${locked_dev:-?}"
 

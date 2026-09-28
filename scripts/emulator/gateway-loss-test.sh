@@ -24,10 +24,14 @@ unblock() {
 trap 'unblock; adb unroot >/dev/null 2>&1 || true' EXIT
 
 T0=$(date +%s)
+SEEN=""
 log() { echo "t+$(( $(date +%s) - T0 ))s $*"; }
 watch_until() {
+  local state
   while [ $(( $(date +%s) - T0 )) -lt "$1" ]; do
-    log "$(tunnel_state)"
+    state=$(tunnel_state)
+    SEEN="$SEEN|$state"
+    log "$state"
     sleep 5
   done
 }
@@ -37,7 +41,25 @@ adb shell iptables -I OUTPUT -m owner --uid-owner "$APP_UID" -j DROP
 adb shell ip6tables -I OUTPUT -m owner --uid-owner "$APP_UID" -j DROP
 log "blocked app uid $APP_UID"
 watch_until "$BLOCK_SECS"
+blocked_seen=$SEEN
 unblock
 log "unblocked"
-watch_until $(( BLOCK_SECS + RECOVER_SECS ))
-log "notification: $(adb shell dumpsys notification --noredact 2>/dev/null | grep -A3 "pkg=$PKG" | grep -E 'android.title|android.text' | head -2 | tr -s ' ' | tr -d '\r' || true)"
+SEEN=""
+# Stop watching once the tunnel is back, but give it RECOVER_SECS at most.
+deadline=$(( BLOCK_SECS + RECOVER_SECS ))
+final=""
+while [ $(( $(date +%s) - T0 )) -lt "$deadline" ]; do
+  final=$(tunnel_state)
+  log "$final"
+  [ "$final" = CONNECTED ] && break
+  sleep 5
+done
+
+# Expected: DEGRADED while the gateway is silent, a RECONNECTING teardown
+# after 60 s without a reply, and CONNECTED again after the block is lifted.
+if [[ "$blocked_seen" == *DEGRADED* ]] && [[ "$blocked_seen" == *RECONNECTING* ]] && [ "$final" = CONNECTED ]; then
+  echo "PASS"
+else
+  echo "FAIL: saw [${blocked_seen#|}] while blocked, ended in ${final:-?}"
+  exit 1
+fi

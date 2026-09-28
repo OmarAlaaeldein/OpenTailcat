@@ -55,6 +55,38 @@ route_dev() {
   adb shell ip route get "${1:-1.1.1.1}" uid 2000 | tr -d '\r' | sed -n -E 's/.* dev ([^ ]+).*/\1/p' | head -1
 }
 
+# install_test_apk installs the instrumentation APK built by
+# ./gradlew assembleDebugAndroidTest.
+install_test_apk() {
+  local apk
+  apk=$(ls "$ROOT"/app/build/outputs/apk/androidTest/debug/*.apk 2>/dev/null | head -1 || true)
+  if [ -z "$apk" ]; then
+    echo "no androidTest APK; run ./gradlew assembleDebugAndroidTest" >&2
+    return 1
+  fi
+  adb install -r "$apk" >/dev/null
+}
+
+# run_instrumented CLASS [ARGS...] runs one instrumented test class (extra
+# args go to am instrument, e.g. -e key value) and fails unless it reports OK.
+# Token-shaped text is dropped from failure output.
+run_instrumented() {
+  local class=$1 out
+  shift
+  out=$(adb shell am instrument -w -e class "$class" "$@" \
+    "$PKG.test/androidx.test.runner.AndroidJUnitRunner" | tr -d '\r')
+  if ! grep -q '^OK (' <<<"$out"; then
+    printf '%s\n' "$out" | grep -v -E 'tc[A-Za-z0-9_-]{30,}' | tail -40 >&2
+    return 1
+  fi
+  echo "$class: $(grep '^OK (' <<<"$out")"
+}
+
+# has_mobile_data reports whether a cellular network is up besides Wi-Fi.
+has_mobile_data() {
+  adb shell dumpsys connectivity | grep -E 'NetworkAgentInfo\{' | grep -q -E 'Transports: CELLULAR([^|A-Z]|$)'
+}
+
 # tcp_probe sends HTTP HEAD to 1.1.1.1:80 from the shell uid and prints the
 # status line (tunneled while the VPN is up).
 tcp_probe() {

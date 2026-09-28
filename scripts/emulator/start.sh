@@ -16,8 +16,10 @@ until [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; do sleep 2
 ABI=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')
 echo "booted: API $(adb shell getprop ro.build.version.sdk | tr -d '\r'), $ABI"
 
-# The debug build is split per ABI.
+# The debug build is split per ABI, except in a Gradle run that also bundles
+# (ABI splits are off then), which writes one universal app-debug.apk.
 APK="$ROOT/app/build/outputs/apk/debug/app-$ABI-debug.apk"
+[ -f "$APK" ] || APK="$ROOT/app/build/outputs/apk/debug/app-debug.apk"
 if [ -f "$APK" ]; then
   adb install -r "$APK" >/dev/null
   echo "installed $(basename "$APK")"

@@ -14,6 +14,10 @@ if [[ "$(route_dev)" != tun* ]]; then
   echo "VPN is not up; run scripts/emulator/connect.sh first" >&2
   exit 2
 fi
+if ! has_mobile_data; then
+  echo "SKIP: no mobile data network on this device, so there is nothing to roam to"
+  exit 0
+fi
 echo "before: route $(route_dev), tcp: $(tcp_probe)"
 
 fail=0
