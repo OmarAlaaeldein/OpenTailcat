@@ -113,8 +113,13 @@ tunnel state, findings; public IPs in free text are redacted) to the clipboard
 when you tap its copy button. The app sends it nowhere, but other apps with
 clipboard access may read it. Native/system logs may
 contain connection errors or relay metadata; tokens and traffic payloads must
-not be intentionally logged. Android, device vendors, gateways, relays, and
-external endpoint operators may maintain independent logs.
+not be intentionally logged. The detailed native engine logs, which include
+your public and local IP addresses and relay/peer endpoints, are written to
+the Android system log only while Settings > Diagnostics > Debug failure
+reports is on (applied at the next connect); otherwise the engine logs only
+errors and a one-line note per network change. Android, device vendors,
+gateways, relays, and external endpoint operators may maintain independent
+logs.
 
 ## Contact
 

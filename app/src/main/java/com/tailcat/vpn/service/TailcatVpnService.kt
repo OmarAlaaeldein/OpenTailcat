@@ -249,6 +249,8 @@ class TailcatVpnService : VpnService() {
             val networkState = org.json.JSONObject(app.networkMonitor.getNetworkStateJSON()).apply {
                 put("dnsPolicy", profile.dnsPolicy.name)
                 put("tunnelMtu", profile.mtu)
+                // Upstream engine logs name public/local IPs and peer endpoints.
+                put("verboseLogs", app.preferencesStore.debugMode)
                 if (profile.dnsPolicy == com.tailcat.vpn.core.model.DnsPolicy.FORCED_RESOLVER) {
                     put("forcedDns", dnsValidation.ip)
                 }

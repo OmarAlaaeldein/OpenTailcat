@@ -288,7 +288,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         }
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "When on, failure banners name the cause and append a telemetry snapshot (state, transport, health age, counters). Off by default; never changes routing or lockdown.",
+                            "When on, failure banners name the cause and append a telemetry snapshot (state, transport, health age, counters), and from the next connect the engine writes its full logs, including your public and local IP addresses, to the system log. Off by default; never changes routing or lockdown.",
                             style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
                         )
                     }

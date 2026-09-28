@@ -83,6 +83,11 @@ Critical current behavior:
   WireGuard peer Tx/Rx stay 0 because upstream `Client` has no Status API.
   Kotlin rejects v1 and requires `RUNNING` plus fresh `healthUnixSec` for
   CONNECTED. `liveStats` is test-enabled.
+- Logging: the Tailcat client's logger drops upstream lines (public IP from
+  STUN, local addresses, peer endpoints) unless `updateNetworkState` sent
+  `verboseLogs: true`, which Kotlin sets from Settings > Diagnostics at
+  connect; otherwise only a `LinkChange: major/minor` summary and the engine's
+  own error lines reach logcat.
 - Capabilities: API v2 dual-stack flags true including `ipv6`. The JSON also
   includes `testRouting: true`, which marks that Phase 8 physical leak
   acceptance has not passed; Kotlin surfaces this in Settings and does not

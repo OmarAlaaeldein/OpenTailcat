@@ -26,13 +26,16 @@ for m in re.finditer(r"<node [^>]*>", s):
 # tap_node PATTERN taps the centre of the first node line matching the
 # extended regex PATTERN. Returns 1 when nothing matches.
 tap_node() {
-  local line b
+  local line x1 y1 x2 y2
   line=$(ui_nodes | grep -E -- "$1" | head -1 || true)
   [ -n "$line" ] || return 1
-  b=$(printf '%s\n' "$line" | sed -E 's/^\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\].*/\1 \2 \3 \4/')
-  # shellcheck disable=SC2086
-  set -- $b
-  adb shell input tap $(( ($1 + $3) / 2 )) $(( ($2 + $4) / 2 ))
+  local y
+  read -r x1 y1 x2 y2 <<<"$(printf '%s\n' "$line" | sed -E 's/^\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\].*/\1 \2 \3 \4/')"
+  y=$(( (y1 + y2) / 2 ))
+  # The status bar swallows taps near the top edge (toolbar icons centre
+  # around y=127); aim at the bottom of such nodes instead.
+  if [ "$y" -lt 150 ] && [ $(( y2 - 8 )) -gt "$y" ]; then y=$(( y2 - 8 )); fi
+  adb shell input tap $(( (x1 + x2) / 2 )) "$y"
 }
 
 # tunnel_state prints the status label on the home screen (CONNECTED,

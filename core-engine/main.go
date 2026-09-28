@@ -111,6 +111,9 @@ type NetworkStatePayload struct {
 	// TunnelMtu is the Android VpnService.Builder MTU for the active profile
 	// (1280–1500). Omitted/invalid values leave the engine default (1280).
 	TunnelMtu *int `json:"tunnelMtu,omitempty"`
+	// VerboseLogs turns on the upstream Tailcat logs (addresses included);
+	// omitted leaves the current setting.
+	VerboseLogs *bool `json:"verboseLogs,omitempty"`
 }
 
 // UpdateNetworkState receives dynamic network changes from Android (LinkProperties, active network type,
@@ -185,6 +188,9 @@ func UpdateNetworkState(networkStateJSON string) (err error) {
 	mon := activeMonitor
 	netStateMu.Unlock()
 	setDefaultRouteInterface(strings.TrimSpace(payload.DefaultInterface))
+	if payload.VerboseLogs != nil {
+		verboseLogs.Store(*payload.VerboseLogs)
+	}
 
 	if payload.DNSPolicy != nil {
 		applyDNSPolicy(*payload.DNSPolicy, payload.ForcedDNS)
@@ -379,7 +385,9 @@ func (c *engineClient) SupportsUDP(ctx context.Context) bool {
 }
 
 var newTailcatClient = func(blob tailcat.ConnBlob) preparedClient {
-	return &engineClient{Client: tailcat.NewClient(blob)}
+	c := tailcat.NewClient(blob)
+	c.Logf = tailcatLogf
+	return &engineClient{Client: c}
 }
 
 // Capabilities represents the native data-plane capability contract (API v2).

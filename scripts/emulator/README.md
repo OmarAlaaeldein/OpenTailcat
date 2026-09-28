@@ -13,6 +13,7 @@ reuse it. Build output and logs go to the git-ignored `build/`.
 | `roam-test.sh` | Wi-Fi off/on while connected: expects a Magicsock rebind in the engine log and TCP still through the VPN (P1-9). |
 | `gateway-loss-test.sh` | Blocks the app uid with iptables, then unblocks: DEGRADED, reconnect with backoff, recovery (P1-13a/13b). Needs `adb root`. |
 | `lockscreen-disconnect-test.sh` | Disconnect from the lock-screen notification must ask for the PIN first (P1-12). |
+| `log-privacy-check.sh` | Reconnects with Debug failure reports off and fails if the engine's logcat lines hold an IP address other than the probed Cloudflare services or tunnel-internal ones. |
 | `probe.sh ARGS` | Builds `probe/` for the device and runs it from the shell uid: `burst N`, `stun SIZE...`, `halfclose HOST`, `http HOST`. |
 
 The exit IP of the test gateway may equal the host's IP, so these checks rely
