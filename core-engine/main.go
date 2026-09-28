@@ -85,7 +85,7 @@ var (
 	netStateMu    sync.RWMutex
 	customIfs     []netmon.Interface
 	customDNSList []string
-	activeMonitor *netmon.Monitor // nil until a live Tailcat client is prepared/started
+	activeMonitor linkChangeNotifier // the prepared client's netmon; nil otherwise
 )
 
 // NetworkInterfaceInfo describes an active network interface reported by Android LinkProperties.
@@ -101,10 +101,13 @@ type NetworkStatePayload struct {
 	IsOnline    bool                   `json:"isOnline"`
 	NetworkType string                 `json:"networkType"`
 	Interfaces  []NetworkInterfaceInfo `json:"interfaces"`
-	Gateways    []string               `json:"gateways,omitempty"`
-	DNSServers  []string               `json:"dnsServers,omitempty"`
-	DNSPolicy   *string                `json:"dnsPolicy,omitempty"`
-	ForcedDNS   *string                `json:"forcedDns,omitempty"`
+	// DefaultInterface names the underlying (non-VPN) network interface that
+	// carries the default route, e.g. "wlan0"; empty when offline.
+	DefaultInterface string   `json:"defaultInterface,omitempty"`
+	Gateways         []string `json:"gateways,omitempty"`
+	DNSServers       []string `json:"dnsServers,omitempty"`
+	DNSPolicy        *string  `json:"dnsPolicy,omitempty"`
+	ForcedDNS        *string  `json:"forcedDns,omitempty"`
 	// TunnelMtu is the Android VpnService.Builder MTU for the active profile
 	// (1280–1500). Omitted/invalid values leave the engine default (1280).
 	TunnelMtu *int `json:"tunnelMtu,omitempty"`
@@ -181,6 +184,7 @@ func UpdateNetworkState(networkStateJSON string) (err error) {
 	customDNSList = payload.DNSServers
 	mon := activeMonitor
 	netStateMu.Unlock()
+	setDefaultRouteInterface(strings.TrimSpace(payload.DefaultInterface))
 
 	if payload.DNSPolicy != nil {
 		applyDNSPolicy(*payload.DNSPolicy, payload.ForcedDNS)
@@ -193,7 +197,8 @@ func UpdateNetworkState(networkStateJSON string) (err error) {
 		globalCore.pendingMTU.Store(int64(mtu))
 	}
 
-	// Notify active netmon monitor to trigger Magicsock path and endpoint re-evaluation
+	// Make the client's netmon re-read the interfaces; a changed default
+	// interface or address makes the engine rebind Magicsock and re-STUN.
 	if mon != nil {
 		mon.InjectEvent()
 	}

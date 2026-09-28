@@ -1,8 +1,12 @@
 package com.tailcat.vpn
 
+import com.tailcat.vpn.core.NetworkMonitor
+import com.tailcat.vpn.core.NetworkType
+import com.tailcat.vpn.core.UnderlyingNetwork
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -65,5 +69,25 @@ class NetworkMonitorTest {
         assertEquals(0, root.getJSONArray("interfaces").length())
         assertEquals(0, root.getJSONArray("gateways").length())
         assertEquals(0, root.getJSONArray("dnsServers").length())
+    }
+
+    @Test
+    fun defaultInterfacePrefersValidatedThenEthernetWifiCellular() {
+        val wifi = UnderlyingNetwork("wlan0", NetworkType.WIFI, validated = true)
+        val cell = UnderlyingNetwork("rmnet_data0", NetworkType.CELLULAR, validated = true)
+        val eth = UnderlyingNetwork("eth0", NetworkType.ETHERNET, validated = true)
+
+        assertEquals("wlan0", NetworkMonitor.pickDefaultInterface(listOf(cell, wifi)))
+        assertEquals("eth0", NetworkMonitor.pickDefaultInterface(listOf(wifi, cell, eth)))
+        // Wi-Fi without Internet (captive/unvalidated) loses to working cellular.
+        assertEquals(
+            "rmnet_data0",
+            NetworkMonitor.pickDefaultInterface(listOf(wifi.copy(validated = false), cell))
+        )
+    }
+
+    @Test
+    fun defaultInterfaceIsNullWhenOffline() {
+        assertNull(NetworkMonitor.pickDefaultInterface(emptyList()))
     }
 }

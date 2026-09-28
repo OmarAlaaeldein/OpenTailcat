@@ -297,9 +297,15 @@ currently incomplete engine.
    Android-provided network-state bridge or another upstream-supported monitor.
    A hard-coded emulator address cannot represent Wi-Fi/cellular roaming.
    **Done in tree:** that fabricated interface is gone. Android supplies
-   LinkProperties via `updateNetworkState`, and `Client.NetMon()` exists.
-   Live Wi-Fi/cellular roaming re-evaluation remains Phase 6. The hard-coded
-   DERP map remains.
+   LinkProperties and the underlying default interface (`defaultInterface`)
+   via `updateNetworkState`. Upstream `Client` has no netmon accessor, and
+   Android's netmon only polls every 10 minutes, so the engine reads the
+   client's monitor from `Client.lb.sys.NetMon` with type-checked reflection
+   (`netmon_hook.go`; a test fails if the layout changes), passes the default
+   interface to `netmon.UpdateLastKnownDefaultRouteInterface`, and calls
+   `InjectEvent`, which makes the engine rebind Magicsock and re-STUN on a
+   major change. Live Wi-Fi/cellular roaming evidence remains Phase 6. The
+   hard-coded DERP map remains.
 5. Align CI to Go 1.27 and pin Go Mobile/NDK versions. Do not depend on an
    implicit toolchain auto-download from a Go 1.24 CI bootstrap.
 6. Build with supported reproducible-path/`-trimpath` settings so developer

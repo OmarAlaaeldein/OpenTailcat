@@ -169,6 +169,9 @@ func Prepare(tokenStr string) (err error) {
 	}
 	prev := globalCore.sess
 	globalCore.sess = nil
+	netStateMu.Lock()
+	activeMonitor = nil
+	netStateMu.Unlock()
 	ctx, cancel := context.WithCancel(context.Background())
 	sess = &session{ctx: ctx, cancel: cancel, token: pt}
 	globalCore.state = StatePreparing
@@ -239,6 +242,15 @@ func Prepare(tokenStr string) (err error) {
 	sess.tcpOnly = tcpOnly
 	sess.ipv6Egress = ipv6Egress
 	globalCore.state = StatePrepared
+	// Published under globalCore.mu so a concurrent Stop cannot clear the
+	// monitor and then have this stale one stored after it.
+	var mon linkChangeNotifier
+	if src, ok := client.(netMonitorSource); ok {
+		mon = src.netMonitor()
+	}
+	netStateMu.Lock()
+	activeMonitor = mon
+	netStateMu.Unlock()
 	globalCore.mu.Unlock()
 
 	// Magicsock/DERP sockets created during Ping saw netns disabled by Tailcat.

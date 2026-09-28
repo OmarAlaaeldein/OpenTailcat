@@ -101,17 +101,22 @@ class NetworkMonitor(context: Context) {
         val ifArray = JSONArray()
         val gateways = mutableSetOf<String>()
         val dnsServers = mutableSetOf<String>()
+        val underlying = mutableListOf<UnderlyingNetwork>()
 
         val validNetworks = capabilitiesByNetwork.entries
             .filter { (_, caps) ->
                 caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
                     !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
             }
-            .map { it.key }
 
-        for (network in validNetworks) {
+        for ((network, caps) in validNetworks) {
             val lp = linkPropertiesByNetwork[network] ?: connectivityManager.getLinkProperties(network) ?: continue
             val ifName = lp.interfaceName ?: continue
+            underlying += UnderlyingNetwork(
+                interfaceName = ifName,
+                transport = transportOf(caps),
+                validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            )
 
             val ifObj = JSONObject()
             ifObj.put("name", ifName)
@@ -135,6 +140,9 @@ class NetworkMonitor(context: Context) {
         }
 
         root.put("interfaces", ifArray)
+        // The engine's netmon only rebinds Magicsock when it knows which
+        // interface carries the default route.
+        root.put("defaultInterface", pickDefaultInterface(underlying) ?: "")
 
         val gwArray = JSONArray()
         gateways.forEach { gwArray.put(it) }
@@ -160,6 +168,13 @@ class NetworkMonitor(context: Context) {
         }
     }
 
+    private fun transportOf(caps: NetworkCapabilities): NetworkType = when {
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> NetworkType.ETHERNET
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> NetworkType.WIFI
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkType.CELLULAR
+        else -> NetworkType.NONE
+    }
+
     private fun getCurrentNetworkType(): NetworkType {
         val capabilities = capabilitiesByNetwork.values
             .asSequence()
@@ -175,4 +190,36 @@ class NetworkMonitor(context: Context) {
             else -> NetworkType.NONE
         }
     }
+
+    companion object {
+        /**
+         * The interface Android most likely sends the default route through.
+         * While the VPN is up the app's own default network is the VPN, so rank
+         * the underlying networks as Android does: validated first, then
+         * Ethernet, Wi-Fi, cellular, anything else. Null when there are none.
+         */
+        fun pickDefaultInterface(networks: List<UnderlyingNetwork>): String? =
+            networks
+                .sortedWith(
+                    compareByDescending<UnderlyingNetwork> { it.validated }
+                        .thenBy { transportRank(it.transport) }
+                        .thenBy { it.interfaceName }
+                )
+                .firstOrNull()
+                ?.interfaceName
+
+        private fun transportRank(type: NetworkType): Int = when (type) {
+            NetworkType.ETHERNET -> 0
+            NetworkType.WIFI -> 1
+            NetworkType.CELLULAR -> 2
+            NetworkType.NONE -> 3
+        }
+    }
 }
+
+/** A non-VPN network with Internet capability, as [NetworkMonitor] sees it. */
+data class UnderlyingNetwork(
+    val interfaceName: String,
+    val transport: NetworkType,
+    val validated: Boolean
+)

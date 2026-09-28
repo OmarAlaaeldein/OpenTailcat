@@ -132,8 +132,12 @@ client-only direct socket is never an acceptable substitute.
 `https://github.com/tailscale/tailcat`, pinned to unmodified
 `0c31395bfd1ae0c0ef2917c0ec20432466087417` (application-layer UDP). Do not
 claim it is the signed `v0.4.0` tag. See `third_party/PROVENANCE.md`. Do not
-add OpenTailcat patches in the submodule. Android supplies LinkProperties via
-`updateNetworkState`. Roaming still belongs to Phase 6.
+add OpenTailcat patches in the submodule. Android supplies LinkProperties and
+the underlying default interface via `updateNetworkState`; the engine hands
+the interface to netmon and calls `InjectEvent` on the client's monitor
+(reached by type-checked reflection in `netmon_hook.go`, since upstream has no
+accessor), so a network switch rebinds Magicsock. Live roaming evidence still
+belongs to Phase 6.
 
 ## Required implementation order
 
