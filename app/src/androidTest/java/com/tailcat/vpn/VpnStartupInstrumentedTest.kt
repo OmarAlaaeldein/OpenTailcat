@@ -33,6 +33,7 @@ class VpnStartupInstrumentedTest {
             ByteArray(32) { 1 } + byteArrayOf(0x61, 0x6b, 0x58, 0x20) +
             ByteArray(32) { 2 } + byteArrayOf(0x61, 0x69, 0x01)
         val token = "tc" + Base64.encodeToString(cbor, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        val previousActive = app.profileRepository.activeProfile.value
         val profile = app.profileRepository.addOrUpdateFromToken("Startup regression", token).getOrThrow()
         try {
             ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(
@@ -94,6 +95,10 @@ class VpnStartupInstrumentedTest {
         } finally {
             app.preferencesStore.vpnWanted = false
             app.profileRepository.deleteProfile(profile.id)
+            // Leave a paired gateway selected for later live tests on this device.
+            previousActive?.takeIf { it.id != profile.id }?.let {
+                runCatching { app.profileRepository.setActiveProfile(it) }
+            }
         }
     }
 

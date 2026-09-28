@@ -30,9 +30,11 @@ class PreferencesStore(context: Context) : PreferencesStorage {
         migrateLegacyPreferences(context)
     }
 
+    // Profile writes commit synchronously: with apply() a process killed right
+    // after a delete could bring the deleted profile and its token back.
     override var activeProfileId: String?
         get() = prefs.getString(KEY_ACTIVE_PROFILE_ID, null)
-        set(value) = prefs.edit { putString(KEY_ACTIVE_PROFILE_ID, value) }
+        set(value) = prefs.edit(commit = true) { putString(KEY_ACTIVE_PROFILE_ID, value) }
 
     override var defaultMtu: Int
         get() = prefs.getInt(KEY_DEFAULT_MTU, 1280)
@@ -48,7 +50,7 @@ class PreferencesStore(context: Context) : PreferencesStorage {
 
     override var savedProfilesJson: String?
         get() = prefs.getString(KEY_SAVED_PROFILES, null)
-        set(value) = prefs.edit { putString(KEY_SAVED_PROFILES, value) }
+        set(value) = prefs.edit(commit = true) { putString(KEY_SAVED_PROFILES, value) }
 
     override var vpnWanted: Boolean
         get() = prefs.getBoolean(KEY_VPN_WANTED, false)

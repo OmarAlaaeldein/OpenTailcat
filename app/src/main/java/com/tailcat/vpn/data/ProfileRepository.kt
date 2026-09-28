@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
 
 class ProfileRepository(private val preferencesStore: PreferencesStorage) {
 
@@ -25,44 +26,52 @@ class ProfileRepository(private val preferencesStore: PreferencesStorage) {
     }
 
     private fun loadProfiles() {
-        val json = preferencesStore.savedProfilesJson
-        val list = mutableListOf<GatewayProfile>()
-
-        if (!json.isNullOrBlank()) {
-            try {
-                val array = JSONArray(json)
-                for (i in 0 until array.length()) {
-                    val obj = array.getJSONObject(i)
-                    val rawDns = obj.optString("customDns", "1.1.1.1")
-                    val validatedDns = if (DnsValidator.isValid(rawDns)) rawDns else "1.1.1.1"
-                    val policy = DnsPolicy.fromString(obj.optString("dnsPolicy", DnsPolicy.PROFILE_RESOLVER.name))
-
-                    list.add(
-                        GatewayProfile(
-                            id = obj.getString("id"),
-                            name = obj.getString("name"),
-                            token = obj.getString("token"),
-                            serverPublicKey = obj.getString("serverPublicKey"),
-                            derpRegionId = if (obj.has("derpRegionId") && !obj.isNull("derpRegionId")) obj.getInt("derpRegionId") else null,
-                            customDns = validatedDns,
-                            dnsPolicy = policy,
-                            mtu = obj.optInt("mtu", 1280),
-                            isDefault = obj.optBoolean("isDefault", false),
-                            createdAt = obj.optLong("createdAt", System.currentTimeMillis())
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                // Corrupt local data must not produce a partially trusted profile list.
-                list.clear()
-            }
-        }
-
+        val list = parseProfiles(preferencesStore.savedProfilesJson)
         _profiles.value = list
 
         val activeId = preferencesStore.activeProfileId
         val active = list.find { it.id == activeId } ?: list.find { it.isDefault } ?: list.firstOrNull()
         _activeProfile.value = active
+    }
+
+    /**
+     * Each saved entry is parsed on its own, so a corrupt entry drops only
+     * itself. An unreadable array yields no profiles. Nothing is logged:
+     * entries hold tokens.
+     */
+    private fun parseProfiles(json: String?): List<GatewayProfile> {
+        if (json.isNullOrBlank()) return emptyList()
+        val array = try {
+            JSONArray(json)
+        } catch (e: Exception) {
+            return emptyList()
+        }
+        return (0 until array.length()).mapNotNull { i ->
+            try {
+                parseProfile(array.getJSONObject(i))
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
+
+    private fun parseProfile(obj: JSONObject): GatewayProfile {
+        val rawDns = obj.optString("customDns", "1.1.1.1")
+        val validatedDns = if (DnsValidator.isValid(rawDns)) rawDns else "1.1.1.1"
+        val policy = DnsPolicy.fromString(obj.optString("dnsPolicy", DnsPolicy.PROFILE_RESOLVER.name))
+
+        return GatewayProfile(
+            id = obj.getString("id"),
+            name = obj.getString("name"),
+            token = obj.getString("token"),
+            serverPublicKey = obj.getString("serverPublicKey"),
+            derpRegionId = if (obj.has("derpRegionId") && !obj.isNull("derpRegionId")) obj.getInt("derpRegionId") else null,
+            customDns = validatedDns,
+            dnsPolicy = policy,
+            mtu = obj.optInt("mtu", 1280),
+            isDefault = obj.optBoolean("isDefault", false),
+            createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+        )
     }
 
     private fun saveProfiles() {
@@ -113,7 +122,7 @@ class ProfileRepository(private val preferencesStore: PreferencesStorage) {
         val existing = _profiles.value.find { it.serverPublicKey == tokenData.serverPublicKeyHex }
 
         val profile = GatewayProfile(
-            id = existing?.id ?: java.util.UUID.randomUUID().toString(),
+            id = existing?.id ?: UUID.randomUUID().toString(),
             // Re-pairing the same gateway (e.g. a refreshed token) keeps its name and MTU.
             name = name.ifBlank { existing?.name ?: "Gateway-${tokenData.serverPublicKeyHex.take(6)}" },
             token = tokenData.rawToken,

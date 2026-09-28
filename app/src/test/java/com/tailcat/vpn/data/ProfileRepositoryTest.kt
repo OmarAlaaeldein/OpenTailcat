@@ -198,4 +198,44 @@ class ProfileRepositoryTest {
         // Removed GATEWAY_RESOLVER option migrates safely to PROFILE_RESOLVER
         assertEquals(DnsPolicy.PROFILE_RESOLVER, profiles[0].dnsPolicy)
     }
+
+    @Test
+    fun oneCorruptSavedProfileDoesNotDropTheOthers() {
+        fun entry(id: String, isDefault: Boolean = false) = JSONObject().apply {
+            put("id", id)
+            put("name", "Gateway $id")
+            put("token", validOfficialToken)
+            put("serverPublicKey", "aa$id")
+            put("customDns", "1.1.1.1")
+            put("dnsPolicy", "PROFILE_RESOLVER")
+            put("mtu", 1280)
+            put("isDefault", isDefault)
+            put("createdAt", 1000L)
+        }
+        val savedArray = JSONArray().apply {
+            put(entry("first"))
+            put("not an object")
+            put(entry("missing-token").apply { remove("token") })
+            put(entry("bad-region").apply { put("derpRegionId", "abc") })
+            put(entry("second", isDefault = true))
+        }
+        fakeStorage.savedProfilesJson = savedArray.toString()
+        fakeStorage.activeProfileId = "missing-token"
+
+        val reloadedRepo = ProfileRepository(fakeStorage)
+
+        assertEquals(listOf("first", "second"), reloadedRepo.profiles.value.map { it.id })
+        // The saved active profile was dropped, so the default one is active.
+        assertEquals("second", reloadedRepo.activeProfile.value?.id)
+    }
+
+    @Test
+    fun unreadableSavedProfilesYieldNoProfiles() {
+        fakeStorage.savedProfilesJson = "[{\"id\":"
+
+        val reloadedRepo = ProfileRepository(fakeStorage)
+
+        assertTrue(reloadedRepo.profiles.value.isEmpty())
+        assertEquals(null, reloadedRepo.activeProfile.value)
+    }
 }
