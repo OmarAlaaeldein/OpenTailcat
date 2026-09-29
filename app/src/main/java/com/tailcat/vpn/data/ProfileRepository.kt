@@ -68,7 +68,7 @@ class ProfileRepository(private val preferencesStore: PreferencesStorage) {
             derpRegionId = if (obj.has("derpRegionId") && !obj.isNull("derpRegionId")) obj.getInt("derpRegionId") else null,
             customDns = validatedDns,
             dnsPolicy = policy,
-            mtu = obj.optInt("mtu", 1280),
+            mtu = obj.optInt("mtu", 1280).coerceIn(1280, 1500),
             isDefault = obj.optBoolean("isDefault", false),
             createdAt = obj.optLong("createdAt", System.currentTimeMillis())
         )

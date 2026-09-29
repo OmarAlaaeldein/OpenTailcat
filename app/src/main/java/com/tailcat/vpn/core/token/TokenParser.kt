@@ -702,7 +702,12 @@ object TokenParser {
         if (parts.size != 4) return null
         val bytes = ByteArray(4)
         for (i in 0 until 4) {
-            val n = parts[i].toIntOrNull() ?: return null
+            val part = parts[i]
+            if (part.isEmpty() || part.length > 3 || !part.all { it.isDigit() }) return null
+            // Match Go netip.ParseAddr and DnsValidator: leading zeroes are
+            // rejected so 01.02.03.04 cannot slip through token validation.
+            if (part.length > 1 && part.startsWith("0")) return null
+            val n = part.toIntOrNull() ?: return null
             if (n !in 0..255) return null
             bytes[i] = n.toByte()
         }

@@ -442,6 +442,7 @@ func Stop() (err error) {
 	globalCore.mu.Lock()
 	if globalCore.state == StateStopped && !globalCore.stopping {
 		globalCore.pendingDNS.Store(nil)
+		globalCore.pendingMTU.Store(0)
 		globalCore.mu.Unlock()
 		return nil
 	}
@@ -461,6 +462,7 @@ func Stop() (err error) {
 	globalCore.state = StateStopping
 	globalCore.healthUnix.Store(0)
 	globalCore.pendingDNS.Store(nil)
+	globalCore.pendingMTU.Store(0)
 	globalCore.lastErr = ""
 	globalCore.mu.Unlock()
 

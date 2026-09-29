@@ -65,8 +65,17 @@ Thumbs.db
 *.jks
 *.keystore
 *.pcap
+*.pcapng
+*.cap
 *.token
+live-token.txt
+*.key
+*.der
+*.p8
+keystore.properties
+signing.properties
 .env
+.env.*
 
 __pycache__/
 *.py[cod]

@@ -353,7 +353,10 @@ class TailcatVpnService : VpnService() {
 
     private fun clearInterfaceIf(expected: ParcelFileDescriptor) {
         synchronized(interfaceLock) {
-            if (vpnInterface === expected || vpnInterface?.fd == expected.fd) {
+            // Object identity only: Linux reuses the lowest FD number after
+            // close(), so comparing raw fd ints can null a newly established
+            // routed interface that recycled the warm TUN's number.
+            if (vpnInterface === expected) {
                 vpnInterface = null
             }
         }

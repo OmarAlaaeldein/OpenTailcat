@@ -89,7 +89,7 @@ class PreferencesStore internal constructor(
 
     override var vpnWanted: Boolean
         get() = store.getString(KEY_VPN_WANTED).toBoolean()
-        set(value) { store.putString(KEY_VPN_WANTED, value.toString()) }
+        set(value) { store.putString(KEY_VPN_WANTED, value.toString(), commit = true) }
 
     override var debugMode: Boolean
         get() = store.getString(KEY_DEBUG_MODE).toBoolean()

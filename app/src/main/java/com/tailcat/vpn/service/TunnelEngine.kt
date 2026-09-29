@@ -1,5 +1,6 @@
 package com.tailcat.vpn.service
 
+import android.util.Log
 import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.golib.engine.Engine
 import com.tailcat.golib.engine.SocketProtector
@@ -140,6 +141,9 @@ class TunnelEngine : NativeEngine {
     override fun updateNetworkState(networkStateJson: String) {
         if (!loaded) return
         runCatching { call("updateNetworkState") { Engine.updateNetworkState(networkStateJson) } }
+            .onFailure { error ->
+                Log.w("TunnelEngine", "updateNetworkState failed (${error.javaClass.simpleName})")
+            }
     }
 
     override fun stop() {

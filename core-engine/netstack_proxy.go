@@ -136,6 +136,13 @@ func (f *udpFlow) close() {
 	})
 }
 
+// tcpDialResult is the async DialTCP outcome handed from the dial goroutine
+// to proxyTCP. Package-level so both sides share one named channel type.
+type tcpDialResult struct {
+	conn net.Conn
+	err  error
+}
+
 // netstackProxy terminates Android TCP and UDP flows with gVisor's userspace stack
 // and proxies datagrams and byte streams exclusively through Tailcat's WireGuard tunnel.
 type netstackProxy struct {
@@ -420,24 +427,31 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest, resolvedDst neti
 	// Read before Complete, which releases the request's segment.
 	isDNS := request.ID().LocalPort == 53
 
-	type dialResult struct {
-		conn net.Conn
-		err  error
-	}
-	dialed := make(chan dialResult, 1)
+	dialed := make(chan tcpDialResult, 1)
 	go func() {
-		defer p.recoverFlow("tcp dial")
+		// Guarantee the waiter below never blocks forever: a panicking
+		// DialTCP must still signal dialed (recoverFlow alone would exit
+		// silently and leak the 512-slot + tcpWg credit).
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Tailcat tcp dial panic (contained): %v @ %s", r, panicSite())
+				select {
+				case dialed <- tcpDialResult{nil, fmt.Errorf("tcp dial panic: %v", r)}:
+				default:
+				}
+			}
+		}()
 		ctx, cancel := context.WithTimeout(p.bridge.ctx, tcpDialTimeout)
 		conn, err := p.bridge.client.DialTCP(ctx, resolvedDst)
 		cancel()
-		dialed <- dialResult{conn, err}
+		dialed <- tcpDialResult{conn, err}
 	}()
 
 	var waitQueue waiter.Queue
 	endpoint, tcpErr := request.CreateEndpoint(&waitQueue)
 	if tcpErr != nil || endpoint == nil {
 		request.Complete(true)
-		res := <-dialed
+		res := waitDialResult(p.bridge.ctx, dialed)
 		closeConn(res.conn)
 		return
 	}
@@ -448,7 +462,7 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest, resolvedDst neti
 	// the gateway dials the destination, so an unreachable or refused host
 	// shows up as connected-then-EOF. Refusing properly needs the gateway to
 	// dial before completing the tunnel handshake.
-	res := <-dialed
+	res := waitDialResult(p.bridge.ctx, dialed)
 	if res.err != nil || isNilConn(res.conn) {
 		_ = local.Close()
 		closeConn(res.conn)
@@ -469,6 +483,18 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest, resolvedDst neti
 	defer remote.Close()
 
 	p.copyTCP(local, remote)
+}
+
+// waitDialResult waits for the async DialTCP result but also returns on engine
+// shutdown, so a stuck dial cannot pin a proxyTCP goroutine (and its 512-slot
+// + tcpWg credit) forever.
+func waitDialResult(ctx context.Context, dialed <-chan tcpDialResult) tcpDialResult {
+	select {
+	case res := <-dialed:
+		return res
+	case <-ctx.Done():
+		return tcpDialResult{nil, ctx.Err()}
+	}
 }
 
 // copyTCP proxies both directions until both have finished. A clean EOF in
