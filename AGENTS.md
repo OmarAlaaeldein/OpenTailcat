@@ -312,6 +312,13 @@ scripts/emulator/ci-smoke.sh
 scripts/emulator/ci-live.sh
 ```
 
+After any emulator work, always shut it down and stop the JVM when finished:
+
+```bash
+adb -s emulator-5554 emu kill  # repeat for every attached emulator in `adb devices`
+./gradlew --stop
+```
+
 After native changes, rebuild and inspect `app/libs/libtailcat.aar`, including
 Java signatures, ARM64/x86-64 contents, `go version -m`, R8/JNI retention,
 SHA-256, and 16 KB ELF load alignment. The checked-in AAR must never lag native
