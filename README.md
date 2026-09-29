@@ -12,33 +12,31 @@ Android client for Tailcat. Paste a `tc…` token and connect to **your** gatewa
   <img src="docs/screenshots/network-benchmark.png" alt="Network benchmark" width="280" />
 </p>
 
-## What’s new in 1.5.0
+## What’s new in 1.5.1
 
-- **Speed test through the gateway** shows live progress instead of sitting at 0.
-- **Reconnects** after an engine failure or a gateway that stops answering,
-  and follows Wi-Fi ↔ mobile data switches.
-- **Honest status** (“GATEWAY NOT RESPONDING”), no local ping replies, and no
-  public IP or peer addresses in logcat unless Diagnostics is on.
-- **Safer storage and updates**: saved gateways are sealed with an Android
-  Keystore key (a lost key no longer crashes the app), deleted gateways stay
-  deleted, and Settings → Updates verifies the APK’s SHA-256 and signer.
-- Tailcat `v0.7.0`, bundled license notices (Settings → About), and many
-  data-plane fixes from the 2026-09-26 review.
+- **Fail-closed lifecycle fixes**: the new routed interface can no longer be
+  cleared by a recycled file descriptor, and `vpnWanted` is stored
+  synchronously so a kill cannot resurrect an unwanted VPN.
+- **Agreement fixes**: stored profile MTUs are clamped to 1280–1500, token
+  IPv4 literals reject leading zeroes like Go and the DNS validator, and
+  network-state update failures are logged instead of swallowed.
+- **Native engine**: a panicking TCP dial can no longer pin a connection slot
+  forever, and `Stop` clears the staged MTU as well as the staged DNS.
 
-Full notes: [`docs/releases/1.5.0.md`](docs/releases/1.5.0.md). Older
+Full notes: [`docs/releases/1.5.1.md`](docs/releases/1.5.1.md). Older
 releases: [`docs/releases/`](docs/releases/).
 
 ## Install
 
 1. Grab the [latest release](https://github.com/OmarAlaaeldein/OpenTailcat/releases/latest).
 2. APKs:
-   - **Phone:** `OpenTailcat-1.5.0-arm64-v8a.apk`
-   - **Emulator (x86_64):** `OpenTailcat-1.5.0-x86_64.apk`
+   - **Phone:** `OpenTailcat-1.5.1-arm64-v8a.apk`
+   - **Emulator (x86_64):** `OpenTailcat-1.5.1-x86_64.apk`
 3. Install it (allow installs from your browser/file manager if asked).
 4. Optional: enable **Always-on VPN** and **Block connections without VPN** for OpenTailcat — better if the tunnel drops. Connect still works without them.
 5. Paste your `tc…` token and tap Connect.
 
-Checksums are in `OpenTailcat-1.5.0-SHA256SUMS.txt`.
+Checksums are in `OpenTailcat-1.5.1-SHA256SUMS.txt`.
 
 ## How it works
 

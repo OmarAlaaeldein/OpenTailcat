@@ -7,7 +7,7 @@ unsafe shortcuts already found in the tree.
 
 ## Audited snapshot
 
-- Android repository: version 1.5.0 (versionCode 39) on `main`. Per-release
+- Android repository: version 1.5.1 (versionCode 40) on `main`. Per-release
   changes are in `docs/releases/`; the review and its fix logs are in
   `docs/review-2026-09-26.md`. IPv4 test-routing capabilities are true so
   Connect can be exercised with a live token. `ipv6` is true; `ipv6Egress` is
@@ -52,10 +52,10 @@ picker) and the 2026-09-23 Phase 8 capture run log are in
 
 ## Release status
 
-The current tree is **1.5.0** versionCode **39** (AAR SHA-256 in
+The current tree is **1.5.1** versionCode **40** (AAR SHA-256 in
 `app/libs/libtailcat.aar.sha256`; Go 1.27.1, NDK 29.0.14206865, 16 KB) with the
 review P0–P3 fixes listed in `docs/review-2026-09-26.md` and
-`docs/releases/1.5.0.md`. 1.4.0 used versionCode 38; 1.3.7 used versionCode 37; 1.3.6 used versionCode 36; 1.3.5 used versionCode 35; 1.3.4 used
+`docs/releases/1.5.1.md`. 1.5.0 used versionCode 39; 1.4.0 used versionCode 38; 1.3.7 used versionCode 37; 1.3.6 used versionCode 36; 1.3.5 used versionCode 35; 1.3.4 used
 versionCode 34; the 1.2.14 checkpoint used versionCode 27. The `development`
 build type is release R8/resource optimization with the existing development
 certificate and no debug UI tooling. `release` signing remains separate. To
