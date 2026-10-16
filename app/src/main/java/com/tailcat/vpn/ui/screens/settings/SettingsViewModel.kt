@@ -49,6 +49,7 @@ class SettingsViewModel : ViewModel() {
     private var downloadJob: Job? = null
 
     fun checkForUpdate() {
+        if (!BuildConfig.UPDATER_ENABLED) return
         if (_updateState.value is UpdateState.Checking) return
         checkJob?.cancel()
         checkJob = viewModelScope.launch {
@@ -68,6 +69,7 @@ class SettingsViewModel : ViewModel() {
     }
 
     fun downloadUpdate(context: Context) {
+        if (!BuildConfig.UPDATER_ENABLED) return
         val available = _updateState.value as? UpdateState.Available ?: return
         if (downloadJob?.isActive == true) return
         val abi = ApkInstaller.preferredAbi()

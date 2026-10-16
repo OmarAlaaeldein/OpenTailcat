@@ -2,7 +2,7 @@
 # CI emulator smoke test (no gateway, no secrets): installs the debug and
 # test APKs, runs VpnStartupInstrumentedTest (consent handling and fail-closed
 # startup with a synthetic token), and checks that the home screen renders.
-# Needs ./gradlew assembleDebug assembleDebugAndroidTest first.
+# Needs ./gradlew assembleGithubDebug assembleGithubDebugAndroidTest first.
 set -euo pipefail
 DIR="$(dirname "$0")"
 source "$DIR/lib.sh"

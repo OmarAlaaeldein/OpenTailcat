@@ -21,7 +21,7 @@ echo "==> phase8-analyze synthetic e2e (not physical acceptance)"
 scripts/phase8/e2e-analyze.sh
 
 echo "==> Android unit + lint"
-./gradlew testDebugUnitTest lintDebug
+./gradlew testGithubDebugUnitTest lintGithubDebug
 
 echo "==> AAR hash"
 got="$(shasum -a 256 app/libs/libtailcat.aar | awk '{print $1}')"

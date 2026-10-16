@@ -18,8 +18,8 @@ echo "booted: API $(adb shell getprop ro.build.version.sdk | tr -d '\r'), $ABI"
 
 # The debug build is split per ABI, except in a Gradle run that also bundles
 # (ABI splits are off then), which writes one universal app-debug.apk.
-APK="$ROOT/app/build/outputs/apk/debug/app-$ABI-debug.apk"
-[ -f "$APK" ] || APK="$ROOT/app/build/outputs/apk/debug/app-debug.apk"
+APK="$ROOT/app/build/outputs/apk/github/debug/app-github-$ABI-debug.apk"
+[ -f "$APK" ] || APK="$ROOT/app/build/outputs/apk/github/debug/app-github-debug.apk"
 if [ -f "$APK" ]; then
   adb install -r "$APK" >/dev/null
   echo "installed $(basename "$APK")"

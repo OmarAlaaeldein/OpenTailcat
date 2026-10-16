@@ -1,0 +1,10 @@
+<p>OpenTailcat is an Android client for <a href="https://github.com/tailscale/tailcat">Tailcat</a>. Paste a <code>tc…</code> token and connect to <b>your own</b> gateway over WireGuard-encrypted, peer-to-peer tunnels, with DERP relays used for NAT traversal and as a fallback. There is no account and no control plane in the middle.</p>
+<p>Features:</p>
+<ul>
+<li>Full-device VPN through your own Tailcat gateway</li>
+<li>Per-app exclusions (split tunnelling)</li>
+<li>Custom DNS and MTU per profile</li>
+<li>Built-in tunnel benchmark (latency, download and upload via speed.cloudflare.com, run only when you start it)</li>
+<li>Works with Android Always-on VPN and "Block connections without VPN"</li>
+</ul>
+<p>OpenTailcat is an independent community project and is not affiliated with Tailscale Inc. It is still under active development: leak testing on physical devices is not finished, so do not rely on it as a hardened privacy VPN yet.</p>

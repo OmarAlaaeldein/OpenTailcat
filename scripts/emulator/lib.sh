@@ -59,9 +59,9 @@ route_dev() {
 # ./gradlew assembleDebugAndroidTest.
 install_test_apk() {
   local apk
-  apk=$(ls "$ROOT"/app/build/outputs/apk/androidTest/debug/*.apk 2>/dev/null | head -1 || true)
+  apk=$(ls "$ROOT"/app/build/outputs/apk/androidTest/github/debug/*.apk 2>/dev/null | head -1 || true)
   if [ -z "$apk" ]; then
-    echo "no androidTest APK; run ./gradlew assembleDebugAndroidTest" >&2
+    echo "no androidTest APK; run ./gradlew assembleGithubDebugAndroidTest" >&2
     return 1
   fi
   adb install -r "$apk" >/dev/null

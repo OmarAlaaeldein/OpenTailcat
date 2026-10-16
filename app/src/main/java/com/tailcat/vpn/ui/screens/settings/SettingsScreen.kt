@@ -1,5 +1,6 @@
 package com.tailcat.vpn.ui.screens.settings
 
+import com.tailcat.vpn.BuildConfig
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -140,7 +141,9 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
 
                     ActiveProfileDnsCard(app)
 
-                    SettingsUpdatesCard(viewModel = updatesViewModel)
+                    if (BuildConfig.UPDATER_ENABLED) {
+                        SettingsUpdatesCard(viewModel = updatesViewModel)
+                    }
 
                     AboutCard()
                 }

@@ -1,0 +1,4 @@
+* Fail-closed lifecycle fixes: a recycled file descriptor can no longer clear the new routed interface, and the "VPN wanted" state is saved synchronously so a killed app cannot bring back an unwanted VPN.
+* Stored profile MTUs are clamped to 1280–1500; token IPv4 literals with leading zeroes are rejected.
+* Network-state update failures are now logged.
+* Native engine: a panicking TCP dial can no longer hold a connection slot forever, and Stop clears the staged MTU and DNS.

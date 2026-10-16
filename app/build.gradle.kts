@@ -4,7 +4,10 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-val enableAbiSplits = gradle.startParameter.taskNames.none { it.contains("bundle", ignoreCase = true) }
+// -PnoAbiSplits builds one APK with both ABIs (F-Droid needs distinct
+// versionCodes per APK, and the splits share one).
+val enableAbiSplits = !project.hasProperty("noAbiSplits") &&
+    gradle.startParameter.taskNames.none { it.contains("bundle", ignoreCase = true) }
 
 android {
     namespace = "com.tailcat.vpn"
@@ -59,6 +62,20 @@ android {
             initWith(getByName("release"))
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += "release"
+        }
+    }
+    // "github" ships the in-app updater (GitHub Releases APKs);
+    // "fdroid" compiles it out so F-Droid builds never fetch or install APKs.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("github") {
+            dimension = "distribution"
+            isDefault = true
+            buildConfigField("boolean", "UPDATER_ENABLED", "true")
+        }
+        create("fdroid") {
+            dimension = "distribution"
+            buildConfigField("boolean", "UPDATER_ENABLED", "false")
         }
     }
     splits {
