@@ -1,0 +1,3 @@
+* New F-Droid build flavor without the in-app self-updater.
+* Optional universal APK build (-PnoAbiSplits) containing both arm64-v8a and x86_64.
+* Store metadata (fastlane descriptions, screenshots, changelogs).
