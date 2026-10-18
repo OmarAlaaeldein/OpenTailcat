@@ -3,7 +3,7 @@
 > Project root: `/Users/omar/Developer/OpenTailcat`  
 > Android: min API 26, compile API 37, target API 35  
 > Android toolchain: Kotlin 2.2.10, AGP 9.4.1, Gradle 9.6.0, JDK 21  
-> Native toolchain in `core-engine/go.mod`: Go 1.27.1
+> Native toolchain in `core-engine/go.mod`: Go 1.27.2
 
 Read this file and `handoff.md` completely before changing code.
 `handoff.md` is the authoritative, detailed implementation and test plan.
@@ -15,7 +15,7 @@ true so a live token can Connect. `ipv6` is true (client dual-stack path;
 session `ipv6Egress` reports gateway WAN). Phase 8 physical leak
 acceptance is unimplemented.
 
-The checked-in AAR is built reproducibly with Go 1.27.1, NDK r29 (29.0.14206865),
+The checked-in AAR is built reproducibly with Go 1.27.2, NDK r29 (29.0.14206865),
 16 KB ELF load alignment, and verified Java signatures.
 
 Current version: 1.5.2 (versionCode 41). Per-release changes are in

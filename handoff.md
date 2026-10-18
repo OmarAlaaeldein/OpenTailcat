@@ -28,7 +28,7 @@ unsafe shortcuts already found in the tree.
   `--serve=exit-node` on the gateway side and links upstream's
   `feature/androiddns` and `feature/androidbin` into Android builds.
 - Native binary: `app/libs/libtailcat.aar`, ARM64 and x86-64, built
-  reproducibly with Go 1.27.1 and NDK 29.0.14206865; the Java API is
+  reproducibly with Go 1.27.2 and NDK 29.0.14206865; the Java API is
   `com.tailcat.golib.engine` (outside the app namespace, so the AAR's consumer
   ProGuard rule keeps only the engine). Current SHA-256 and source hash:
   Sidecars: `app/libs/libtailcat.aar.sha256`, `app/libs/libtailcat.aar.sourcehash`.
@@ -53,7 +53,7 @@ picker) and the 2026-09-23 Phase 8 capture run log are in
 ## Release status
 
 The current tree is **1.5.2** versionCode **41** (AAR SHA-256 in
-`app/libs/libtailcat.aar.sha256`; Go 1.27.1, NDK 29.0.14206865, 16 KB) with the
+`app/libs/libtailcat.aar.sha256`; Go 1.27.2, NDK 29.0.14206865, 16 KB) with the
 review P0–P3 fixes listed in `docs/review-2026-09-26.md` and
 `docs/releases/1.5.2.md`. 1.5.1 used versionCode 40; 1.5.0 used versionCode 39; 1.4.0 used versionCode 38; 1.3.7 used versionCode 37; 1.3.6 used versionCode 36; 1.3.5 used versionCode 35; 1.3.4 used
 versionCode 34; the 1.2.14 checkpoint used versionCode 27. The `development`
@@ -690,4 +690,4 @@ Client `ipv6` is true with fail-closed HE behavior. Real IPv6 Internet still nee
 4. PMTU / Packet Too Big path exercised; ICMPv6 echo remains local-drop.
 5. Gateway under test has IPv6 WAN. Without it, the client rejects public IPv6 before dialing (RST/drop) so apps fail fast to tunneled IPv4; the old 250 ms IPv6 dial timeout was removed.
 
-Omar device checklist: enable Always-on lockdown, rebuild AAR (`core-engine/build-aar.sh` with Go 1.27.1 + NDK 29.0.14206865), install development APK, confirm `isLockdownEnabled` after Connect, run `scripts/phase8` dual capture including an IPv6 probe address.
+Omar device checklist: enable Always-on lockdown, rebuild AAR (`core-engine/build-aar.sh` with Go 1.27.2 + NDK 29.0.14206865), install development APK, confirm `isLockdownEnabled` after Connect, run `scripts/phase8` dual capture including an IPv6 probe address.

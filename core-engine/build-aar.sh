@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Deterministic and Reproducible Build Script for libtailcat.aar
-# Requirements: Go 1.27.1, Android NDK (API 26+)
+# Requirements: Go 1.27.2, Android NDK (API 26+)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -57,10 +57,10 @@ fi
 echo "==> Using Android NDK: ${ANDROID_NDK_HOME} (Pkg.Revision = ${NDK_REVISION})"
 echo "==> Using Go: $(go version)"
 
-# Enforce exact Go version 1.27.1
+# Enforce exact Go version 1.27.2 (1.27.1 carries GO-2026-6611/6612/6613/6617)
 GO_VER_STR="$(go version)"
-if [[ "${GO_VER_STR}" != *"go version go1.27.1 "* ]]; then
-    echo "ERROR: Pinned Go version 1.27.1 is required. Found: ${GO_VER_STR}" >&2
+if [[ "${GO_VER_STR}" != *"go version go1.27.2 "* ]]; then
+    echo "ERROR: Pinned Go version 1.27.2 is required. Found: ${GO_VER_STR}" >&2
     exit 1
 fi
 
