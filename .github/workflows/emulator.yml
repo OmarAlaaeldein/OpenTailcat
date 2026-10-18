@@ -63,8 +63,22 @@ jobs:
         run: |
           if [ -n "$OTC_LIVE_TOKEN" ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Live gateway checks"
+              echo
+              echo "The gateway token is set; the live checks below run against it."
+            } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::notice::OTC_LIVE_TOKEN is not set; skipping the live gateway checks"
+            # A green job that ran nothing is worse than a red one: say so in
+            # the annotations and the job summary, not only in the log.
+            echo "::warning title=Live gateway checks skipped::OTC_LIVE_TOKEN is not set, so this job verified nothing."
+            {
+              echo "### :warning: Live gateway checks skipped"
+              echo
+              echo "This job is green but ran no checks: \`OTC_LIVE_TOKEN\` is not set in this repository."
+              echo
+              echo "Set it with \`gh secret set OTC_LIVE_TOKEN\` to turn this into a real gate."
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.token.outputs.present == 'true'
