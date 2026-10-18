@@ -26,3 +26,6 @@ if [ -f "$APK" ]; then
 else
   echo "no $(basename "$APK"); run ./gradlew assembleGithubDebug to install one"
 fi
+# The app asks for notifications on the first Connect tap; answer it now so a
+# headless run never has to dismiss the prompt.
+grant_app_permissions

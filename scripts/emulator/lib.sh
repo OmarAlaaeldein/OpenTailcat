@@ -55,6 +55,15 @@ route_dev() {
   adb shell ip route get "${1:-1.1.1.1}" uid 2000 | tr -d '\r' | sed -n -E 's/.* dev ([^ ]+).*/\1/p' | head -1
 }
 
+# grant_app_permissions pre-answers the runtime permissions the app asks for
+# while it is used, so no system dialog covers the home screen. Without this a
+# fresh install on API 33+ shows the notification prompt on the first Connect
+# tap instead of starting the tunnel. Best effort: older APIs and an app that
+# is not installed yet both fail harmlessly.
+grant_app_permissions() {
+  adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS >/dev/null 2>&1 || true
+}
+
 # install_test_apk installs the instrumentation APK built by
 # ./gradlew assembleGithubDebugAndroidTest.
 install_test_apk() {

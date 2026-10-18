@@ -12,7 +12,11 @@ if ui_nodes | grep -q "TAP TO CONNECT"; then
   # child of the clickable node (same bounds), so match the label itself.
   tap_node "\| Connect VPN$"
   sleep 2
-  # First connect after install: accept the system VPN consent dialog.
+  # First connect after install: answer the notification permission prompt (the
+  # app asks for it before the VPN consent screen), then accept the system VPN
+  # consent dialog. Both are absent when the permission is already granted.
+  tap_node '\| Allow \|' 2>/dev/null || true
+  sleep 1
   tap_node '\| OK \|' 2>/dev/null || true
 fi
 for _ in $(seq 1 15); do
