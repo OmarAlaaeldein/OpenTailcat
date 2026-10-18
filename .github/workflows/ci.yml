@@ -82,6 +82,8 @@ jobs:
       - name: Validate the Gradle wrapper
         uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
       - name: Unit tests
-        run: ./gradlew testDebugUnitTest lintDebug
+        # Flavor-explicit: with github/fdroid flavors the bare testDebugUnitTest
+        # and lintDebug names are ambiguous in Gradle.
+        run: ./gradlew testGithubDebugUnitTest testFdroidDebugUnitTest lintGithubDebug lintFdroidDebug
       - name: Build optimized development APKs
         run: ./gradlew assembleDevelopment

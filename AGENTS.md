@@ -303,11 +303,14 @@ go test ./...
 go vet ./...
 
 cd ..
-./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease
+# The github/fdroid flavors make the bare testDebugUnitTest, lintDebug and
+# assembleDebugAndroidTest names ambiguous; name the variant explicitly.
+./gradlew testGithubDebugUnitTest testFdroidDebugUnitTest lintGithubDebug lintFdroidDebug
+./gradlew assembleDebug assembleRelease bundleRelease
 
 # Emulator (see scripts/emulator/README.md): no-gateway smoke test, and the
 # live-gateway checks with an app already paired (or OTC_LIVE_TOKEN set).
-./gradlew assembleDebug assembleDebugAndroidTest
+./gradlew assembleGithubDebug assembleGithubDebugAndroidTest
 scripts/emulator/ci-smoke.sh
 scripts/emulator/ci-live.sh
 ```

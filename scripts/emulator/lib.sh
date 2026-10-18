@@ -56,7 +56,7 @@ route_dev() {
 }
 
 # install_test_apk installs the instrumentation APK built by
-# ./gradlew assembleDebugAndroidTest.
+# ./gradlew assembleGithubDebugAndroidTest.
 install_test_apk() {
   local apk
   apk=$(ls "$ROOT"/app/build/outputs/apk/androidTest/github/debug/*.apk 2>/dev/null | head -1 || true)

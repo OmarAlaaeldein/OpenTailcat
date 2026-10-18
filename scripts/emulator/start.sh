@@ -24,5 +24,5 @@ if [ -f "$APK" ]; then
   adb install -r "$APK" >/dev/null
   echo "installed $(basename "$APK")"
 else
-  echo "no $(basename "$APK"); run ./gradlew assembleDebug to install one"
+  echo "no $(basename "$APK"); run ./gradlew assembleGithubDebug to install one"
 fi

@@ -3,7 +3,7 @@
 # environment variable (a CI secret or a local export) through
 # PairGatewayInstrumentedTest, and grant VPN consent so Connect needs no
 # dialog. The token is never printed. Needs the debug and androidTest APKs
-# (./gradlew assembleDebug assembleDebugAndroidTest).
+# (./gradlew assembleGithubDebug assembleGithubDebugAndroidTest).
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 : "${OTC_LIVE_TOKEN:?set OTC_LIVE_TOKEN to the gateway token}"
