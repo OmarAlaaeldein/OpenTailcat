@@ -6,7 +6,14 @@ set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
 adb shell am start -n "$PKG/.ui.MainActivity" >/dev/null
-sleep 2
+# uiautomator can fail for a moment right after the activity starts (the dump
+# file is not written yet) and ui_nodes then prints nothing. A failed dump must
+# not be read as "nothing to do": that skipped the Connect tap entirely in CI,
+# where the state then sat at TAP TO CONNECT until the script gave up.
+for _ in $(seq 1 10); do
+  ui_nodes | grep -q . && break
+  sleep 2
+done
 if ui_nodes | grep -q "TAP TO CONNECT"; then
   # Tap the round button above the caption. Compose 1.12 puts its label on a
   # child of the clickable node (same bounds), so match the label itself.
