@@ -1,0 +1,2 @@
+* Security: native engine rebuilt with Go 1.27.2 and golang.org/x/net v0.60.0, fixing GO-2026-6611, GO-2026-6612, GO-2026-6613 and GO-2026-6617 (HTTP/2 and net/http).
+* Emulator test and CI reliability fixes.

@@ -12,27 +12,29 @@ Android client for Tailcat. Paste a `tc…` token and connect to **your** gatewa
   <img src="docs/screenshots/network-benchmark.png" alt="Network benchmark" width="280" />
 </p>
 
-## What’s new in 1.5.2
+## What’s new in 1.5.3
 
-- **F-Droid build flavor**: a new `fdroid` flavor compiles out the in-app
-  GitHub updater, so F-Droid builds never fetch or install APKs.
-- **Universal APK option**: `-PnoAbiSplits` builds one APK with both ABIs.
-- **Store metadata**: fastlane descriptions, screenshots and changelogs.
+- **Engine security update**: the native engine is built with Go 1.27.2 and
+  `golang.org/x/net` v0.60.0, fixing GO-2026-6611, GO-2026-6612, GO-2026-6613
+  and GO-2026-6617 in the HTTP/2 and `net/http` code.
+- **Emulator/CI reliability**: the emulator suites pre-grant notifications and
+  wait for a readable UI dump before tapping Connect, and CI uses the
+  flavor-explicit Gradle tasks.
 
-Full notes: [`docs/releases/1.5.2.md`](docs/releases/1.5.2.md). Older
+Full notes: [`docs/releases/1.5.3.md`](docs/releases/1.5.3.md). Older
 releases: [`docs/releases/`](docs/releases/).
 
 ## Install
 
 1. Grab the [latest release](https://github.com/OmarAlaaeldein/OpenTailcat/releases/latest).
 2. APKs:
-   - **Phone:** `OpenTailcat-1.5.2-arm64-v8a.apk`
-   - **Emulator (x86_64):** `OpenTailcat-1.5.2-x86_64.apk`
+   - **Phone:** `OpenTailcat-1.5.3-arm64-v8a.apk`
+   - **Emulator (x86_64):** `OpenTailcat-1.5.3-x86_64.apk`
 3. Install it (allow installs from your browser/file manager if asked).
 4. Optional: enable **Always-on VPN** and **Block connections without VPN** for OpenTailcat — better if the tunnel drops. Connect still works without them.
 5. Paste your `tc…` token and tap Connect.
 
-Checksums are in `OpenTailcat-1.5.2-SHA256SUMS.txt`.
+Checksums are in `OpenTailcat-1.5.3-SHA256SUMS.txt`.
 
 ## How it works
 
