@@ -57,7 +57,7 @@ fi
 TAILCAT_COMMIT="$(git -C third_party/tailcat rev-parse HEAD)"
 
 echo "==> Resolving the Android release runtime classpath"
-./gradlew -q :app:dependencies --configuration releaseRuntimeClasspath --console=plain \
+./gradlew -q :app:dependencies --configuration githubReleaseRuntimeClasspath --console=plain \
     > "$WORK/android-deps.txt"
 
 echo "==> Writing $OUT"
