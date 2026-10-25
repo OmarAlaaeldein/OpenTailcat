@@ -2,92 +2,117 @@ package com.tailcat.vpn
 
 import com.tailcat.vpn.core.NetworkMonitor
 import com.tailcat.vpn.core.NetworkType
-import com.tailcat.vpn.core.UnderlyingNetwork
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NetworkMonitorTest {
+    private data class Candidate(
+        val name: String,
+        val transport: NetworkType,
+        val validated: Boolean = true
+    )
+
+    private val wifi = Candidate("wlan0", NetworkType.WIFI)
+    private val cell = Candidate("rmnet_data0", NetworkType.CELLULAR)
+    private val ethernet = Candidate("eth0", NetworkType.ETHERNET)
+    // A VPN can advertise its underlay's transport; it remains excluded from candidates.
+    private val vpn = Candidate("tun0", NetworkType.WIFI)
+
+    private fun select(
+        candidates: List<Candidate>,
+        default: Candidate? = null,
+        best: Candidate? = null,
+        reportedTransport: NetworkType = NetworkType.NONE
+    ): Candidate? = NetworkMonitor.selectUnderlyingNetwork(
+        candidates, default, best, reportedTransport
+    ) { it.transport }
 
     @Test
-    fun testNetworkStateJsonStructure() {
-        val jsonStr = """
-        {
-            "isOnline": true,
-            "networkType": "WIFI",
-            "interfaces": [
-                {
-                    "name": "wlan0",
-                    "addresses": ["192.168.1.50/24"],
-                    "mtu": 1500
-                }
-            ],
-            "gateways": ["192.168.1.1"],
-            "dnsServers": ["1.1.1.1", "8.8.8.8"]
-        }
-        """.trimIndent()
-
-        val root = JSONObject(jsonStr)
-        assertTrue(root.getBoolean("isOnline"))
-        assertEquals("WIFI", root.getString("networkType"))
-
-        val ifArray = root.getJSONArray("interfaces")
-        assertEquals(1, ifArray.length())
-        val ifObj = ifArray.getJSONObject(0)
-        assertEquals("wlan0", ifObj.getString("name"))
-        assertEquals(1500, ifObj.getInt("mtu"))
-        assertEquals("192.168.1.50/24", ifObj.getJSONArray("addresses").getString(0))
-
-        val gwArray = root.getJSONArray("gateways")
-        assertEquals(1, gwArray.length())
-        assertEquals("192.168.1.1", gwArray.getString(0))
-
-        val dnsArray = root.getJSONArray("dnsServers")
-        assertEquals(2, dnsArray.length())
-        assertEquals("1.1.1.1", dnsArray.getString(0))
-        assertEquals("8.8.8.8", dnsArray.getString(1))
+    fun platformDefaultWinsOverTransportRankingAndCandidateOrder() {
+        assertEquals(cell, select(listOf(wifi, ethernet, cell), default = cell))
+        assertEquals(cell, select(listOf(cell, ethernet, wifi), default = cell))
     }
 
     @Test
-    fun testNetworkStateJsonOffline() {
-        val jsonStr = """
-        {
-            "isOnline": false,
-            "networkType": "NONE",
-            "interfaces": [],
-            "gateways": [],
-            "dnsServers": []
-        }
-        """.trimIndent()
-
-        val root = JSONObject(jsonStr)
-        assertFalse(root.getBoolean("isOnline"))
-        assertEquals("NONE", root.getString("networkType"))
-        assertEquals(0, root.getJSONArray("interfaces").length())
-        assertEquals(0, root.getJSONArray("gateways").length())
-        assertEquals(0, root.getJSONArray("dnsServers").length())
-    }
-
-    @Test
-    fun defaultInterfacePrefersValidatedThenEthernetWifiCellular() {
-        val wifi = UnderlyingNetwork("wlan0", NetworkType.WIFI, validated = true)
-        val cell = UnderlyingNetwork("rmnet_data0", NetworkType.CELLULAR, validated = true)
-        val eth = UnderlyingNetwork("eth0", NetworkType.ETHERNET, validated = true)
-
-        assertEquals("wlan0", NetworkMonitor.pickDefaultInterface(listOf(cell, wifi)))
-        assertEquals("eth0", NetworkMonitor.pickDefaultInterface(listOf(wifi, cell, eth)))
-        // Wi-Fi without Internet (captive/unvalidated) loses to working cellular.
+    fun applicationDefaultWinsOverBestMatchingHint() {
         assertEquals(
-            "rmnet_data0",
-            NetworkMonitor.pickDefaultInterface(listOf(wifi.copy(validated = false), cell))
+            cell,
+            select(listOf(wifi, cell), default = cell, best = wifi, reportedTransport = NetworkType.WIFI)
         )
     }
 
     @Test
-    fun defaultInterfaceIsNullWhenOffline() {
-        assertNull(NetworkMonitor.pickDefaultInterface(emptyList()))
+    fun unvalidatedPlatformDefaultIsNotReplacedByValidatedBackgroundNetwork() {
+        val captiveWifi = wifi.copy(validated = false)
+        assertEquals(
+            captiveWifi,
+            select(listOf(cell, captiveWifi), default = captiveWifi, best = cell)
+        )
+    }
+
+    @Test
+    fun vpnApplicationDefaultUsesPlatformsBestNonVpnNetwork() {
+        assertEquals(cell, select(listOf(wifi, cell), default = vpn, best = cell))
+        assertEquals(wifi, select(listOf(wifi, cell), default = vpn, best = wifi))
+    }
+
+    @Test
+    fun bestMatchingNetworkDoesNotRequireAnApplicationDefault() {
+        assertEquals(cell, select(listOf(wifi, cell), best = cell))
+    }
+
+    @Test
+    fun bestMatchingChoiceWinsOverLegacyTransportHint() {
+        assertEquals(
+            cell,
+            select(listOf(wifi, cell), default = vpn, best = cell, reportedTransport = NetworkType.WIFI)
+        )
+    }
+
+    @Test
+    fun legacyPlatformTransportSelectsOnlyTheMatchingCandidate() {
+        assertEquals(
+            cell,
+            select(listOf(ethernet, wifi, cell), default = vpn, reportedTransport = NetworkType.CELLULAR)
+        )
+    }
+
+    @Test
+    fun legacyTransportDoesNotChooseArbitrarilyBetweenNetworksOfTheSameType() {
+        val secondCell = cell.copy(name = "rmnet_data1")
+        assertNull(
+            select(listOf(cell, wifi, secondCell), default = vpn, reportedTransport = NetworkType.CELLULAR)
+        )
+    }
+
+    @Test
+    fun missingPlatformTransportMatchDoesNotSelectAnotherTransport() {
+        assertNull(select(listOf(wifi), default = vpn, reportedTransport = NetworkType.CELLULAR))
+    }
+
+    @Test
+    fun unknownVpnUnderlayDoesNotUseTransportValidationOrListRankings() {
+        val unvalidatedWifi = wifi.copy(validated = false)
+        assertNull(select(listOf(unvalidatedWifi, cell), default = vpn))
+        assertNull(select(listOf(cell, unvalidatedWifi), default = vpn))
+        assertNull(select(listOf(wifi, ethernet, cell), default = vpn))
+    }
+
+    @Test
+    fun soleVisibleUnderlayDoesNotNeedARanking() {
+        assertEquals(cell, select(listOf(cell), default = vpn))
+    }
+
+    @Test
+    fun departedPlatformChoicesAreNotRetained() {
+        assertNull(select(listOf(wifi, ethernet), default = cell, best = cell))
+        assertEquals(wifi, select(listOf(wifi), default = cell, best = cell))
+    }
+
+    @Test
+    fun offlineDoesNotReuseThePreviousNetworkOrVpn() {
+        assertNull(select(emptyList(), default = cell, best = cell))
+        assertNull(select(emptyList(), default = vpn))
     }
 }

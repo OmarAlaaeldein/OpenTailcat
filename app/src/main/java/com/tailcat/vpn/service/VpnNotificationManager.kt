@@ -71,7 +71,7 @@ class VpnNotificationManager(private val context: Context) {
 
         // Live rates from TUN pump accounting (txRateKbps/rxRateKbps). Do not use
         // metrics.txBytes/rxBytes — those alias WireGuard peer counters and stay 0
-        // without a Client.Status API (see handoff Phase 7).
+        // without a Client.Status API (see AGENTS.md Phase 7).
         val content = if (state == TunnelState.CONNECTED) {
             TrafficFormat.connectedNotificationContent(metrics)
         } else {

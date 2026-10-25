@@ -788,6 +788,126 @@ func main() {
 		},
 	}
 
+	// Parser-alignment regressions use the same fixed raw key bytes as the
+	// original two regression vectors. Keep the existing golden corpus intact.
+	appendAlignmentFixture := func(name, description, classification, code string, fields map[string]any) {
+		fields["p"] = fixedNodeRaw[:]
+		fields["k"] = fixedDiscoRaw[:]
+		encoded, err := canonicalEncMode.Marshal(fields)
+		if err != nil {
+			panic(err)
+		}
+		fixture := TokenFixture{
+			Name:                   name,
+			Token:                  "tc" + base64.RawURLEncoding.EncodeToString(encoded),
+			Description:            description,
+			ExpectedClassification: classification,
+			ExpectedErrorCode:      code,
+		}
+		if classification == "VALID_OFFICIAL_RESOLVED" || classification == "EXPIRED" {
+			fixture.ExpectedNodeKeyHex = hex.EncodeToString(fixedNodeRaw[:])
+			fixture.ExpectedDiscoKeyHex = hex.EncodeToString(fixedDiscoRaw[:])
+			fixture.ExpectedRegionID = 1
+			fixture.HasEmbeddedRegion = true
+		}
+		fixtures = append(fixtures, fixture)
+	}
+	appendRegionFixture := func(name, description, code string, regionFields, nodeFields map[string]any) {
+		node := map[string]any{"h": "derp.example.com"}
+		for k, v := range nodeFields {
+			node[k] = v
+		}
+		region := map[string]any{"i": uint64(1), "N": []any{node}}
+		for k, v := range regionFields {
+			region[k] = v
+		}
+		classification := "INVALID"
+		if code == "" {
+			classification = "VALID_OFFICIAL_RESOLVED"
+		}
+		appendAlignmentFixture(name, description, classification, code, map[string]any{"r": []any{region}})
+	}
+
+	appendRegionFixture("invalid_structured_region_id_truncation",
+		"Structured region ID 4294967297 must be rejected, not truncated to 1 by a 32-bit Int conversion",
+		"ERR_INVALID_STRUCTURED_REGION", map[string]any{"i": uint64(4294967297)}, nil)
+	appendRegionFixture("invalid_mapped_ipv6_loopback",
+		"IPv4-mapped IPv6 loopback (::ffff:127.0.0.1) must be rejected like Go netip rejects it",
+		"ERR_INVALID_STRUCTURED_REGION", nil, map[string]any{"6": "::ffff:127.0.0.1"})
+
+	for _, tc := range []struct {
+		name, description, code string
+		region, node            map[string]any
+	}{
+		{"invalid_structured_region_id_null", "An explicit null region ID is not an omitted region ID", "ERR_INVALID_STRUCTURED_REGION", map[string]any{"i": nil}, nil},
+		{"invalid_structured_region_id_uint64_overflow", "Unsigned region ID above the signed 64-bit range is rejected without truncation", "ERR_INVALID_STRUCTURED_REGION", map[string]any{"i": uint64(1<<64 - 1)}, nil},
+		{"invalid_structured_region_code_type", "Region code must be CBOR text or null", "ERR_CBOR_MALFORMED", map[string]any{"c": uint64(1)}, nil},
+		{"invalid_structured_region_name_type", "Region name cannot be a CBOR byte string", "ERR_CBOR_MALFORMED", map[string]any{"m": []byte("name")}, nil},
+		{"invalid_structured_nodes_type", "Nodes must be an array or null", "ERR_CBOR_MALFORMED", map[string]any{"N": "nodes"}, nil},
+		{"invalid_structured_nodes_map", "A map cannot substitute for the nodes array", "ERR_CBOR_MALFORMED", map[string]any{"N": map[string]any{}}, nil},
+		{"invalid_structured_node_name_type", "Node name must be CBOR text or null", "ERR_CBOR_MALFORMED", nil, map[string]any{"n": uint64(1)}},
+		{"invalid_structured_node_host_type", "Node hostname must be nonempty CBOR text", "ERR_INVALID_STRUCTURED_REGION", nil, map[string]any{"h": true}},
+		{"invalid_structured_node_cert_type", "Certificate name must be CBOR text or null", "ERR_CBOR_MALFORMED", nil, map[string]any{"t": true}},
+		{"invalid_structured_node_ipv4_type", "IPv4 endpoint must be CBOR text or null", "ERR_CBOR_MALFORMED", nil, map[string]any{"4": uint64(1)}},
+		{"invalid_structured_node_ipv6_type", "IPv6 endpoint must be CBOR text or null", "ERR_CBOR_MALFORMED", nil, map[string]any{"6": []any{}}},
+		{"invalid_structured_node_id_type", "Node region ID must be a signed 64-bit integer or null", "ERR_CBOR_MALFORMED", nil, map[string]any{"i": "1"}},
+		{"invalid_structured_node_stun_port_type", "STUN port cannot be a string", "ERR_CBOR_MALFORMED", nil, map[string]any{"s": "3478"}},
+		{"invalid_structured_node_derp_port_type", "DERP port cannot be a boolean", "ERR_CBOR_MALFORMED", nil, map[string]any{"d": true}},
+		{"invalid_structured_node_id_overflow", "Node region ID cannot exceed the signed 64-bit range", "ERR_CBOR_MALFORMED", nil, map[string]any{"i": uint64(1 << 63)}},
+		{"invalid_structured_node_stun_port_overflow", "STUN port cannot exceed the signed 64-bit range", "ERR_CBOR_MALFORMED", nil, map[string]any{"s": uint64(1<<64 - 1)}},
+		{"invalid_structured_node_derp_port_overflow", "DERP port cannot exceed the signed 64-bit range", "ERR_CBOR_MALFORMED", nil, map[string]any{"d": uint64(1 << 63)}},
+		{"invalid_mapped_ipv6_loopback_hex", "Hexadecimal IPv4-mapped loopback is rejected", "ERR_INVALID_STRUCTURED_REGION", nil, map[string]any{"6": "::ffff:7f00:1"}},
+		{"invalid_mapped_ipv6_link_local", "IPv4-mapped link-local endpoint is rejected", "ERR_INVALID_STRUCTURED_REGION", nil, map[string]any{"6": "::ffff:169.254.169.254"}},
+		{"invalid_mapped_ipv6_link_local_hex", "Hexadecimal IPv4-mapped link-local endpoint is rejected", "ERR_INVALID_STRUCTURED_REGION", nil, map[string]any{"6": "::ffff:a9fe:a9fe"}},
+		{"invalid_mapped_ipv6_multicast", "IPv4-mapped multicast endpoint is rejected", "ERR_INVALID_STRUCTURED_REGION", nil, map[string]any{"6": "::ffff:224.0.0.1"}},
+		{"invalid_mapped_ipv6_hostname_loopback", "An IPv4-mapped loopback literal in hostname is rejected", "ERR_INVALID_STRUCTURED_REGION", nil, map[string]any{"h": "::ffff:7f00:1"}},
+		{"invalid_mapped_ipv6_unspecified", "IPv4-mapped unspecified IPv6 endpoint is rejected", "ERR_INVALID_STRUCTURED_REGION", nil, map[string]any{"6": "::ffff:0.0.0.0"}},
+		{"invalid_mapped_ipv6_unspecified_hex", "Hexadecimal IPv4-mapped unspecified IPv6 endpoint is rejected", "ERR_INVALID_STRUCTURED_REGION", nil, map[string]any{"6": "::ffff:0:0"}},
+		{"invalid_mapped_ipv6_hostname_unspecified", "IPv4-mapped unspecified hostname literal is rejected", "ERR_INVALID_STRUCTURED_REGION", nil, map[string]any{"h": "::ffff:0.0.0.0"}},
+		{"invalid_mapped_ipv6_hostname_unspecified_hex", "Hexadecimal IPv4-mapped unspecified hostname literal is rejected", "ERR_INVALID_STRUCTURED_REGION", nil, map[string]any{"h": "::ffff:0:0"}},
+		{"invalid_mapped_ipv6_ipv4_field_unspecified", "IPv4-mapped unspecified literal in the IPv4 endpoint field is rejected", "ERR_INVALID_STRUCTURED_REGION", nil, map[string]any{"4": "::ffff:0.0.0.0"}},
+		{"invalid_mapped_ipv6_ipv4_field_unspecified_hex", "Hexadecimal IPv4-mapped unspecified literal in the IPv4 endpoint field is rejected", "ERR_INVALID_STRUCTURED_REGION", nil, map[string]any{"4": "::ffff:0:0"}},
+		{"valid_structured_optional_null_fields", "Optional upstream strings and node integers accept CBOR null", "", map[string]any{"c": nil, "m": nil}, map[string]any{"n": nil, "i": nil, "t": nil, "4": nil, "6": nil, "s": nil, "d": nil}},
+		{"valid_structured_null_nodes", "An omitted or null nodes array is accepted by upstream", "", map[string]any{"N": nil}, nil},
+		{"valid_structured_wire_fields", "All supported embedded DERP wire fields retain their upstream types", "", map[string]any{"c": "test", "m": "Test region"}, map[string]any{"n": "test-node", "i": int64(1), "t": "cert.example.com", "4": "192.0.2.1", "6": "2001:db8::1", "s": int64(3478), "d": int64(443)}},
+		{"valid_structured_large_node_id", "Upstream node IDs retain signed 64-bit values without an invented 16-bit restriction", "", nil, map[string]any{"i": int64(4294967297)}},
+		{"valid_mapped_ipv6_endpoint", "A non-loopback IPv4-mapped endpoint remains accepted", "", nil, map[string]any{"6": "::ffff:192.0.2.1"}},
+		{"valid_mapped_ipv6_endpoint_hex", "A hexadecimal IPv4-mapped endpoint remains accepted", "", nil, map[string]any{"6": "::ffff:c000:201"}},
+	} {
+		appendRegionFixture(tc.name, tc.description, tc.code, tc.region, tc.node)
+	}
+
+	appendAlignmentFixture("valid_structured_implicit_region_id", "Omitted embedded region ID defaults to its one-based array index",
+		"VALID_OFFICIAL_RESOLVED", "", map[string]any{"r": []any{map[string]any{"N": []any{map[string]any{"h": "derp.example.com"}}}}})
+	for _, tc := range []struct{ field, code string }{
+		{"i", "ERR_INVALID_REGION_ID"},
+		{"r", "ERR_INVALID_REGION_ID"},
+		{"exp", "ERR_INVALID_EXPIRATION"},
+		{"iat", "ERR_INVALID_ISSUED_AT"},
+	} {
+		fields := map[string]any{"i": uint64(1), tc.field: uint64(1<<64 - 1)}
+		appendAlignmentFixture("invalid_uint64_overflow_"+tc.field, "Unsigned overflow retains the field-specific error for "+tc.field,
+			"INVALID", tc.code, fields)
+	}
+	appendAlignmentFixture("invalid_negative_integer_overflow", "Negative integers below the signed 64-bit range are malformed CBOR",
+		"INVALID", "ERR_CBOR_MALFORMED", map[string]any{"i": cbor.RawMessage{0x3b, 0x80, 0, 0, 0, 0, 0, 0, 0}})
+	// The encoder correctly refuses this malformed length, so construct the
+	// short regression vector directly, as with the duplicate-key cases above.
+	oversizedNestedKey := []byte{0xa3, 0x61, 'k', 0x58, 0x20}
+	oversizedNestedKey = append(oversizedNestedKey, fixedDiscoRaw[:]...)
+	oversizedNestedKey = append(oversizedNestedKey, 0x61, 'p', 0x58, 0x20)
+	oversizedNestedKey = append(oversizedNestedKey, fixedNodeRaw[:]...)
+	oversizedNestedKey = append(oversizedNestedKey, 0x61, 'r', 0x81, 0xa1, 0x7b, 0, 0, 0, 1, 0, 0, 0, 1, 'i', 1)
+	fixtures = append(fixtures, TokenFixture{
+		Name:                   "invalid_nested_key_length_truncation",
+		Token:                  "tc" + base64.RawURLEncoding.EncodeToString(oversizedNestedKey),
+		Description:            "Nested key length 4294967297 must not truncate to a one-byte key",
+		ExpectedClassification: "INVALID",
+		ExpectedErrorCode:      "ERR_CBOR_MALFORMED",
+	})
+	appendAlignmentFixture("expired_before_upstream_wire_type_check", "Expiry is checked before upstream rejects a malformed optional DERP wire type",
+		"EXPIRED", "", map[string]any{"exp": uint64(1000000000), "r": []any{map[string]any{"i": uint64(1), "c": true}}})
+
 	data, err := json.MarshalIndent(fixtures, "", "  ")
 	if err != nil {
 		panic(err)

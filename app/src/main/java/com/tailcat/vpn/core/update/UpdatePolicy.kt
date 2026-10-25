@@ -1,29 +1,32 @@
 package com.tailcat.vpn.core.update
 
+import com.tailcat.vpn.BuildConfig
 import java.net.URI
 
 /**
  * Pure checks the in-app updater applies before it downloads or offers to
- * install a release APK. Kept free of Android types so they run as JVM tests.
+ * install a release APK. Kept free of Android types so they run on the JVM.
  */
 object UpdatePolicy {
 
     /** Upper bound for a release APK; current APKs are about 21–23 MB. */
     const val MAX_APK_BYTES: Long = 100L * 1024 * 1024
 
-    const val RELEASES_PAGE = "https://github.com/OmarAlaaeldein/OpenTailcat/releases"
+    val RELEASES_PAGE: String =
+        "https://github.com/${BuildConfig.REPO_SLUG}/releases"
 
     /**
      * SHA-256 digests of the signing certificates allowed to publish updates.
      *
-     * Releases up to 1.4.0 are signed with the developer's Android debug
-     * certificate (listed below). Before rotating to an offline release key,
-     * ship one build that adds the release certificate digest here, then sign
-     * the next release with a v3 lineage (debug -> release). Remove the debug
-     * digest only after every supported install has rotated.
+     * Development builds use the existing Android development certificate.
+     * The second digest prepares a future release-key rotation; adding a pin
+     * does not rotate the APK signature. A future rotated APK must include a
+     * verified signing lineage from the installed certificate. See
+     * docs/signing.md for the remaining release and migration gates.
      */
     val TRUSTED_SIGNER_SHA256: Set<String> = setOf(
-        "dd767011a3d1223c6145cec024dccb02730e73607fc39544b2fac93adeafa8d6"
+        "dd767011a3d1223c6145cec024dccb02730e73607fc39544b2fac93adeafa8d6",
+        "e22881801806e9809b325e40746536098add8a5902fb4c9bc9134474fa7f69d7"
     )
 
     private val DOWNLOAD_HOSTS = setOf(

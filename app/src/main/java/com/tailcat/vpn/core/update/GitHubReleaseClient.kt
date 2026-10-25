@@ -12,8 +12,8 @@ import java.net.URL
  */
 object GitHubReleaseClient {
 
-    private const val LATEST_URL =
-        "https://api.github.com/repos/OmarAlaaeldein/OpenTailcat/releases/latest"
+    private val LATEST_URL =
+        "https://api.github.com/repos/${BuildConfig.REPO_SLUG}/releases/latest"
     private const val TIMEOUT_MS = 8_000
 
     suspend fun fetchLatest(): Result<LatestRelease> = withContext(Dispatchers.IO) {

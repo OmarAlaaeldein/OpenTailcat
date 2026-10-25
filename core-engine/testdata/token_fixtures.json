@@ -377,5 +377,373 @@
     "expectedClassification": "INVALID",
     "expectedErrorCode": "ERR_INVALID_PRESHARED_KEY",
     "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_region_id_truncation",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGhYWhwZGVycC5leGFtcGxlLmNvbWFpGwAAAAEAAAAB",
+    "description": "Structured region ID 4294967297 must be rejected, not truncated to 1 by a 32-bit Int conversion",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_mapped_ipv6_loopback",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYTZwOjpmZmZmOjEyNy4wLjAuMWFocGRlcnAuZXhhbXBsZS5jb21haQE",
+    "description": "IPv4-mapped IPv6 loopback (::ffff:127.0.0.1) must be rejected like Go netip rejects it",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_region_id_null",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGhYWhwZGVycC5leGFtcGxlLmNvbWFp9g",
+    "description": "An explicit null region ID is not an omitted region ID",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_region_id_uint64_overflow",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGhYWhwZGVycC5leGFtcGxlLmNvbWFpG___________",
+    "description": "Unsigned region ID above the signed 64-bit range is rejected without truncation",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_region_code_type",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaNhToGhYWhwZGVycC5leGFtcGxlLmNvbWFjAWFpAQ",
+    "description": "Region code must be CBOR text or null",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_region_name_type",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaNhToGhYWhwZGVycC5leGFtcGxlLmNvbWFpAWFtRG5hbWU",
+    "description": "Region name cannot be a CBOR byte string",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_nodes_type",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhTmVub2Rlc2FpAQ",
+    "description": "Nodes must be an array or null",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_nodes_map",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhTqBhaQE",
+    "description": "A map cannot substitute for the nodes array",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_node_name_type",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWhwZGVycC5leGFtcGxlLmNvbWFuAWFpAQ",
+    "description": "Node name must be CBOR text or null",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_node_host_type",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGhYWj1YWkB",
+    "description": "Node hostname must be nonempty CBOR text",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_node_cert_type",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWhwZGVycC5leGFtcGxlLmNvbWF09WFpAQ",
+    "description": "Certificate name must be CBOR text or null",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_node_ipv4_type",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYTQBYWhwZGVycC5leGFtcGxlLmNvbWFpAQ",
+    "description": "IPv4 endpoint must be CBOR text or null",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_node_ipv6_type",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYTaAYWhwZGVycC5leGFtcGxlLmNvbWFpAQ",
+    "description": "IPv6 endpoint must be CBOR text or null",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_node_id_type",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWhwZGVycC5leGFtcGxlLmNvbWFpYTFhaQE",
+    "description": "Node region ID must be a signed 64-bit integer or null",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_node_stun_port_type",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWhwZGVycC5leGFtcGxlLmNvbWFzZDM0NzhhaQE",
+    "description": "STUN port cannot be a string",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_node_derp_port_type",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWT1YWhwZGVycC5leGFtcGxlLmNvbWFpAQ",
+    "description": "DERP port cannot be a boolean",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_node_id_overflow",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWhwZGVycC5leGFtcGxlLmNvbWFpG4AAAAAAAAAAYWkB",
+    "description": "Node region ID cannot exceed the signed 64-bit range",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_node_stun_port_overflow",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWhwZGVycC5leGFtcGxlLmNvbWFzG___________YWkB",
+    "description": "STUN port cannot exceed the signed 64-bit range",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_structured_node_derp_port_overflow",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWQbgAAAAAAAAABhaHBkZXJwLmV4YW1wbGUuY29tYWkB",
+    "description": "DERP port cannot exceed the signed 64-bit range",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_mapped_ipv6_loopback_hex",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYTZtOjpmZmZmOjdmMDA6MWFocGRlcnAuZXhhbXBsZS5jb21haQE",
+    "description": "Hexadecimal IPv4-mapped loopback is rejected",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_mapped_ipv6_link_local",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYTZ2OjpmZmZmOjE2OS4yNTQuMTY5LjI1NGFocGRlcnAuZXhhbXBsZS5jb21haQE",
+    "description": "IPv4-mapped link-local endpoint is rejected",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_mapped_ipv6_link_local_hex",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYTZwOjpmZmZmOmE5ZmU6YTlmZWFocGRlcnAuZXhhbXBsZS5jb21haQE",
+    "description": "Hexadecimal IPv4-mapped link-local endpoint is rejected",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_mapped_ipv6_multicast",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYTZwOjpmZmZmOjIyNC4wLjAuMWFocGRlcnAuZXhhbXBsZS5jb21haQE",
+    "description": "IPv4-mapped multicast endpoint is rejected",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_mapped_ipv6_hostname_loopback",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGhYWhtOjpmZmZmOjdmMDA6MWFpAQ",
+    "description": "An IPv4-mapped loopback literal in hostname is rejected",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_mapped_ipv6_unspecified",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYTZuOjpmZmZmOjAuMC4wLjBhaHBkZXJwLmV4YW1wbGUuY29tYWkB",
+    "description": "IPv4-mapped unspecified IPv6 endpoint is rejected",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_mapped_ipv6_unspecified_hex",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYTZqOjpmZmZmOjA6MGFocGRlcnAuZXhhbXBsZS5jb21haQE",
+    "description": "Hexadecimal IPv4-mapped unspecified IPv6 endpoint is rejected",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_mapped_ipv6_hostname_unspecified",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGhYWhuOjpmZmZmOjAuMC4wLjBhaQE",
+    "description": "IPv4-mapped unspecified hostname literal is rejected",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_mapped_ipv6_hostname_unspecified_hex",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGhYWhqOjpmZmZmOjA6MGFpAQ",
+    "description": "Hexadecimal IPv4-mapped unspecified hostname literal is rejected",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_mapped_ipv6_ipv4_field_unspecified",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYTRuOjpmZmZmOjAuMC4wLjBhaHBkZXJwLmV4YW1wbGUuY29tYWkB",
+    "description": "IPv4-mapped unspecified literal in the IPv4 endpoint field is rejected",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_mapped_ipv6_ipv4_field_unspecified_hex",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYTRqOjpmZmZmOjA6MGFocGRlcnAuZXhhbXBsZS5jb21haQE",
+    "description": "Hexadecimal IPv4-mapped unspecified literal in the IPv4 endpoint field is rejected",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_STRUCTURED_REGION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "valid_structured_optional_null_fields",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaRhToGoYTT2YTb2YWT2YWhwZGVycC5leGFtcGxlLmNvbWFp9mFu9mFz9mF09mFj9mFpAWFt9g",
+    "description": "Optional upstream strings and node integers accept CBOR null",
+    "expectedClassification": "VALID_OFFICIAL_RESOLVED",
+    "expectedNodeKeyHex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "expectedDiscoKeyHex": "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+    "expectedRegionId": 1,
+    "hasEmbeddedRegion": true
+  },
+  {
+    "name": "valid_structured_null_nodes",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhTvZhaQE",
+    "description": "An omitted or null nodes array is accepted by upstream",
+    "expectedClassification": "VALID_OFFICIAL_RESOLVED",
+    "expectedNodeKeyHex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "expectedDiscoKeyHex": "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+    "expectedRegionId": 1,
+    "hasEmbeddedRegion": true
+  },
+  {
+    "name": "valid_structured_wire_fields",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaRhToGoYTRpMTkyLjAuMi4xYTZrMjAwMTpkYjg6OjFhZBkBu2FocGRlcnAuZXhhbXBsZS5jb21haQFhbml0ZXN0LW5vZGVhcxkNlmF0cGNlcnQuZXhhbXBsZS5jb21hY2R0ZXN0YWkBYW1rVGVzdCByZWdpb24",
+    "description": "All supported embedded DERP wire fields retain their upstream types",
+    "expectedClassification": "VALID_OFFICIAL_RESOLVED",
+    "expectedNodeKeyHex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "expectedDiscoKeyHex": "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+    "expectedRegionId": 1,
+    "hasEmbeddedRegion": true
+  },
+  {
+    "name": "valid_structured_large_node_id",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWhwZGVycC5leGFtcGxlLmNvbWFpGwAAAAEAAAABYWkB",
+    "description": "Upstream node IDs retain signed 64-bit values without an invented 16-bit restriction",
+    "expectedClassification": "VALID_OFFICIAL_RESOLVED",
+    "expectedNodeKeyHex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "expectedDiscoKeyHex": "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+    "expectedRegionId": 1,
+    "hasEmbeddedRegion": true
+  },
+  {
+    "name": "valid_mapped_ipv6_endpoint",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYTZwOjpmZmZmOjE5Mi4wLjIuMWFocGRlcnAuZXhhbXBsZS5jb21haQE",
+    "description": "A non-loopback IPv4-mapped endpoint remains accepted",
+    "expectedClassification": "VALID_OFFICIAL_RESOLVED",
+    "expectedNodeKeyHex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "expectedDiscoKeyHex": "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+    "expectedRegionId": 1,
+    "hasEmbeddedRegion": true
+  },
+  {
+    "name": "valid_mapped_ipv6_endpoint_hex",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYTZvOjpmZmZmOmMwMDA6MjAxYWhwZGVycC5leGFtcGxlLmNvbWFpAQ",
+    "description": "A hexadecimal IPv4-mapped endpoint remains accepted",
+    "expectedClassification": "VALID_OFFICIAL_RESOLVED",
+    "expectedNodeKeyHex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "expectedDiscoKeyHex": "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+    "expectedRegionId": 1,
+    "hasEmbeddedRegion": true
+  },
+  {
+    "name": "valid_structured_implicit_region_id",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaFhToGhYWhwZGVycC5leGFtcGxlLmNvbQ",
+    "description": "Omitted embedded region ID defaults to its one-based array index",
+    "expectedClassification": "VALID_OFFICIAL_RESOLVED",
+    "expectedNodeKeyHex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "expectedDiscoKeyHex": "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+    "expectedRegionId": 1,
+    "hasEmbeddedRegion": true
+  },
+  {
+    "name": "invalid_uint64_overflow_i",
+    "token": "tco2FpG___________YWtYICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AYXBYIAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g",
+    "description": "Unsigned overflow retains the field-specific error for i",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_REGION_ID",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_uint64_overflow_r",
+    "token": "tcpGFpAWFrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFyG___________",
+    "description": "Unsigned overflow retains the field-specific error for r",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_REGION_ID",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_uint64_overflow_exp",
+    "token": "tcpGFpAWFrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGNleHAb__________8",
+    "description": "Unsigned overflow retains the field-specific error for exp",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_EXPIRATION",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_uint64_overflow_iat",
+    "token": "tcpGFpAWFrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGNpYXQb__________8",
+    "description": "Unsigned overflow retains the field-specific error for iat",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_INVALID_ISSUED_AT",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_negative_integer_overflow",
+    "token": "tco2FpO4AAAAAAAAAAYWtYICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AYXBYIAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g",
+    "description": "Negative integers below the signed 64-bit range are malformed CBOR",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "invalid_nested_key_length_truncation",
+    "token": "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaF7AAAAAQAAAAFpAQ",
+    "description": "Nested key length 4294967297 must not truncate to a one-byte key",
+    "expectedClassification": "INVALID",
+    "expectedErrorCode": "ERR_CBOR_MALFORMED",
+    "hasEmbeddedRegion": false
+  },
+  {
+    "name": "expired_before_upstream_wire_type_check",
+    "token": "tcpGFrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhY_VhaQFjZXhwGjuaygA",
+    "description": "Expiry is checked before upstream rejects a malformed optional DERP wire type",
+    "expectedClassification": "EXPIRED",
+    "expectedNodeKeyHex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "expectedDiscoKeyHex": "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+    "expectedRegionId": 1,
+    "hasEmbeddedRegion": true
   }
 ]

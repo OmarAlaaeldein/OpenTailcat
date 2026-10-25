@@ -35,6 +35,8 @@ class TokenParserTest {
 
             val parsed = TokenParser.parse(token)
 
+            assertEquals("[$name] Parsing must preserve the exact token bytes", token, parsed.rawToken)
+
             assertEquals(
                 "[$name] Classification mismatch",
                 expectedClassification,
