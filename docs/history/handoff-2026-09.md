@@ -168,3 +168,25 @@ cd core-engine && GOPROXY=off go test ./... && GOPROXY=off go vet ./...
 bash core-engine/build-aar.sh
 scripts/phase8/run-host-gates.sh
 ```
+
+## Snapshot preserved during guide consolidation (2026-10-25)
+
+The previous root handoff recorded these historical checkpoints:
+
+- Android shell: `e475abc`.
+- Phase 0 capability gate: `877942a`.
+- Phase 1 reproducible build: `76563c9`.
+- Phase 2 token contract: `dfce360`.
+
+Its earlier host liveprobe reported IPv4 TLS through the gateway, a short
+DialTCP download sample of about 10.8 Mbps, DERP relay with later direct
+contact, and `ipv6Egress=false`. Separate prepare samples reported both
+`tcpOnly=true` and `tcpOnly=false`. Those are historical host observations,
+not current physical-device acceptance. Host liveprobe credentials are read
+from `OPENTAILCAT_LIVE_TOKEN` or `~/.opentailcat-private/live-token.txt` and
+must never be committed.
+
+The optimized `development` build uses R8/resource shrinking with the existing
+development certificate and no debug UI tooling. The production `release`
+signing configuration remains separate. Current status, implementation plans,
+and test gates now live in [AGENTS.md](../../AGENTS.md).

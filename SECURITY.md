@@ -3,8 +3,7 @@
 ## Reporting a vulnerability
 
 Report vulnerabilities privately through GitHub: open the repository's
-**Security** tab and choose **Report a vulnerability**
-(<https://github.com/OmarAlaaeldein/OpenTailcat/security/advisories/new>).
+**Security** tab and choose **Report a vulnerability**.
 Do not open a public issue, and never include a live gateway token, signing
 key, or traffic capture in a report; describe how to reproduce instead.
 

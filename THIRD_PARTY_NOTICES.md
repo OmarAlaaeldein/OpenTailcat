@@ -1,7 +1,7 @@
 # Third-Party Notices
 
 **OpenTailcat**  
-Copyright (c) 2026 Omar Alaaeldein. All rights reserved.
+Copyright (c) 2026 OpenTailcat contributors. All rights reserved.
 
 ## Complete notices
 

@@ -9,6 +9,16 @@ plugins {
 val enableAbiSplits = !project.hasProperty("noAbiSplits") &&
     gradle.startParameter.taskNames.none { it.contains("bundle", ignoreCase = true) }
 
+// The in-app updater's repository slug is deployment configuration, not source
+// data: the tracked tree must not embed a personal account name. A published
+// build supplies the real slug through OPENTAILCAT_REPO_SLUG or
+// -PopentailcatRepoSlug; the default is a neutral placeholder used by tests.
+val repoSlug = (System.getenv("OPENTAILCAT_REPO_SLUG")
+    ?: project.findProperty("opentailcatRepoSlug") as String?)
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?: "opentailcat/OpenTailcat"
+
 android {
     namespace = "com.tailcat.vpn"
     compileSdk = 37
@@ -18,8 +28,10 @@ android {
         applicationId = "com.tailcat.vpn"
         minSdk = 26
         targetSdk = 35
-        versionCode = 42
-        versionName = "1.5.3"
+        versionCode = 43
+        versionName = "1.5.4"
+
+        buildConfigField("String", "REPO_SLUG", "\"$repoSlug\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         if (!enableAbiSplits) {

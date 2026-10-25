@@ -53,7 +53,7 @@ device-to-device transfer for application data.
   fetch Tailcat's public relay map from `https://tailcat.dev/derpmap.json`, and
   relay hostnames are resolved with the device network's DNS resolver.
 - Only when you tap **Check for updates** in Settings, the app requests
-  `https://api.github.com/repos/OmarAlaaeldein/OpenTailcat/releases/latest`.
+  the GitHub Releases API for this repository.
   Only when you tap **Download**, it downloads the release APK from GitHub
   (`github.com` and GitHub's release-asset hosts).
 - After TUN attachment, the native engine attempts an exit-IP audit through
