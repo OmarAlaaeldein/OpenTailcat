@@ -3,14 +3,13 @@
 ## Reporting a vulnerability
 
 Report vulnerabilities privately through GitHub: open the repository's
-**Security** tab and choose **Report a vulnerability**
-(<https://github.com/OmarAlaaeldein/OpenTailcat/security/advisories/new>).
+**Security** tab and choose **Report a vulnerability**.
 Do not open a public issue, and never include a live gateway token, signing
 key, or traffic capture in a report; describe how to reproduce instead.
 
 ## Release status
 
-OpenTailcat 1.5.2 in the current source tree is a development build. It has an
+OpenTailcat 1.5.3 in the current source tree is a development build. It has an
 integrated Go Mobile Tailcat engine with Phase 0 fail-closed capability gates,
 Phase 1 reproducible builds, Phase 2 official token validation, and Phase 3
 tunneled UDP userspace netstack code. IPv4 test-routing capabilities are true so

@@ -17,7 +17,7 @@ jobs:
           submodules: true
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.2"
+          go-version: "1.27.3"
       - name: Test
         working-directory: core-engine
         run: |
@@ -69,6 +69,80 @@ jobs:
             exit 1
           fi
 
+  native-rebuild:
+    name: Rebuild the committed AAR
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install the pinned Android NDK
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          # The AAR build only needs the NDK; accept its license first.
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" "ndk;29.0.14206865"
+      - name: Rebuild the committed AAR
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          # The runner image exports ANDROID_NDK_HOME for its own NDK; point
+          # the build at the revision this repository pins instead.
+          export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/29.0.14206865"
+          committed="$RUNNER_TEMP/committed-libtailcat.aar"
+          cp app/libs/libtailcat.aar "$committed"
+          core-engine/build-aar.sh
+
+          # The committed AAR is built on macOS. gomobile compiles its cgo
+          # glue with the host NDK clang, so the ELF bytes and the Go build ID
+          # differ between macOS and Linux even for identical source. Compare
+          # what is host-independent: the module list, the exported Java API,
+          # and the source hash that build-aar.sh derives from the tree.
+          for abi in arm64-v8a x86_64; do
+            unzip -p "$committed" "jni/$abi/libgojni.so" > "$RUNNER_TEMP/committed-$abi.so"
+            unzip -p app/libs/libtailcat.aar "jni/$abi/libgojni.so" > "$RUNNER_TEMP/rebuilt-$abi.so"
+
+            if ! cmp -s "$RUNNER_TEMP/committed-$abi.so" "$RUNNER_TEMP/rebuilt-$abi.so"; then
+              echo "note: jni/$abi/libgojni.so bytes differ from the host linker; comparing metadata."
+            fi
+
+            go version -m "$RUNNER_TEMP/committed-$abi.so" \
+              | grep -E '^[[:space:]]+(path|mod|dep|=>)' > "$RUNNER_TEMP/committed-$abi.mods"
+            go version -m "$RUNNER_TEMP/rebuilt-$abi.so" \
+              | grep -E '^[[:space:]]+(path|mod|dep|=>)' > "$RUNNER_TEMP/rebuilt-$abi.mods"
+            diff -u "$RUNNER_TEMP/committed-$abi.mods" "$RUNNER_TEMP/rebuilt-$abi.mods"
+          done
+
+          # The Java shim is produced by the host JDK, so compare its public
+          # API instead of its class-file bytes, which may vary by JDK build.
+          unzip -p "$committed" classes.jar > "$RUNNER_TEMP/committed-classes.jar"
+          unzip -p app/libs/libtailcat.aar classes.jar > "$RUNNER_TEMP/rebuilt-classes.jar"
+          javap -classpath "$RUNNER_TEMP/committed-classes.jar" com.tailcat.golib.engine.Engine \
+            > "$RUNNER_TEMP/committed-api.txt"
+          javap -classpath "$RUNNER_TEMP/rebuilt-classes.jar" com.tailcat.golib.engine.Engine \
+            > "$RUNNER_TEMP/rebuilt-api.txt"
+          diff -u "$RUNNER_TEMP/committed-api.txt" "$RUNNER_TEMP/rebuilt-api.txt"
+
+          # build-aar.sh rewrites this from the current tree; any diff means
+          # the committed AAR no longer tracks native source.
+          git diff --exit-code -- app/libs/libtailcat.aar.sourcehash
+
+      - name: Archive AAR verification metadata
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: aar-verification
+          path: build/reports/aar/
+          if-no-files-found: warn
+
   android:
     runs-on: ubuntu-latest
     steps:
@@ -80,7 +154,7 @@ jobs:
           distribution: temurin
           java-version: "21"
       - name: Validate the Gradle wrapper
-        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        uses: gradle/actions/wrapper-validation@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
       - name: Unit tests
         # Flavor-explicit: with github/fdroid flavors the bare testDebugUnitTest
         # and lintDebug names are ambiguous in Gradle.

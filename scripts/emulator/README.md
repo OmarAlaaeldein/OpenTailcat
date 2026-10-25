@@ -32,4 +32,4 @@ Set it with `gh secret set OTC_LIVE_TOKEN < <file holding the token>`.
 The exit IP of the test gateway may equal the host's IP, so these checks rely
 on routes (`ip route get ... uid 2000`), engine logs and counters rather than
 the exit address. A passing run is emulator evidence, not the Phase 8
-physical-device acceptance in `handoff.md`.
+physical-device acceptance in `AGENTS.md`.

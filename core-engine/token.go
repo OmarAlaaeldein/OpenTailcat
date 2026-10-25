@@ -604,6 +604,9 @@ func rejectUnsafeDERPEndpoint(label, value string) error {
 		}
 		return nil
 	}
+	// Apply the IPv4 policy to IPv4-mapped IPv6 literals too. In particular,
+	// netip.IsUnspecified does not recognize ::ffff:0:0 without unmapping it.
+	addr = addr.Unmap()
 	switch {
 	case addr.IsLoopback():
 		return fmt.Errorf("embedded DERP %s is a loopback address", label)

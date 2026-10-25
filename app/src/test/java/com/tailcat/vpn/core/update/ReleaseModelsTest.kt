@@ -22,7 +22,7 @@ class ReleaseModelsTest {
           "tag_name": "$tag",
           "name": "Release ${tag.removePrefix("v")}",
           "body": "## What's changed\n- fix tunnel",
-          "html_url": "https://github.com/OmarAlaaeldein/OpenTailcat/releases/tag/$tag",
+          "html_url": "https://github.com/example/OpenTailcat/releases/tag/$tag",
           "assets": $assets
         }
     """.trimIndent()
@@ -71,7 +71,7 @@ class ReleaseModelsTest {
               "tag_name": "v1.5.0",
               "name": null,
               "body": null,
-              "html_url": "https://github.com/OmarAlaaeldein/OpenTailcat/releases/tag/v1.5.0",
+              "html_url": "https://github.com/example/OpenTailcat/releases/tag/v1.5.0",
               "assets": [
                 {"name":"OpenTailcat-1.5.0-arm64-v8a.apk","browser_download_url":"https://example.com/a.apk","size":1,"digest":"sha256:$hex"},
                 {"name":"OpenTailcat-1.5.0-x86_64.apk","browser_download_url":"https://example.com/b.apk","size":1,"digest":null}

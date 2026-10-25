@@ -1,6 +1,5 @@
 package com.tailcat.vpn.core.token
 
-import java.net.Inet6Address
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -303,6 +302,7 @@ object TokenParser {
         var hasExplicitRegionID = false
         var hasNumericR = false
         var hasStructuredR = false
+        var structuredRegions: List<*>? = null
         var structuredRegionFirstId = 0
         var expSec: Long? = null
         var iatSec: Long? = null
@@ -398,8 +398,13 @@ object TokenParser {
                 }
                 "r" -> {
                     when (v) {
-                        is Long, is Int -> {
-                            val num = if (v is Long) v else (v as Int).toLong()
+                        is Long, is Int, is ULong -> {
+                            // ULong is used only for CBOR integers above Long.MAX_VALUE.
+                            val num = when (v) {
+                                is Long -> v
+                                is Int -> v.toLong()
+                                else -> 0L
+                            }
                             if (num !in 1..65535) {
                                 return ParsedToken(
                                     rawToken = input,
@@ -422,6 +427,7 @@ object TokenParser {
                             }
                             try {
                                 structuredRegionFirstId = parseStructuredRegions(v)
+                                structuredRegions = v
                                 hasStructuredR = true
                             } catch (e: Exception) {
                                 return ParsedToken(
@@ -586,6 +592,16 @@ object TokenParser {
             TokenClassification.VALID_OFFICIAL_SHORT
         }
 
+        // Native checks these wire types with upstream ParseAddr after the
+        // semantic checks above. Keep its error code and validation order.
+        if (structuredRegions != null && !hasValidStructuredWireTypes(structuredRegions)) {
+            return candidate.copy(
+                classification = TokenClassification.INVALID,
+                errorCode = TokenErrorCode.ERR_CBOR_MALFORMED,
+                errorMessage = "embedded DERP field has an invalid upstream wire type"
+            )
+        }
+
         return candidate.copy(classification = finalClassification)
     }
 
@@ -607,15 +623,20 @@ object TokenParser {
                 }
             }
             val idVal = item["i"]
-            val rId = when (idVal) {
-                is Long -> idVal.toInt()
-                is Int -> idVal
-                null -> ri + 1
+            // Compare as Long before narrowing: `Long.toInt()` truncates, so a
+            // region ID of 4294967297 would otherwise become 1 and pass the
+            // range check that Go applies to the full value.
+            val rIdLong = if (!item.containsKey("i")) {
+                (ri + 1).toLong()
+            } else when (idVal) {
+                is Long -> idVal
+                is Int -> idVal.toLong()
                 else -> throw IllegalArgumentException("invalid region ID in embedded region")
             }
-            if (rId !in 1..65535) {
-                throw IllegalArgumentException("embedded region has invalid region ID: $rId")
+            if (rIdLong !in 1L..65535L) {
+                throw IllegalArgumentException("embedded region has invalid region ID: $rIdLong")
             }
+            val rId = rIdLong.toInt()
             if (ri == 0) {
                 firstId = rId
             }
@@ -655,6 +676,29 @@ object TokenParser {
             }
         }
         return firstId
+    }
+
+    private fun hasValidStructuredWireTypes(regions: List<*>): Boolean {
+        // Match third_party/tailcat/wire.go: null leaves optional fields at
+        // their zero value, strings require CBOR text, and integers are signed
+        // 64-bit values. Node IDs and ports have no additional upstream range
+        // restriction; the containing region ID is checked separately.
+        for (region in regions) {
+            val fields = region as Map<*, *>
+            if (listOf("c", "m").any { fields[it] != null && fields[it] !is String }) return false
+            val nodes = fields["N"] ?: continue
+            if (nodes !is List<*>) return false
+            for (node in nodes) {
+                val nodeFields = node as Map<*, *>
+                if (listOf("n", "h", "t", "4", "6").any {
+                        nodeFields[it] != null && nodeFields[it] !is String
+                    }) return false
+                if (listOf("i", "s", "d").any {
+                        nodeFields[it] != null && nodeFields[it] !is Long && nodeFields[it] !is Int
+                    }) return false
+            }
+        }
+        return true
     }
 
     private fun rejectUnsafeDerpEndpoint(label: String, value: String) {
@@ -721,8 +765,12 @@ object TokenParser {
                 return null
             }
             return runCatching {
-                val addr = InetAddress.getByName(host)
-                if (addr is Inet6Address) addr else null
+                // Java collapses IPv4-mapped IPv6 (::ffff:127.0.0.1) to an
+                // Inet4Address. Keep it: Go's netip applies loopback and
+                // link-local checks to the unmapped IPv4 address, and the
+                // previous `is Inet6Address` guard let mapped loopback and
+                // link-local values through as if they were hostnames.
+                InetAddress.getByName(host)
             }.getOrNull()
         }
         return literalIpv4(value)
@@ -828,7 +876,16 @@ class StrictCborReader(private val data: ByteArray) {
         if (info == 31) throw StrictCborException(TokenErrorCode.ERR_CBOR_MALFORMED, "indefinite-length items forbidden")
 
         return when (major) {
-            0 -> readLength(info)
+            0 -> {
+                if (info == 27) {
+                    val bits = ByteBuffer.wrap(readBytes(8)).order(ByteOrder.BIG_ENDIAN).long
+                    // Go retains uint64 values until field validation. Do not
+                    // turn a field-range error into a malformed-CBOR error.
+                    if (bits < 0) bits.toULong() else bits
+                } else {
+                    readLength(info)
+                }
+            }
             1 -> {
                 val v = readLength(info)
                 -1 - v
@@ -863,6 +920,7 @@ class StrictCborReader(private val data: ByteArray) {
                     val kInfo = kHdr and 0x1f
                     if (kMajor != 3) throw StrictCborException(TokenErrorCode.ERR_CBOR_MALFORMED, "nested key must be text string")
                     val kLen = readLength(kInfo)
+                    if (kLen > remaining().toLong()) throw StrictCborException(TokenErrorCode.ERR_CBOR_MALFORMED, "nested key exceeds remaining CBOR bytes")
                     val kStr = String(readBytes(kLen.toInt()), Charsets.UTF_8)
                     if (seen.contains(kStr)) throw StrictCborException(TokenErrorCode.ERR_DUPLICATE_KEY, "duplicate nested key: \"$kStr\"")
                     seen.add(kStr)

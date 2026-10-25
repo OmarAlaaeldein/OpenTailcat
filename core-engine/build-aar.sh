@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Deterministic and Reproducible Build Script for libtailcat.aar
-# Requirements: Go 1.27.2, Android NDK (API 26+)
+# Requirements: Go 1.27.3, Android NDK (API 26+)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -57,10 +57,11 @@ fi
 echo "==> Using Android NDK: ${ANDROID_NDK_HOME} (Pkg.Revision = ${NDK_REVISION})"
 echo "==> Using Go: $(go version)"
 
-# Enforce exact Go version 1.27.2 (1.27.1 carries GO-2026-6611/6612/6613/6617)
+# Enforce exact Go version 1.27.3 (1.27.2 carries GO-2026-6809 in crypto/x509;
+# 1.27.1 carries GO-2026-6611/6612/6613/6617)
 GO_VER_STR="$(go version)"
-if [[ "${GO_VER_STR}" != *"go version go1.27.2 "* ]]; then
-    echo "ERROR: Pinned Go version 1.27.2 is required. Found: ${GO_VER_STR}" >&2
+if [[ "${GO_VER_STR}" != *"go version go1.27.3 "* ]]; then
+    echo "ERROR: Pinned Go version 1.27.3 is required. Found: ${GO_VER_STR}" >&2
     exit 1
 fi
 
@@ -114,12 +115,12 @@ echo "==> Native source hash: ${SOURCE_HASH}"
 
 cd "${CANONICAL_BUILD_DIR}/core-engine"
 
-# Ensure gobind is available in PATH for gomobile
-export PATH="$(go env GOPATH)/bin:${PATH}"
-if ! command -v gobind &>/dev/null; then
-    echo "==> Installing gobind tool..."
-    go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260821190718-4776eadac327
-fi
+# Build gobind from this module's pinned x/mobile version. A gobind already
+# installed in GOPATH/bin may come from a different version or Go toolchain.
+echo "==> Building the pinned gobind tool..."
+mkdir -p "${CANONICAL_BUILD_DIR}/tools"
+go build -trimpath -o "${CANONICAL_BUILD_DIR}/tools/gobind" golang.org/x/mobile/cmd/gobind
+export PATH="${CANONICAL_BUILD_DIR}/tools:${PATH}"
 
 # Build into the staging directory; app/libs is touched only after every
 # check below passes, so a failed build cannot leave a stale AAR that still

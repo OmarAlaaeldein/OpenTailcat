@@ -6,9 +6,9 @@ Numbers in brackets refer to the license texts at the end.
 
 NATIVE ENGINE (libgojni.so)
 
-Built with go1.27.1. Go modules linked into the library:
+Built with go1.27.3. Go modules linked into the library:
 
-  Go standard library                                 go1.27.1                                    BSD-3-Clause [1]
+  Go standard library                                 go1.27.3                                    BSD-3-Clause [1]
   filippo.io/edwards25519                             v1.2.0                                      BSD-3-Clause [2]
   github.com/anmitsu/go-shlex                         v0.0.0-20200514113438-38f4b401e2be          MIT [3]
   github.com/creachadair/msync/trigger                v0.8.1                                      BSD-3-Clause [4]
@@ -37,7 +37,7 @@ Built with go1.27.1. Go modules linked into the library:
   golang.org/x/crypto                                 v0.57.0                                     BSD-3-Clause [1]
   golang.org/x/exp                                    v0.0.0-20260410095643-746e56fc9e2f          BSD-3-Clause [1]
   golang.org/x/mobile                                 v0.0.0-20260821190718-4776eadac327          BSD-3-Clause [1]
-  golang.org/x/net                                    v0.59.0                                     BSD-3-Clause [1]
+  golang.org/x/net                                    v0.60.0                                     BSD-3-Clause [1]
   golang.org/x/sync/errgroup                          v0.23.0                                     BSD-3-Clause [1]
   golang.org/x/sys                                    v0.48.0                                     BSD-3-Clause [1]
   golang.org/x/term                                   v0.46.0                                     BSD-3-Clause [1]
@@ -2351,7 +2351,7 @@ Used by: androidx.activity:activity, androidx.activity:activity-compose, android
       same "printed page" as the copyright notice for easier
       identification within third-party archives.
 
-   Copyright 2026 Omar Alaaeldein
+   Copyright 2026 OpenTailcat contributors
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.

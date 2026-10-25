@@ -16,7 +16,7 @@ class UpdatePolicyTest {
 
     private fun asset(
         name: String = "OpenTailcat-1.5.0-arm64-v8a.apk",
-        url: String = "https://github.com/OmarAlaaeldein/OpenTailcat/releases/download/v1.5.0/$name",
+        url: String = "https://github.com/example/OpenTailcat/releases/download/v1.5.0/$name",
         size: Long = 20_000_000,
         sha256: String? = "d".repeat(64)
     ) = ReleaseAsset(name, url, size, sha256)
@@ -117,5 +117,14 @@ class UpdatePolicyTest {
             "dd767011a3d1223c6145cec024dccb02730e73607fc39544b2fac93adeafa8d6" in
                 UpdatePolicy.TRUSTED_SIGNER_SHA256
         )
+    }
+
+    @Test
+    fun pinsTheRotationReleaseSigner() {
+        assertTrue(
+            "e22881801806e9809b325e40746536098add8a5902fb4c9bc9134474fa7f69d7" in
+                UpdatePolicy.TRUSTED_SIGNER_SHA256
+        )
+        assertEquals(2, UpdatePolicy.TRUSTED_SIGNER_SHA256.size)
     }
 }
