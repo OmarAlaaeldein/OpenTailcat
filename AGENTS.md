@@ -174,6 +174,11 @@ Android uses its reported transport or a sole candidate; ambiguous underlays
 remain unknown instead of being ranked. Live roaming evidence still belongs
 to Phase 6.
 
+Dependency updates are applied by hand rather than by a bot: a Go module or
+submodule bump changes the compiled AAR, so it has to land together with a
+rebuild and the gate evidence above. Dependabot version updates and its
+security-update PRs are disabled for this repository.
+
 ## Required implementation order
 
 1. [x] Phase 0: Restore fail-closed capability negotiation.
