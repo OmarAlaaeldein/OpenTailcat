@@ -69,6 +69,10 @@ type pairedDatagramConn struct {
 	out     chan []byte
 	closed  atomic.Bool
 	closeMu sync.Once
+	// writeMu serializes Write's send against Close's close of the same
+	// channel; sending on a channel another goroutine closes is a data race
+	// and can panic with "send on closed channel".
+	writeMu sync.Mutex
 }
 
 func newPairedDatagramConns() (local *pairedDatagramConn, remote *pairedDatagramConn) {
@@ -92,10 +96,12 @@ func (p *pairedDatagramConn) Read(b []byte) (int, error) {
 }
 
 func (p *pairedDatagramConn) Write(b []byte) (int, error) {
+	pkt := append([]byte(nil), b...)
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
 	if p.closed.Load() {
 		return 0, net.ErrClosed
 	}
-	pkt := append([]byte(nil), b...)
 	select {
 	case p.out <- pkt:
 		return len(b), nil
@@ -106,6 +112,8 @@ func (p *pairedDatagramConn) Write(b []byte) (int, error) {
 
 func (p *pairedDatagramConn) Close() error {
 	p.closeMu.Do(func() {
+		p.writeMu.Lock()
+		defer p.writeMu.Unlock()
 		p.closed.Store(true)
 		close(p.out)
 	})
