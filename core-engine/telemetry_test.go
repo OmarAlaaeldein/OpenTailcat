@@ -115,6 +115,72 @@ func TestDERPRegionNameNotSynthesized(t *testing.T) {
 	}
 }
 
+// TestDERPRegionPrefersLiveClient pins the precedence rule: the region the
+// running client reports wins over the token's embedded map, because the map
+// only records what the gateway advertised.
+func TestDERPRegionPrefersLiveClient(t *testing.T) {
+	client := &mockTunnelClient{}
+	client.derpRegionFn = func() *tailcfg.DERPRegion {
+		return &tailcfg.DERPRegion{
+			RegionID:   901,
+			RegionCode: "live",
+			RegionName: "Live Relay",
+		}
+	}
+	bridge := &TunBridge{
+		sessionID: 1,
+		ctx:       context.Background(),
+		client:    client,
+		token: &ParsedToken{
+			RegionID: 777,
+			Region: []*tailcfg.DERPRegion{{
+				RegionID:   777,
+				RegionCode: "zrh",
+				RegionName: "Zurich Swiss Alps",
+			}},
+		},
+		transport: "DERP_RELAY",
+	}
+
+	// Before any sample the token map still answers.
+	if stats := bridge.GetStats(); stats.DerpRegionName != "Zurich Swiss Alps" {
+		t.Fatalf("expected token fallback before sampling, got %q", stats.DerpRegionName)
+	}
+
+	bridge.sampleLiveRTT()
+
+	stats := bridge.GetStats()
+	if stats.DerpRegionID != 901 || stats.DerpRegionCode != "live" || stats.DerpRegionName != "Live Relay" {
+		t.Fatalf("expected live region 901/live/Live Relay, got %d/%q/%q",
+			stats.DerpRegionID, stats.DerpRegionCode, stats.DerpRegionName)
+	}
+}
+
+// TestDERPRegionKeepsTokenWhenClientHasNone covers a client that started but
+// has no region yet: telemetry must not invent one or blank the token's data.
+func TestDERPRegionKeepsTokenWhenClientHasNone(t *testing.T) {
+	client := &mockTunnelClient{}
+	client.derpRegionFn = func() *tailcfg.DERPRegion { return nil }
+	bridge := &TunBridge{
+		sessionID: 1,
+		ctx:       context.Background(),
+		client:    client,
+		token: &ParsedToken{
+			RegionID: 777,
+			Region: []*tailcfg.DERPRegion{{
+				RegionID:   777,
+				RegionCode: "zrh",
+				RegionName: "Zurich Swiss Alps",
+			}},
+		},
+		transport: "DERP_RELAY",
+	}
+	bridge.sampleLiveRTT()
+	if stats := bridge.GetStats(); stats.DerpRegionName != "Zurich Swiss Alps" {
+		t.Fatalf("expected token fallback when the client reports no region, got %q", stats.DerpRegionName)
+	}
+}
+
 func TestJitterNullWhenInsufficientSamples(t *testing.T) {
 	bridge := &TunBridge{
 		sessionID: 1,

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/tailcfg"
 )
 
 // TunnelClient abstracts the native WireGuard / Magicsock client for injection in testing.
@@ -98,6 +99,26 @@ type TunBridge struct {
 	// lastDiscoOK is the unix second of the last gateway reply: the bridge
 	// start (prepare just reached the gateway) or a successful DiscoPing.
 	lastDiscoOK atomic.Int64
+	// liveDerp is the region the running client reports relaying through,
+	// sampled with the RTT probe. It is nil until the first sample, and
+	// GetStats falls back to the token's embedded map while it is.
+	liveDerp atomic.Pointer[derpRegionInfo]
+}
+
+// derpRegionInfo is a snapshot of the region the live client relays through.
+// It is copied out of the client rather than referenced, so telemetry never
+// reads upstream state that a reconnect could mutate.
+type derpRegionInfo struct {
+	id   int
+	code string
+	name string
+}
+
+// derpRegionReporter is implemented by the live tailcat client. The token's
+// embedded region map describes what the gateway advertised; this reports the
+// region the running client actually uses.
+type derpRegionReporter interface {
+	DERPRegion() *tailcfg.DERPRegion
 }
 
 // DNSConfig defines the active DNS resolver policy and optional forced resolver destination.
@@ -825,6 +846,17 @@ func (b *TunBridge) sampleLiveRTT() {
 	if b.client == nil {
 		return
 	}
+	// The region is independent of the probe: sample it even when DiscoPing
+	// fails, so a relayed session still reports where it is relayed through.
+	if reporter, ok := b.client.(derpRegionReporter); ok {
+		if reg := reporter.DERPRegion(); reg != nil {
+			b.liveDerp.Store(&derpRegionInfo{
+				id:   int(reg.RegionID),
+				code: reg.RegionCode,
+				name: reg.RegionName,
+			})
+		}
+	}
 	sampler, ok := b.client.(discoPinger)
 	if !ok {
 		return
@@ -975,7 +1007,15 @@ func (b *TunBridge) GetStats() EngineStats {
 		stats.EgressAuditTimestampSec = b.egressTimestamp.Load()
 	}
 
-	if b.token != nil {
+	// Prefer the region the running client reports: it is what actually relays
+	// traffic, and it follows a mid-session switch. The token's embedded map is
+	// only a description of what the gateway advertised, so it is the fallback
+	// until the first RTT sample lands.
+	if live := b.liveDerp.Load(); live != nil {
+		stats.DerpRegionID = live.id
+		stats.DerpRegionCode = live.code
+		stats.DerpRegionName = live.name
+	} else if b.token != nil {
 		for _, reg := range b.token.Region {
 			if reg != nil && int(reg.RegionID) == regionID {
 				stats.DerpRegionName = reg.RegionName

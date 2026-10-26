@@ -152,8 +152,10 @@ the Android app.
 
 Data-plane interoperability still requires a compatible gateway. Tailcat
 v0.4.0 `serve exit-node` was TCP-only; signed v0.7.0 (2026-09-16) adds UDP
-forwarding through `--serve=exit-node`. The submodule is pinned to that
-signed `v0.7.0` tag, which exports `Client.DialUDP` and `Server.OnUDPForward`. If the live user-controlled Tailcat gateway
+forwarding through `--serve=exit-node`. The submodule is pinned to
+`52fbad32`, 17 commits after that tag, because upstream has published no
+newer release and this commit carries `Client.DERPRegion()`. It still exports
+`Client.DialUDP` and `Server.OnUDPForward`. If the live user-controlled Tailcat gateway
 already supports native tunneled UDP, prove and version that capability.
 Otherwise a matching gateway-side Tailcat UDP deployment is required. A
 client-only direct socket is never an acceptable substitute.
@@ -161,8 +163,12 @@ client-only direct socket is never an acceptable substitute.
 ## Upstream provenance
 
 `third_party/tailcat` is a git submodule of
-`https://github.com/tailscale/tailcat`, pinned to the unmodified signed
-`v0.7.0` tag (`15ab9e68bfc6534a61797d7af28cedd42b54a3a5`). See
+`https://github.com/tailscale/tailcat`, pinned to the unmodified upstream
+commit `52fbad323e9d352f1febb623e0975368e9a8cbdd` (2026-10-07,
+`v0.7.0-17-g52fbad323`). That commit is on `main` and is not tagged or
+signed: upstream's newest signed tag is still `v0.7.0`
+(`15ab9e68bfc6534a61797d7af28cedd42b54a3a5`), and its CHANGELOG calls the
+range "Unreleased". Re-pin to the next signed tag when one exists. See
 `third_party/PROVENANCE.md`. Do not
 add OpenTailcat patches in the submodule. Android supplies LinkProperties and
 the underlying default interface via `updateNetworkState`; the engine hands
@@ -527,7 +533,10 @@ Current code reports schema version 2 with:
 - jitter only after ≥3 `RecordRTT` samples, otherwise `null`. The formula is mean absolute consecutive difference, not RFC 3550 `J := J + (|D|-J)/16`;
 - packet/drop counters for TCP, UDP, DNS, malformed IP, MTU, queue exhaustion, and policy rejections;
 - exit-audit IP plus timestamp and error state;
-- DERP names from the token's embedded region when present; otherwise empty (not invented).
+- DERP region ID, code, and name come from the live `Client.DERPRegion()` the
+  RTT sampler reads about every 5s, so a mid-session relay switch is reported.
+  Until the first sample they fall back to the token's embedded region map, and
+  stay empty when neither source has them (never invented).
 
 Kotlin `NetworkMetrics.fromJson` requires schema version 2, rejects v1 and missing version, and leaves missing `state` empty. `onEngineConnected` requires `RUNNING` plus fresh `healthUnixSec`.
 

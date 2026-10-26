@@ -15,15 +15,29 @@ import (
 	"time"
 
 	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/tailcfg"
 )
 
 // mockTunnelClient implements TunnelClient for test injection
 type mockTunnelClient struct {
-	mu          sync.Mutex
-	dialUDPFn   func(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
-	dialTCPFn   func(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
-	discoPingFn func(ctx context.Context) (*ipnstate.PingResult, error)
-	closed      bool
+	mu           sync.Mutex
+	dialUDPFn    func(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
+	dialTCPFn    func(ctx context.Context, dst netip.AddrPort) (net.Conn, error)
+	discoPingFn  func(ctx context.Context) (*ipnstate.PingResult, error)
+	derpRegionFn func() *tailcfg.DERPRegion
+	closed       bool
+}
+
+// DERPRegion reports the region the client relays through. A nil result models
+// a client that started without a region.
+func (m *mockTunnelClient) DERPRegion() *tailcfg.DERPRegion {
+	m.mu.Lock()
+	fn := m.derpRegionFn
+	m.mu.Unlock()
+	if fn != nil {
+		return fn()
+	}
+	return nil
 }
 
 func (m *mockTunnelClient) DialUDP(ctx context.Context, dst netip.AddrPort) (net.Conn, error) {
