@@ -18,7 +18,7 @@ acceptance is unimplemented.
 The checked-in AAR is built reproducibly with Go 1.27.3, NDK r29 (29.0.14206865),
 16 KB ELF load alignment, and verified Java signatures.
 
-Current version: 1.5.4 (versionCode 43). Per-release changes are in
+Current version: 1.5.5 (versionCode 44). Per-release changes are in
 `docs/releases/`; the 2026-09-26 review and its fix logs are in
 `docs/review-2026-09-26.md`.
 IPv4 Connect is test-enabled. `ipv6` is true; `ipv6Egress` is measured per session.

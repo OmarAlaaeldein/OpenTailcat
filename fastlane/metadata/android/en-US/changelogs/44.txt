@@ -1,0 +1,5 @@
+* Tailcat submodule updated to upstream main (17 commits after v0.7.0, not yet released upstream).
+* Telemetry now reports the DERP region the running client actually relays through, not only the region from the token.
+* Dependency updates: tailscale.com, wireguard-go, compress 1.20.0, cbor 2.9.6.
+* Build tooling: Gradle wrapper 9.8.2, Kotlin 2.4.21, core-ktx 1.19.1.
+* UDP datagram test helper race fixed.
