@@ -389,32 +389,43 @@ type Capabilities struct {
 	DNS                 bool `json:"dns"`
 	LiveStats           bool `json:"liveStats"`
 	CancelSafeLifecycle bool `json:"cancelSafeLifecycle"`
-	// TestRouting is true while capability flags advertise an implemented
-	// test-routing data plane that has not passed Phase 8 physical leak
-	// acceptance. Kotlin surfaces this; it does not gate Connect.
+	// TestRouting marks a test-routing build rather than an accepted release.
+	// Kotlin surfaces it in Settings; it does not gate Connect.
 	TestRouting bool `json:"testRouting"`
 }
 
-// GetCapabilitiesJSON returns the capability contract.
-// Dual-stack client path is enabled: Android installs ::/0 after pumps, and the
-// engine proxies IPv6 when gateway WAN works or fail-closes when it does not.
-// Session stats expose ipv6Egress. This is not Phase 8 production acceptance.
+// routeCapabilities is the single declaration of what the shipped routing mode
+// needs. DataPlane is computed from this set rather than stored, so the summary
+// flag cannot disagree with the flags it summarizes.
+var routeCapabilities = Capabilities{
+	APIVersion:          2,
+	WireGuard:           true,
+	Magicsock:           true,
+	TwoPhaseStart:       true,
+	IPv4:                true,
+	IPv6:                true,
+	TCP:                 true,
+	UDP:                 true,
+	DNS:                 true,
+	LiveStats:           true,
+	CancelSafeLifecycle: true,
+	TestRouting:         true,
+}
+
+// routeReady reports whether every capability the routed session depends on is
+// advertised. Keep this list in sync with EngineCapabilities.satisfiesRouteRequirements.
+func (c Capabilities) routeReady() bool {
+	return c.IPv4 && c.IPv6 && c.TCP && c.UDP && c.DNS &&
+		c.WireGuard && c.Magicsock && c.TwoPhaseStart &&
+		c.LiveStats && c.CancelSafeLifecycle
+}
+
+// GetCapabilitiesJSON returns the capability contract. The output is pinned by
+// testdata/capabilities.json, which the Android tests also parse, so a change
+// here fails on both sides until the fixture is updated.
 func GetCapabilitiesJSON() string {
-	caps := Capabilities{
-		APIVersion:          2,
-		DataPlane:           true,
-		WireGuard:           true,
-		Magicsock:           true,
-		TwoPhaseStart:       true,
-		IPv4:                true,
-		IPv6:                true,
-		TCP:                 true,
-		UDP:                 true,
-		DNS:                 true,
-		LiveStats:           true,
-		CancelSafeLifecycle: true,
-		TestRouting:         true,
-	}
+	caps := routeCapabilities
+	caps.DataPlane = caps.routeReady()
 	bytes, err := json.Marshal(caps)
 	if err != nil {
 		return `{"apiVersion":2,"dataPlane":false}`

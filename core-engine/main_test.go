@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -21,29 +22,49 @@ import (
 	"tailscale.com/types/key"
 )
 
-func TestGetCapabilitiesJSON(t *testing.T) {
-	raw := GetCapabilitiesJSON()
+func TestCapabilitiesMatchFixture(t *testing.T) {
+	want, err := os.ReadFile("testdata/capabilities.json")
+	if err != nil {
+		t.Fatalf("read capabilities fixture: %v", err)
+	}
+	if got := GetCapabilitiesJSON(); got != strings.TrimSpace(string(want)) {
+		t.Fatalf("capability contract changed:\n got: %s\nwant: %s\nUpdate testdata/capabilities.json and the Android capability test together.", got, strings.TrimSpace(string(want)))
+	}
+}
 
+func TestDataPlaneSummarizesRouteCapabilities(t *testing.T) {
 	var caps Capabilities
-	if err := json.Unmarshal([]byte(raw), &caps); err != nil {
-		t.Fatalf("Failed to parse capabilities JSON: %v", err)
+	if err := json.Unmarshal([]byte(GetCapabilitiesJSON()), &caps); err != nil {
+		t.Fatalf("parse capabilities JSON: %v", err)
+	}
+	if caps.APIVersion != 2 {
+		t.Errorf("apiVersion = %d, want 2", caps.APIVersion)
+	}
+	if caps.DataPlane != caps.routeReady() {
+		t.Errorf("dataPlane = %v but routeReady() = %v", caps.DataPlane, caps.routeReady())
+	}
+	if !caps.routeReady() {
+		t.Fatal("shipped build does not advertise a complete routed data plane")
 	}
 
-	if caps.APIVersion < 2 {
-		t.Errorf("Expected apiVersion >= 2, got %d", caps.APIVersion)
+	check := func(name string, tweak func(*Capabilities)) {
+		t.Helper()
+		broken := routeCapabilities
+		tweak(&broken)
+		if broken.routeReady() {
+			t.Errorf("routeReady() still true with %s disabled", name)
+		}
 	}
-	if !caps.DataPlane || !caps.WireGuard || !caps.Magicsock || !caps.TwoPhaseStart {
-		t.Error("Expected IPv4 test-routing caps dataPlane/wireGuard/magicsock/twoPhaseStart true")
-	}
-	if !caps.IPv4 || !caps.TCP || !caps.UDP || !caps.DNS || !caps.LiveStats || !caps.CancelSafeLifecycle {
-		t.Error("Expected IPv4 test-routing caps ipv4/tcp/udp/dns/liveStats/cancelSafeLifecycle true")
-	}
-	if !caps.IPv6 {
-		t.Error("Expected ipv6 true: client proxies IPv6 or fail-closes without gateway WAN")
-	}
-	if !caps.TestRouting {
-		t.Error("Expected testRouting true: Phase 8 acceptance is still pending for this build")
-	}
+	check("ipv4", func(c *Capabilities) { c.IPv4 = false })
+	check("ipv6", func(c *Capabilities) { c.IPv6 = false })
+	check("tcp", func(c *Capabilities) { c.TCP = false })
+	check("udp", func(c *Capabilities) { c.UDP = false })
+	check("dns", func(c *Capabilities) { c.DNS = false })
+	check("wireGuard", func(c *Capabilities) { c.WireGuard = false })
+	check("magicsock", func(c *Capabilities) { c.Magicsock = false })
+	check("twoPhaseStart", func(c *Capabilities) { c.TwoPhaseStart = false })
+	check("liveStats", func(c *Capabilities) { c.LiveStats = false })
+	check("cancelSafeLifecycle", func(c *Capabilities) { c.CancelSafeLifecycle = false })
 }
 
 func TestParseTokenOfficialVectors(t *testing.T) {

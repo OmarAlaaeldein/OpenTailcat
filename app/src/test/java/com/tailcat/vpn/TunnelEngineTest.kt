@@ -160,6 +160,18 @@ class TunnelEngineTest {
     }
 
     @Test
+    fun testNativeCapabilityFixtureMatchesKotlinContract() {
+        val stream = javaClass.classLoader?.getResourceAsStream("capabilities.json")
+        assertNotNull("capabilities.json is missing from test resources", stream)
+        val raw = stream!!.bufferedReader().use { it.readText() }
+
+        val caps = EngineCapabilities.fromJson(raw)
+        assertEquals(2, caps.apiVersion)
+        assertTrue("native fixture must advertise dataPlane", caps.dataPlane)
+        assertTrue("native fixture must satisfy route requirements", caps.satisfiesRouteRequirements())
+    }
+
+    @Test
     fun testCurrentEngineIsUnavailableFailClosed() {
         val engine = TunnelEngine()
         val availability = engine.availability
