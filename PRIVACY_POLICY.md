@@ -1,127 +1,99 @@
 # Privacy policy for OpenTailcat
 
-**Last updated:** September 27, 2026
+**Last updated:** October 26, 2026
 
-OpenTailcat is designed without accounts, advertising, analytics SDKs, remote
-crash reporting, or a proprietary coordination service. This policy describes
-the current source tree, including its known development limitations.
+OpenTailcat has no accounts, advertising, analytics SDKs, remote crash
+reporting, or coordination service. This policy covers the current source tree;
+the native engine is described in [AGENTS.md](AGENTS.md).
 
-## Development warning
+## Development status
 
-The current build is not a leak-free full-device VPN and must not be relied on
-for privacy-sensitive traffic:
+This is a development build, not a leak-free VPN. It installs IPv4 and IPv6
+default routes after the packet pumps are live, proxies TCP/UDP/DNS through
+your gateway, and drops ICMP echo. Split-tunnel apps bypass the tunnel.
+Reconnection removes the TUN between attempts, so enable Android's Always-on
+VPN with Block connections without VPN if gaps matter to you.
 
-- IPv4 Connect is enabled for live-token testing. Android may install
-  `0.0.0.0/0` and `::/0` after pumps are live. This build is not leak-free.
-  IPv6 TCP/UDP is proxied if the gateway can egress IPv6; ICMPv6 echo is
-  dropped; oversized IPv6 gets a local Packet Too Big.
-- IPv4 TCP is proxied through gVisor and Tailcat to the selected gateway.
-- IPv4 UDP is proxied through gVisor userspace netstack via `Client.DialUDP`.
-- UDP destination port 53 is proxied to the TUN destination (PROFILE_RESOLVER)
-  or a forced resolver (FORCED_RESOLVER). The engine does not inspect DNS TC bits.
-- Android installs an IPv6 ULA and `::/0` after pumps are live. IPv6 TCP/UDP is
-  tunneled when the gateway supports it. ICMPv6 echo is dropped.
-- When CONNECTED, the in-app network benchmark uses `Client.DialTCP` through the
-  gateway (`speed.cloudflare.com` is resolved with DNS-over-TCP via the tunnel).
-  When not CONNECTED, it uses ordinary app connections on the device's current
-  routes. The UI labels which path ran.
+Do not rely on this build for traffic whose exposure would harm you.
 
 ## Data stored on the device
 
 OpenTailcat stores gateway names, connection tokens, the selected profile, MTU
-defaults, DNS/profile settings, and split-tunnel package names locally. These
-preferences use AES-256 encrypted preferences with a key protected by Android
-Keystore. Existing plaintext preferences from earlier builds are migrated and
-then cleared.
+and DNS settings, and split-tunnel package names locally. These use AES-256
+encrypted preferences with a key held by Android Keystore. Plaintext
+preferences from earlier builds are migrated and cleared. Android backup and
+device-to-device transfer are disabled for app data.
 
 Gateway tokens are secrets. Anyone who obtains one may learn connection
 metadata or attempt to reach its gateway. Protect device access, screenshots,
-logs, and exported diagnostics. OpenTailcat disables Android backup and
-device-to-device transfer for application data.
+logs, and exported diagnostics.
 
-## Network requests made by the app
+## Network requests
 
 - On startup and manual refresh, the app requests Cloudflare
-  `https://1.1.1.1/cdn-cgi/trace` (TLS-pinned) to display the app process'
-  public IP and country code.
-- When the user starts a benchmark while CONNECTED, ping/download/upload use
-  `Client.DialTCP` through the gateway; `speed.cloudflare.com` is resolved with
-  DNS-over-TCP via `Client.DialTCP` to `1.1.1.1:53`. When not CONNECTED, the same
-  Cloudflare endpoints are requested with ordinary app connections.
-- During a prepared Tailcat session, the native engine contacts the relay
-  described by the token or DERP map and the configured gateway peer. It may
-  fetch Tailcat's public relay map from `https://tailcat.dev/derpmap.json`, and
-  relay hostnames are resolved with the device network's DNS resolver.
-- Only when you tap **Check for updates** in Settings, the app requests
-  the GitHub Releases API for this repository.
-  Only when you tap **Download**, it downloads the release APK from GitHub
-  (`github.com` and GitHub's release-asset hosts).
-- After TUN attachment, the native engine attempts an exit-IP audit through
-  Tailcat: authenticated TLS `GET /cdn-cgi/trace` to Cloudflare `1.1.1.1`
-  via `Client.DialTCP`. The in-app public-IP display is a separate Cloudflare
-  request from the app itself; it follows the device's current routes (through
-  the VPN interface while it is up) and is not the tunnel audit.
-- After TUN attachment, intercepted DNS is proxied through Tailcat according to
-  PROFILE_RESOLVER or FORCED_RESOLVER. IPv4 `dns` is test-enabled; Phase 8 leak
-  capture is still pending.
+  `https://1.1.1.1/cdn-cgi/trace` (TLS-pinned) to show the app process's public
+  IP and country. This follows device routes, not the tunnel.
+- A benchmark started while CONNECTED uses `Client.DialTCP` through the
+  gateway; `speed.cloudflare.com` is resolved with DNS-over-TCP to
+  `1.1.1.1:53`. When not CONNECTED it uses ordinary app connections. The UI
+  labels which path ran.
+- During a prepared session the native engine contacts the gateway peer and
+  the relay described by the token or DERP map. It may fetch
+  `https://tailcat.dev/derpmap.json`, and relay hostnames use the device
+  resolver.
+- **Check for updates** requests the GitHub Releases API; **Download** fetches
+  the APK from GitHub and its release-asset hosts. The F-Droid flavor has no
+  updater.
+- After TUN attachment, the engine performs an exit-IP audit through Tailcat
+  (authenticated TLS `GET /cdn-cgi/trace` to `1.1.1.1` via `Client.DialTCP`).
+  Intercepted DNS is proxied through Tailcat under the profile or forced
+  resolver policy.
 
-These providers and the selected gateway receive ordinary connection metadata
-such as source IP, time, TLS information, and request headers under their own
-policies. OpenTailcat does not attach an account ID or advertising identifier.
+These providers and your gateway receive ordinary connection metadata such as
+source IP, time, TLS details, and request headers under their own policies.
+OpenTailcat adds no account ID or advertising identifier.
 
-## VPN and gateway visibility
+## Gateway visibility
 
-Traffic that is actually carried through Tailcat is WireGuard-encrypted between
-the device and selected gateway. When DERP is used, the relay operator observes
-encrypted transport metadata. The gateway operator can observe decrypted exit
-traffic and connection metadata to the same extent as another VPN provider.
-OpenTailcat cannot make privacy promises on behalf of a user-selected gateway.
+Traffic carried through Tailcat is WireGuard-encrypted between the device and
+the selected gateway. A DERP relay sees encrypted transport metadata. The
+gateway operator can observe decrypted exit traffic, like any VPN provider.
+OpenTailcat makes no privacy promises on behalf of a gateway you choose.
 
-This development build may install IPv4 `0.0.0.0/0` and IPv6 `::/0` after
-pumps are live. IPv6 TCP/UDP on the TUN is proxied; ICMPv6 echo is dropped.
-Split-tunnel apps bypass the VPN. It is not leak-free.
-
-Apps explicitly selected in OpenTailcat's split-tunnel settings bypass the VPN.
-OpenTailcat does not exclude itself: its Magicsock/DERP transport sockets are
-protected with `VpnService.protect` so they do not recursively enter the TUN,
-and its other requests (public-IP display, update check) follow the device's
-current routes.
+Apps selected in split-tunnel settings bypass the VPN. OpenTailcat does not
+exclude itself: Tailcat transport sockets are protected with
+`VpnService.protect`, while its other requests follow device routes.
 
 ## Android permissions
 
-- `INTERNET`: Tailcat transport, public-IP checks, speed tests, exit auditing,
-  and current packet forwarding.
-- `ACCESS_NETWORK_STATE`: validated connectivity and network-change detection.
-- `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_SYSTEM_EXEMPTED`: continuous
-  operation of an active Android VPN service.
-- `POST_NOTIFICATIONS`: optional foreground VPN status on Android 13+.
-- `BIND_VPN_SERVICE`: enforced by Android on the VPN service declaration.
-- `QUERY_ALL_PACKAGES`: lists installed apps for the split-tunnel picker. The
+- `INTERNET` — Tailcat transport, public-IP checks, benchmarks, exit audit.
+- `ACCESS_NETWORK_STATE` — connectivity and network-change detection.
+- `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SYSTEM_EXEMPTED` — active VPN
+  service.
+- `POST_NOTIFICATIONS` — optional VPN status notification on Android 13+.
+- `BIND_VPN_SERVICE` — required by Android for the VPN service.
+- `QUERY_ALL_PACKAGES` — lists installed apps for the split-tunnel picker. The
   list stays on the device.
-- `REQUEST_INSTALL_PACKAGES`: hands a downloaded update APK to the Android
-  installer when you tap **Install**.
+- `REQUEST_INSTALL_PACKAGES` — hands a downloaded update to the installer.
 
-OpenTailcat does not request camera, location, contacts, storage, or advertising
-permissions.
+No camera, location, contacts, storage, or advertising permissions are
+requested.
 
 ## Logging and diagnostics
 
-The application contains no analytics or project-owned telemetry endpoint.
-Benchmark and IP results are held in memory for display. The Network
-Benchmark screen can copy a plain-text troubleshooting report (stage, metrics,
-tunnel state, findings; public IPs in free text are redacted) to the clipboard
-when you tap its copy button. The app sends it nowhere, but other apps with
-clipboard access may read it. Native/system logs may
-contain connection errors or relay metadata; tokens and traffic payloads must
-not be intentionally logged. The detailed native engine logs, which include
-your public and local IP addresses and relay/peer endpoints, are written to
-the Android system log only while Settings > Diagnostics > Debug failure
-reports is on (applied at the next connect); otherwise the engine logs only
-errors and a one-line note per network change. Android, device vendors,
-gateways, relays, and external endpoint operators may maintain independent
-logs.
+There is no analytics or project-owned telemetry endpoint. Benchmark and IP
+results live in memory. The Network Benchmark screen can copy a plain-text
+report (redacted public IPs) to the clipboard; the app sends it nowhere, but
+other apps with clipboard access may read it.
+
+Native logs may contain connection errors or relay metadata; tokens and traffic
+payloads are not intentionally logged. Detailed engine logs, including public
+and local addresses and relay endpoints, are written to the Android system log
+only while Settings → Diagnostics → Debug failure reports is on. Otherwise the
+engine logs errors and one line per network change. Android, vendors,
+gateways, relays, and endpoint operators may keep independent logs.
 
 ## Contact
 
-For security issues, follow [SECURITY.md](SECURITY.md). For non-sensitive policy
-questions, use the repository's normal maintainer contact channel.
+For security issues use [SECURITY.md](SECURITY.md). For other policy questions,
+use the repository's maintainer contact channel.

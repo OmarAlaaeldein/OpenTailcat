@@ -22,7 +22,7 @@ object UpdatePolicy {
      * The second digest prepares a future release-key rotation; adding a pin
      * does not rotate the APK signature. A future rotated APK must include a
      * verified signing lineage from the installed certificate. See
-     * docs/signing.md for the remaining release and migration gates.
+     * docs/signing.md.
      */
     val TRUSTED_SIGNER_SHA256: Set<String> = setOf(
         "dd767011a3d1223c6145cec024dccb02730e73607fc39544b2fac93adeafa8d6",

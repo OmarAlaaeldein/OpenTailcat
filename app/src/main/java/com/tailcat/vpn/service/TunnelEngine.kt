@@ -27,9 +27,8 @@ data class EngineCapabilities(
     val liveStats: Boolean,
     val cancelSafeLifecycle: Boolean,
     /**
-     * True while native flags advertise an implemented test-routing data plane
-     * that has not passed Phase 8 physical leak acceptance. Display-only; does
-     * not gate Connect.
+     * True while the native engine advertises a test-routing build rather than
+     * an accepted release. Display-only; does not gate Connect.
      */
     val testRouting: Boolean = false
 ) {
