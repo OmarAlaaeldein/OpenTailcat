@@ -8,13 +8,8 @@ the native engine is described in [AGENTS.md](AGENTS.md).
 
 ## Development status
 
-This is a development build, not a leak-free VPN. It installs IPv4 and IPv6
-default routes after the packet pumps are live, proxies TCP/UDP/DNS through
-your gateway, and drops ICMP echo. Split-tunnel apps bypass the tunnel.
-Reconnection removes the TUN between attempts, so enable Android's Always-on
-VPN with Block connections without VPN if gaps matter to you.
-
-Do not rely on this build for traffic whose exposure would harm you.
+Development preview, not a leak-free VPN. See [AGENTS.md](AGENTS.md) for
+status and remaining work. Split-tunnel apps bypass the tunnel.
 
 ## Data stored on the device
 

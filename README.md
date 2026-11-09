@@ -36,9 +36,8 @@ Checksums ship as `OpenTailcat-<version>-SHA256SUMS.txt` beside each build.
 ## How it works
 
 You run a Tailcat-compatible exit gateway, which gives you a short token.
-OpenTailcat uses that token to establish a WireGuard tunnel to the gateway and
-carries IPv4/IPv6 TCP, UDP, and DNS through it. Transport sockets are protected
-from the tunnel; everything else goes through it.
+OpenTailcat uses it to build a WireGuard tunnel carrying IPv4/IPv6 TCP, UDP,
+and DNS.
 
 ## Notes
 
