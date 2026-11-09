@@ -1,0 +1,2 @@
+* Capability contract hardened: the data-plane flag is now derived from the individual capability flags instead of being set separately, and is pinned by a shared fixture verified in both the Go and Android test suites.
+* Native engine rebuilt with Go 1.27.3 and NDK r29. No data-plane behavior change.
