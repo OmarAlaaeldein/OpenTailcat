@@ -7,9 +7,9 @@ Report privately through the repository's **Security** tab →
 gateway token, signing key, or traffic capture; describe how to reproduce
 instead.
 
-Build status and known limitations: see [AGENTS.md](AGENTS.md) (single
-source). `testRouting: true` in the capability payload marks the current
-development-preview state.
+Build status and known limitations: see the
+[README](README.md#project-status). Design and safety invariants are in
+[AGENTS.md](AGENTS.md).
 
 ## Security controls
 

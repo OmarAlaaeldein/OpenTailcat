@@ -1,5 +1,9 @@
 # Upstream Provenance: third_party/tailcat
 
+OpenTailcat ships an unmodified copy of upstream Tailcat as a submodule. This
+file records exactly which commit it is, why that commit, and what it contains,
+so a re-pin can be reviewed without diffing the submodule by hand.
+
 `third_party/tailcat` is a git submodule of the official repository
 https://github.com/tailscale/tailcat.
 

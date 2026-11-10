@@ -1,15 +1,17 @@
 # Privacy policy for OpenTailcat
 
-**Last updated:** October 26, 2026
+**Last updated:** November 10, 2026
 
 OpenTailcat has no accounts, advertising, analytics SDKs, remote crash
-reporting, or coordination service. This policy covers the current source tree;
-the native engine is described in [AGENTS.md](AGENTS.md).
+reporting, or coordination service. This policy covers the current source
+tree. What the app is and how it works is in the [README](README.md);
+engineering detail is in [AGENTS.md](AGENTS.md).
 
 ## Development status
 
-Development preview, not a leak-free VPN. See [AGENTS.md](AGENTS.md) for
-status and remaining work. Split-tunnel apps bypass the tunnel.
+Development preview, not a leak-free VPN. Current limitations are in the
+README's [project status](README.md#project-status). Split-tunnel apps bypass
+the tunnel.
 
 ## Data stored on the device
 

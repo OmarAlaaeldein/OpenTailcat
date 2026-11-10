@@ -1,10 +1,13 @@
-<p>OpenTailcat is an Android client for <a href="https://github.com/tailscale/tailcat">Tailcat</a>. Paste a <code>tc…</code> token and connect to <b>your own</b> gateway over WireGuard-encrypted, peer-to-peer tunnels, with DERP relays used for NAT traversal and as a fallback. There is no account and no control plane in the middle.</p>
+<p>OpenTailcat is an Android client for <a href="https://github.com/tailscale/tailcat">Tailcat</a>. Paste a <code>tc…</code> token and connect to <b>your own</b> exit gateway over a WireGuard-encrypted tunnel, with peer-to-peer NAT traversal and DERP relays as a fallback. There is no account and no control plane in the middle.</p>
 <p>Features:</p>
 <ul>
-<li>Full-device VPN through your own Tailcat gateway</li>
+<li>Whole-device IPv4 and IPv6 VPN through your own gateway</li>
+<li>Multiple gateway profiles, each with its own DNS resolver, DNS policy, and MTU</li>
+<li>Pair by pasting a token, or share a saved profile as a QR code; scanning uses an installed scanner app, so OpenTailcat needs no camera permission</li>
 <li>Per-app exclusions (split tunnelling)</li>
-<li>Custom DNS and MTU per profile</li>
-<li>Built-in tunnel benchmark (latency, download and upload via speed.cloudflare.com, run only when you start it)</li>
-<li>Works with Android Always-on VPN and "Block connections without VPN"</li>
+<li>Live tunnel telemetry: latency, jitter, relay region, counters, and the public egress IP</li>
+<li>On-demand speed test through the tunnel when connected, labelled when it uses device routes instead</li>
+<li>Works with Android Always-on VPN and "Block connections without VPN"; disconnecting from the lock screen requires unlocking</li>
+<li>No ads, analytics, accounts, or crash reporting; saved tokens are encrypted with Android Keystore</li>
 </ul>
-<p>OpenTailcat is an independent community project and is not affiliated with Tailscale Inc. It is still under active development: leak testing on physical devices is not finished, so do not rely on it as a hardened privacy VPN yet.</p>
+<p>OpenTailcat is an independent community project and is not affiliated with Tailscale Inc. It is under active development: physical leak testing is not finished and builds are development-signed, so do not rely on it as a hardened privacy VPN yet. Your gateway operator can see traffic that leaves through it, and apps you exclude bypass the tunnel.</p>

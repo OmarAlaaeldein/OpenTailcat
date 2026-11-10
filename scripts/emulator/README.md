@@ -1,9 +1,11 @@
 # Emulator test scripts
 
 Live checks against a connected OpenTailcat on an emulator or test device.
-They need `adb`, `python3` and (for the probe) Go on PATH. None of them reads
-or prints a gateway token: add the profile in the app once, and the scripts
-reuse it. Build output and logs go to the git-ignored `build/`.
+These are for contributors validating the tunnel, not an end-user guide. They
+need `adb`, `python3` and (for the probe) Go on PATH. No script prints a token;
+`pair.sh` reads one from `OTC_LIVE_TOKEN`. Otherwise, add the profile in the app
+once and the scripts reuse it. Build output and logs go to the git-ignored
+`build/`.
 
 | Script | What it does |
 | --- | --- |
@@ -15,7 +17,6 @@ reuse it. Build output and logs go to the git-ignored `build/`.
 | `lockscreen-disconnect-test.sh` | Disconnect from the lock-screen notification must ask for the PIN first (P1-12). |
 | `log-privacy-check.sh` | Reconnects with Debug failure reports off and fails if the engine's logcat lines hold an IP address other than the probed Cloudflare services or tunnel-internal ones. |
 | `probe.sh ARGS` | Builds `probe/` for the device and runs it from the shell uid: `burst N`, `stun SIZE...`, `halfclose HOST`, `http HOST`. |
-
 | `pair.sh` | Pairs the gateway from `OTC_LIVE_TOKEN` through `PairGatewayInstrumentedTest` (token never printed) and grants VPN consent. |
 | `ci-smoke.sh` | CI, no secrets: `VpnStartupInstrumentedTest` plus a home-screen check. |
 | `ci-live.sh` | CI, live gateway: pair, connect, then every check above; fails if any check fails. |

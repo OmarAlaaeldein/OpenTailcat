@@ -1,12 +1,19 @@
 # OpenTailcat engineering guide
 
-Android client for Tailcat exit gateways. Working contract: what the engine
-does, which invariants must hold, how to build and test it. This file is the
-single source for project status and remaining work; other docs link here.
+OpenTailcat is an Android client for **self-hosted Tailcat exit gateways**.
+Paste a `tc...` token and the phone sends IPv4/IPv6 TCP, UDP, and DNS through
+that gateway. There is no account, control plane, or server component in this
+repo: the user runs the gateway.
 
-- Android: min API 26, compile API 37, target API 35
-- Toolchain: Kotlin 2.4.21, Gradle 9.8.2, JDK 21, Go 1.27.3 (AGP in
-  `gradle/libs.versions.toml`)
+This file is the working contract for anyone, human or LLM, changing the
+project: how the pieces fit, which invariants must hold, and how to build,
+test, and release. It is the single source for project status and remaining
+work; other docs link here.
+
+- Android: min API 26, compile API 37, target API 35; application id
+  `com.tailcat.vpn`
+- Toolchain: Kotlin 2.4.21, Gradle 9.8.2, JDK 21, Go 1.27.3
+- Versions: `gradle/libs.versions.toml`, `core-engine/go.mod`
 - Current version: 1.5.8 (versionCode 47); notes in `docs/releases/`
 
 ## Status
@@ -15,15 +22,225 @@ Dual-stack test-routing development preview (`testRouting: true` in the
 capability payload). It connects with a live token but is not a
 release-accepted data plane. Do not rely on it for privacy-sensitive traffic.
 
-## Repository layout
+## Architecture
+
+```text
+ Compose UI (MainActivity, screens, ViewModels)
+        │  StateFlow + view calls
+ TunnelController ───────────────┐
+        │ NativeEngine            │ VpnService.Builder + TUN fd
+        ▼                         ▼
+ libtailcat.aar (gomobile)     TailcatVpnService (Android VpnService)
+        │
+ Go engine: lifecycle, gVisor netstack, DNS policy, telemetry
+        │ Tailcat Client: WireGuard over Magicsock/DERP
+        ▼
+ self-hosted Tailcat exit gateway ──► Internet
+```
+
+- **Kotlin** owns the UI, profile storage, `VpnService` lifecycle,
+  notifications, split tunnel, updater, and speed-test orchestration
+  (including the device-route measurement path).
+- **Go** owns the tunnel: it terminates TUN packets in a gVisor userspace
+  stack, proxies flows with `Client.DialTCP`/`DialUDP`, applies DNS, MTU, and
+  IPv6 policy, and reports stats.
+- gomobile exposes the engine as `com.tailcat.golib.engine.Engine`, checked in
+  as `app/libs/libtailcat.aar`.
+
+A packet's path: app → TUN fd → engine reader → gVisor TCP/IP stack →
+`Client.DialTCP`/`DialUDP` → WireGuard/Magicsock → gateway → Internet. Return
+traffic reverses. Application flows never use an OS socket, and the app does
+not exclude its own UID from the tunnel.
+
+## Repository map
 
 | Path | Contents |
 | --- | --- |
-| `core-engine/` | Go engine exported through gomobile as `libtailcat.aar` |
-| `app/` | Kotlin/Compose Android client and `VpnService` |
-| `third_party/tailcat` | Upstream Tailcat submodule (unmodified) |
-| `scripts/emulator/`, `scripts/phase8/` | Emulator tests; dual-capture tooling |
-| `docs/` | Release notes, signing notes, history |
+| `app/src/main/java/com/tailcat/vpn/ui/` | Compose UI: `MainActivity`, home (connect ring, profiles, telemetry), settings, speed test, theme |
+| `app/src/main/java/com/tailcat/vpn/service/` | `TailcatVpnService` (VpnService, TUN, notifications), `TunnelController` (UI-facing state machine and reconnect), `TunnelEngine` (gomobile impl of `NativeEngine`), health and split-tunnel helpers |
+| `app/src/main/java/com/tailcat/vpn/core/` | Token parsing, DNS validation, egress-IP audit, speed test, updater, TLS/SPKI pins |
+| `app/src/main/java/com/tailcat/vpn/data/` | AES-256-GCM sealed preferences (Android Keystore) and profile repository |
+| `core-engine/` | Go engine. Start at `main.go` (engine + capabilities), `lifecycle.go`, `netstack_proxy.go` (data plane), `tunnel_dns.go`, `token.go`; `bridge.go` holds gomobile exports |
+| `core-engine/testdata/` | Token and capability fixtures read by both test suites |
+| `core-engine/build-aar.sh` | Reproducible AAR build; writes `app/libs/libtailcat.aar` and `.sourcehash` |
+| `third_party/tailcat` | Upstream Tailcat submodule, pinned and unmodified |
+| `app/src/test/`, `app/src/androidTest/` | JVM unit tests, instrumented tests |
+| `scripts/emulator/`, `scripts/phase8/` | adb emulator suites; dual-capture leak tooling |
+| `.github/workflows/` | `ci.yml` gates; `emulator.yml` smoke and live-gateway suites |
+| `docs/` | Documentation index, release notes, signing notes, screenshots |
+
+### Start here by task
+
+| Change | Read first |
+| --- | --- |
+| Pairing, QR, saved profiles | `ui/screens/home/ProfileSelector.kt`, `AddProfileDialog.kt`, `data/ProfileRepository.kt` |
+| Connect/disconnect, reconnect, errors | `service/TunnelController.kt`, `service/TailcatVpnService.kt`, `core-engine/lifecycle.go` |
+| TUN configuration, DNS, routes | `service/VpnInterfaceSpec.kt` and its test, `attachTun` in `lifecycle.go` |
+| Packet handling, UDP table, MTU | `core-engine/netstack_proxy.go`, `tunnel_dns.go`, and the `_test.go` files beside them |
+| Token format or validation | `core-engine/token.go`, `core/TokenParser.kt`, `testdata/token_fixtures.json` |
+| Capabilities / fail-closed parsing | `routeReady()` in `core-engine/main.go`, `testdata/capabilities.json`, `service/TunnelEngine.kt` |
+| Telemetry, stats, speed test | `core-engine/speedtest.go`, `core/speedtest/`, `ui/screens/home/components/TelemetryCard.kt` |
+| In-app updater | `core/update/`, `UpdatePolicy.kt`, `docs/signing.md` |
+| Settings surfaces | `ui/screens/settings/`, `data/PreferencesStore.kt` |
+| Release | "Release process" below, `app/build.gradle.kts`, `docs/releases/` |
+
+## Safety invariants
+
+1. Never install `0.0.0.0/0` or `::/0` for an engine that has not proven live pumps.
+2. Never use ordinary OS sockets for traffic claimed to be tunneled.
+3. Never report `CONNECTED` until authenticated transport and all pumps are live and native health is fresh.
+4. Never synthesize telemetry, reachability, handshake, speed, or egress values.
+5. A local ICMP reply or public Internet probe is not a gateway test.
+6. Close the TUN immediately after startup, pump, or health failure.
+7. Reject invalid or expired tokens in both Android and native code.
+8. Development preview releases use the existing development key for upgrade compatibility; production signing and migration remain future work.
+9. The app does not exclude its own UID. Only Tailcat transport sockets are protected with `VpnService.protect`; gateway measurements use `Client.DialTCP`/`DialUDP`.
+10. Keep secrets, live tokens, signing keys, and captures out of the repo and public logs.
+
+## Build and verify
+
+Prerequisites: JDK 21 and the Android SDK (platform 37, matching build-tools,
+NDK `29.0.14206865`); Go 1.27.3 only for `core-engine/`. A fresh clone needs
+`git submodule update --init`; point Gradle at the SDK with `local.properties`
+(`sdk.dir=...`) or `ANDROID_HOME`. Kotlin-only work builds against the
+checked-in AAR and needs neither Go nor the NDK.
+
+Fast inner loop (one flavor, no device):
+
+```bash
+cd core-engine && go test ./...
+cd .. && ./gradlew testGithubDebugUnitTest lintGithubDebug
+./gradlew assembleGithubDebug
+```
+
+Full gate (CI plus the release build checks):
+
+```bash
+cd core-engine && go test ./... && go test -race ./... && go vet ./... \
+  && go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./... \
+  && go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./... && gofmt -l .
+cd .. && ./gradlew testGithubDebugUnitTest testFdroidDebugUnitTest \
+  lintGithubDebug lintFdroidDebug
+./gradlew assembleGithubDebug assembleGithubDevelopment
+./gradlew assembleFdroidRelease -PnoAbiSplits && ./gradlew bundleGithubRelease
+```
+
+Rules that trip people up:
+
+- **Always name the flavor.** `testDebugUnitTest`, `assembleRelease`, and
+  `lint` alone are ambiguous across `github` and `fdroid`.
+- `-PnoAbiSplits` builds one APK with both ABIs; ABI splits cannot be combined
+  with `bundleRelease` (AGP issue 402800800). F-Droid releases need it.
+- The AAR is **checked in**. After any change under `core-engine/`, rebuild it
+  and commit `app/libs/libtailcat.aar` with
+  `app/libs/libtailcat.aar.sourcehash`; CI fails when the hash does not match
+  the source tree.
+
+```bash
+env GOTOOLCHAIN=go1.27.3 core-engine/build-aar.sh && unzip -l app/libs/libtailcat.aar
+```
+
+The AAR requires Go 1.27.3, NDK r29 (`29.0.14206865`), 16 KB ELF alignment,
+`-javapkg=com.tailcat.golib`, androidapi 26, and arm64 + amd64 targets.
+Cross-host CI compares the module list, Java API, and source hash.
+
+`scripts/phase8/run-host-gates.sh` bundles most host-side gates in one run:
+Go race/vet, the Phase 8 analyzer self-check, GitHub unit tests and lint, and
+the AAR hash plus sourcehash checks.
+
+## Release process
+
+Development previews are signed with the build machine's Android debug
+keystore (`~/.android/debug.keystore`), whose certificate is pinned as
+`dd767011...afa8d6` in `UpdatePolicy.kt` and `docs/signing.md`.
+`assembleGithubDevelopment` uses it automatically, so releases must be built on
+a machine whose debug key matches that pin; otherwise Android rejects the
+upgrade as a different signer.
+
+1. Bump `versionCode` and `versionName` in `app/build.gradle.kts`.
+2. Add `docs/releases/<version>.md` and
+   `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`.
+3. Build the publishable APKs with the real repository slug. The slug is
+   deployment configuration; the tracked default is a neutral placeholder.
+
+   ```bash
+   ./gradlew assembleGithubDevelopment -PopentailcatRepoSlug=<owner>/<repo>
+   ```
+
+4. Verify before publishing:
+
+   ```bash
+   BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
+   "$ANDROID_HOME/build-tools/$BT/aapt2" dump badging <apk> | head -1   # versionCode/Name
+   "$ANDROID_HOME/build-tools/$BT/apksigner" verify --print-certs <apk>  # dd7670... pin
+   unzip -p <apk> 'classes*.dex' | strings | rg -o '[A-Za-z0-9_.-]+/OpenTailcat'
+   ```
+
+   The last check must print the real slug, not `opentailcat/OpenTailcat`;
+   otherwise the in-app updater points at a nonexistent repository.
+
+5. Name assets `OpenTailcat-<version>-<abi>.apk`, write
+   `OpenTailcat-<version>-SHA256SUMS.txt`, and fill the hashes into the
+   release notes.
+6. Commit, tag `v<version>` (annotated), push `main` and the tag, then create
+   the release:
+
+   ```bash
+   gh release create v<version> --title "OpenTailcat <version> (versionCode NN)" \
+     --notes-file docs/releases/<version>.md <apks> <sums>
+   ```
+
+The `github` flavor self-updates from GitHub Releases and pins accepted signer
+certificates in `UpdatePolicy.kt`; `fdroid` compiles the updater out. Never
+embed personal account names or tokens in tracked sources.
+
+## Conventions and pitfalls
+
+**UI**
+
+- Compose + Material3 with the dark theme tokens in `ui/theme` (`AccentCyan`,
+  `BgDark`, `SurfaceElevated`, ...). One package per screen under
+  `ui/screens/`, with a `ViewModel` where state outlives composition.
+- Dialogs that show or accept credentials must set
+  `DialogProperties(securePolicy = SecureFlagPolicy.SecureOn)`; token fields
+  use `KeyboardType.Password`. The QR dialog relies on the secure flag because
+  the code itself contains the token.
+- No camera permission. QR display uses ZXing `core` to encode; scanning
+  launches a compatible external scanner intent and falls back to paste. The
+  scanner receives the token, so the UI says so.
+
+**Tokens and storage**
+
+- Treat every `tc...` string as a secret: no logs, notifications, clipboard
+  side effects, crash reports, or tests with live tokens.
+- Profiles are stored in sealed preferences (AES-256-GCM, Android Keystore).
+  Do not add a plaintext fallback; a value that cannot be sealed is not
+  written.
+
+**Engine**
+
+- Every exported bridge function recovers panics as errors; do the same for
+  any new export.
+- No application-flow `net.DialUDP`/OS sockets. Traffic goes through TUN,
+  gVisor, and `Client`.
+- Never fake counters or freshness. WireGuard counters stay 0 until upstream
+  exposes a status API; health and `CONNECTED` follow invariant 3.
+
+**Contracts**
+
+- Token or capability changes require updating
+  `core-engine/testdata/*.json`, both parsers, and both test suites. The
+  capability fixture is a pinned contract.
+- Do not patch `third_party/tailcat`. Re-pin to a signed tag instead; see
+  "Dependencies and provenance".
+- Dependency updates are manual (Dependabot is disabled). A bump that changes
+  native code lands with a rebuilt AAR and test output.
+
+**Docs**
+
+- This file is the source of truth. When status, commands, versions, or
+  remaining work change, update it here; keep `README.md` product-facing,
+  `docs/README.md` the reader-facing index, and `docs/releases/` historical.
 
 ## Data plane
 
@@ -54,23 +271,12 @@ from `Client.DERPRegion()`; WireGuard counters stay 0 (no upstream API),
 (Kotlin UX, Go authority, shared fixtures). GitHub flavor has the updater;
 F-Droid compiles it out.
 
-## Safety invariants
-
-1. Never install `0.0.0.0/0` or `::/0` for an engine that has not proven live pumps.
-2. Never use ordinary OS sockets for traffic claimed to be tunneled.
-3. Never report `CONNECTED` until authenticated transport and all pumps are live and native health is fresh.
-4. Never synthesize telemetry, reachability, handshake, speed, or egress values.
-5. A local ICMP reply or public Internet probe is not a gateway test.
-6. Close the TUN immediately after startup, pump, or health failure.
-7. Reject invalid or expired tokens in both Android and native code.
-8. Development preview releases use the existing development key for upgrade compatibility; production signing and migration remain future work.
-9. The app does not exclude its own UID. Only Tailcat transport sockets are protected with `VpnService.protect`; gateway measurements use `Client.DialTCP`/`DialUDP`.
-10. Keep secrets, live tokens, signing keys, and captures out of the repo and public logs.
-
 ## Lifecycle
 
-`STOPPED -> PREPARING -> PREPARED -> ATTACHING -> RUNNING`, plus `STOPPING`
-and `FAILED`.
+Native engine states: `STOPPED` -> `PREPARING` -> `PREPARED` -> `ATTACHING` ->
+`RUNNING`, plus `STOPPING` and `FAILED`. The UI shows a coarser state machine
+(`DISCONNECTED`, `CONNECTING`, `CONNECTED`, `RECONNECTING`, `DEGRADED`) and
+only shows `CONNECTED` after native `RUNNING` plus fresh health.
 
 - `prepare` validates the token, completes the handshake, may latch `tcpOnly`
   when UDP probing fails. Session context lets `stop` cancel a blocked
@@ -127,35 +333,36 @@ v6, fail-closed without WAN), `tcp`, `udp` (QUIC, bounds, MTU), `dns`
 `ensureTransportProtect()`. Every exported function recovers panics as
 errors. Go duplicates the TUN fd (non-blocking); Android owns the original.
 
-## Build and verify
+Kotlin talks to it through the `NativeEngine` interface so tests can fake the
+engine (`TunnelEngineTest`); the gomobile implementation is `TunnelEngine`.
 
-```bash
-cd core-engine && go test ./... && go test -race ./... && go vet ./... \
-  && go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./... && gofmt -l .
-cd .. && ./gradlew testGithubDebugUnitTest testFdroidDebugUnitTest \
-  lintGithubDebug lintFdroidDebug
-./gradlew assembleGithubDebug assembleGithubDevelopment
-./gradlew assembleFdroidRelease -PnoAbiSplits && ./gradlew bundleGithubRelease
-```
+## Testing
 
-After native changes, rebuild the checked-in AAR:
+- **JVM unit tests** (`app/src/test/`) cover token parsing, DNS validation,
+  profile storage, reconnect/backoff, notification throttling, split tunnel,
+  update policy, telemetry formatting, and QR round-trip.
+- **Shared fixtures**: the `test` source set reads `core-engine/testdata/`, so
+  a fixture change is a contract change exercised by both languages.
+- **Instrumented tests** (`app/src/androidTest/`) cover VPN consent/startup,
+  pairing, and preference storage. They need a device or emulator.
+- **Emulator suites** (AVD `OpenTailcat_API35`; `start.sh` boots it headless
+  when no device is attached):
 
-```bash
-env GOTOOLCHAIN=go1.27.3 core-engine/build-aar.sh && unzip -l app/libs/libtailcat.aar
-```
+  ```bash
+  ./gradlew assembleGithubDebug assembleGithubDebugAndroidTest
+  scripts/emulator/ci-smoke.sh          # no gateway, no secrets
+  OTC_LIVE_TOKEN=... scripts/emulator/ci-live.sh   # live gateway; token is never printed
+  adb emu kill && ./gradlew --stop
+  ```
 
-`build-aar.sh` writes `app/libs/libtailcat.aar.sourcehash`; CI fails on
-mismatch. AAR requires Go 1.27.3, NDK r29 (29.0.14206865), 16 KB ELF
-alignment; cross-host CI compares module list, Java API, and source hash.
-Always name the flavor in Gradle tasks (`testDebugUnitTest` is ambiguous).
+`scripts/emulator/lib.sh` redacts token-shaped strings from logs; keep it that
+way. CI runs the smoke suite on pull requests and the live suite on `main` and
+on the nightly schedule when the gateway token secret is set; the live job
+never runs on a PR.
 
-Emulator suites (then `adb emu kill && ./gradlew --stop`):
-
-```bash
-./gradlew assembleGithubDebug assembleGithubDebugAndroidTest
-scripts/emulator/ci-smoke.sh && scripts/emulator/ci-live.sh
-scripts/phase8/run-host-gates.sh && scripts/phase8/e2e-analyze.sh
-```
+`scripts/phase8/` holds host capture and analysis tooling (`e2e-analyze.sh` is
+a synthetic harness). It is not physical leak acceptance; that evidence is
+still outstanding.
 
 ## Dependencies and provenance
 
@@ -164,6 +371,22 @@ scripts/phase8/run-host-gates.sh && scripts/phase8/e2e-analyze.sh
 forwarding). Re-pin to the next signed tag; do not patch the submodule. See
 `third_party/PROVENANCE.md`. Dependency updates are manual (a bump changes
 the AAR, so it lands with a rebuild + test output); Dependabot is disabled.
+
+The Go module is `com.tailcat.vpn/engine` and replaces `github.com/tailscale/tailcat`
+with `../third_party/tailcat`; the AAR embeds that copy.
+
+## Glossary
+
+- **Exit gateway** — a `tailcat serve exit-node` host that owns the public egress.
+- **Token** (`tc...`) — self-contained credential with node/disco keys, optional PSK, DERP region, and expiry; no account or API key.
+- **Profile** — saved gateway: token, name, DNS resolver and policy, MTU.
+- **TUN** — Android virtual interface handed to the engine; the only source of tunneled packets.
+- **gVisor** — userspace TCP/IP stack inside the engine that terminates those packets.
+- **DERP / Magicsock / WireGuard** — Tailcat transport: encrypted links, NAT traversal, and relay fallback.
+- **Egress IP** — public address the Internet sees; audited through `Client.DialTCP`, not the device-route card.
+- **Test routing** — the current data-plane maturity flag (`testRouting`), shown in the UI and not accepted for privacy-sensitive traffic.
+- **Phase 8** — the physical dual-capture leak-acceptance stage, still
+  outstanding; `scripts/phase8/` has the host capture and analysis tooling.
 
 ## Remaining work
 
