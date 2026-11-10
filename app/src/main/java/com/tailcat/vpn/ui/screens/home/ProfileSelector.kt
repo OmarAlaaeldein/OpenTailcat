@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -56,6 +57,7 @@ fun ProfileSelector(
     onAddProfile: () -> Unit
 ) {
     var showProfileDropdown by remember { mutableStateOf(false) }
+    var qrProfile by remember { mutableStateOf<GatewayProfile?>(null) }
 
     Box {
         Row(
@@ -125,17 +127,31 @@ fun ProfileSelector(
                             showProfileDropdown = false
                         },
                         trailingIcon = {
-                            IconButton(
-                                onClick = {
-                                    onDeleteProfile(profile)
-                                    showProfileDropdown = false
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(
+                                    onClick = {
+                                        qrProfile = profile
+                                        showProfileDropdown = false
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.Default.QrCode2,
+                                        contentDescription = "Show QR for ${profile.name}",
+                                        tint = AccentCyan
+                                    )
                                 }
-                            ) {
-                                Icon(
-                                    Icons.Default.DeleteOutline,
-                                    contentDescription = "Delete ${profile.name}",
-                                    tint = RedDegraded
-                                )
+                                IconButton(
+                                    onClick = {
+                                        onDeleteProfile(profile)
+                                        showProfileDropdown = false
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.Default.DeleteOutline,
+                                        contentDescription = "Delete ${profile.name}",
+                                        tint = RedDegraded
+                                    )
+                                }
                             }
                         }
                     )
@@ -153,6 +169,14 @@ fun ProfileSelector(
                 )
             }
         }
+    }
+
+    qrProfile?.let { profile ->
+        TokenQrDialog(
+            token = profile.token,
+            profileName = profile.name,
+            onDismiss = { qrProfile = null }
+        )
     }
 }
 

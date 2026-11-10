@@ -1,0 +1,1 @@
+Share a saved gateway's token as a QR code from the profile menu, without pasting it again. The code contains the token; share it only with someone you trust.

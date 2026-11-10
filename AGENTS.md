@@ -7,7 +7,7 @@ single source for project status and remaining work; other docs link here.
 - Android: min API 26, compile API 37, target API 35
 - Toolchain: Kotlin 2.4.21, Gradle 9.8.2, JDK 21, Go 1.27.3 (AGP in
   `gradle/libs.versions.toml`)
-- Current version: 1.5.7 (versionCode 46); notes in `docs/releases/`
+- Current version: 1.5.8 (versionCode 47); notes in `docs/releases/`
 
 ## Status
 

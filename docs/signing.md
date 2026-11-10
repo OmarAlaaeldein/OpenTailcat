@@ -1,6 +1,6 @@
 # Signing and key migration
 
-Release 1.5.7 is development-signed (`assembleGithubDevelopment` uses the
+Release 1.5.8 is development-signed (`assembleGithubDevelopment` uses the
 existing Android development certificate).
 
 Updater-accepted SHA-256 certificate digests:

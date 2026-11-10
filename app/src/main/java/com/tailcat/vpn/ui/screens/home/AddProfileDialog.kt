@@ -423,14 +423,21 @@ private fun TokenValidationPreview(validationState: TokenValidationState) {
     }
 }
 
-/** The QR contains the credential itself; never persist it or permit screenshots. */
+/**
+ * The QR contains the credential itself; never persist it or permit screenshots.
+ * Serves both a token being paired and an already-saved profile.
+ */
 @Composable
-private fun TokenQrDialog(token: String, onDismiss: () -> Unit) {
+internal fun TokenQrDialog(
+    token: String,
+    profileName: String? = null,
+    onDismiss: () -> Unit
+) {
     val matrix = remember(token) { runCatching { encodeTokenQr(token) }.getOrNull() }
     AlertDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
-        title = { Text("Share gateway token") },
+        title = { Text(if (profileName != null) "Share $profileName" else "Share gateway token") },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Anyone who scans this code receives your gateway token. Share it only with someone you trust.")
