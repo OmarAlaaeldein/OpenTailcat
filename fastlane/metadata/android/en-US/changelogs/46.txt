@@ -1,0 +1,1 @@
+Share a valid gateway token as a QR code or scan one with a compatible installed scanner. OpenTailcat does not request camera permission.

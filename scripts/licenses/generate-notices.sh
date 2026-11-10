@@ -160,6 +160,7 @@ ANDROID_LICENSES = {
     "com.google.code.gson": "Apache-2.0",
     "com.google.crypto.tink": "Apache-2.0",
     "com.google.guava": "Apache-2.0",
+    "com.google.zxing": "Apache-2.0",
     "org.jetbrains": "Apache-2.0",
     "org.jetbrains.kotlin": "Apache-2.0",
     "org.jetbrains.kotlinx": "Apache-2.0",

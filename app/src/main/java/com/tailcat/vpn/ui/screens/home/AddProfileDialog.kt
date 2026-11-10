@@ -1,8 +1,16 @@
 package com.tailcat.vpn.ui.screens.home
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +43,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +54,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
 import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.core.dns.DnsValidationResult
 import com.tailcat.vpn.core.dns.DnsValidator
@@ -77,6 +91,18 @@ fun AddProfileDialog(
         mutableStateOf(DnsPolicy.PROFILE_RESOLVER)
     }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var showQr by remember { mutableStateOf(false) }
+    val scanner = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val scanned = result.data?.getStringExtra("SCAN_RESULT")
+            if (scanned != null) {
+                tokenInput = scanned
+                errorMessage = null
+            } else {
+                errorMessage = "Scanner returned no token"
+            }
+        }
+    }
 
     val validationState = remember(tokenInput) {
         TokenParser.validate(tokenInput)
@@ -94,7 +120,7 @@ fun AddProfileDialog(
             Text("Pair Gateway Token", color = TextPrimary)
         },
         text = {
-            Column {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Text(
                     text = "Paste a Tailcat connection token (tc...) to establish a Tailcat gateway session.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -152,6 +178,26 @@ fun AddProfileDialog(
                         )
                     },
                     modifier = Modifier.fillMaxWidth()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = {
+                        try {
+                            scanner.launch(Intent("com.google.zxing.client.android.SCAN").apply {
+                                putExtra("SCAN_MODE", "QR_CODE_MODE")
+                            })
+                        } catch (_: ActivityNotFoundException) {
+                            errorMessage = "No compatible QR scanner found. Paste the token instead."
+                        }
+                    }) { Text("Scan QR") }
+                    TextButton(
+                        onClick = { showQr = true },
+                        enabled = validationState is TokenValidationState.Valid
+                    ) { Text("Show QR") }
+                }
+                Text(
+                    "Scanning uses an installed QR scanner, which receives the token.",
+                    color = TextMuted,
+                    fontSize = 11.sp
                 )
                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -248,6 +294,11 @@ fun AddProfileDialog(
             }
         }
     )
+
+    if (showQr) {
+        TokenQrDialog(tokenInput, onDismiss = { showQr = false })
+    }
+
 }
 
 @Composable
@@ -371,3 +422,36 @@ private fun TokenValidationPreview(validationState: TokenValidationState) {
         }
     }
 }
+
+/** The QR contains the credential itself; never persist it or permit screenshots. */
+@Composable
+private fun TokenQrDialog(token: String, onDismiss: () -> Unit) {
+    val matrix = remember(token) { runCatching { encodeTokenQr(token) }.getOrNull() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
+        title = { Text("Share gateway token") },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Anyone who scans this code receives your gateway token. Share it only with someone you trust.")
+                Spacer(Modifier.height(16.dp))
+                if (matrix == null) {
+                    Text("This token is too large to display as a QR code.")
+                } else {
+                    Canvas(Modifier.fillMaxWidth().height(280.dp).background(Color.White)) {
+                        val scale = minOf(size.width / matrix.width, size.height / matrix.height)
+                        val left = (size.width - matrix.width * scale) / 2
+                        val top = (size.height - matrix.height * scale) / 2
+                        for (y in 0 until matrix.height) for (x in 0 until matrix.width) {
+                            if (matrix[x, y]) drawRect(Color.Black, Offset(left + x * scale, top + y * scale), Size(scale, scale))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+    )
+}
+
+internal fun encodeTokenQr(token: String) =
+    QRCodeWriter().encode(token, BarcodeFormat.QR_CODE, 0, 0, mapOf(EncodeHintType.MARGIN to 4))

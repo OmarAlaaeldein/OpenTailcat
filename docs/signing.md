@@ -1,6 +1,6 @@
 # Signing and key migration
 
-Release 1.5.6 is development-signed (`assembleGithubDevelopment` uses the
+Release 1.5.7 is development-signed (`assembleGithubDevelopment` uses the
 existing Android development certificate).
 
 Updater-accepted SHA-256 certificate digests:
@@ -25,3 +25,7 @@ protected storage. Never commit them or print the password.
    retention and rejected untrusted APKs. API 26/27 cannot use v3 rotation.
 5. Verify with `apksigner verify --verbose --print-certs`, then retire the
    development pin.
+
+
+The current development previews continue to use the existing development key
+for update compatibility. Production signing and migration remain future work.

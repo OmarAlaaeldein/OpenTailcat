@@ -19,6 +19,10 @@ encrypted preferences with a key held by Android Keystore. Plaintext
 preferences from earlier builds are migrated and cleared. Android backup and
 device-to-device transfer are disabled for app data.
 
+The pairing screen can display a token as a QR code. Scanning uses a compatible
+external scanner app if installed; that app receives the token and controls its
+own camera access. OpenTailcat does not request camera permission.
+
 Gateway tokens are secrets. Anyone who obtains one may learn connection
 metadata or attempt to reach its gateway. Protect device access, screenshots,
 logs, and exported diagnostics.

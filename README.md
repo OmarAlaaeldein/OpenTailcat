@@ -7,7 +7,7 @@ no control plane in the middle.
 
 ## Status
 
-Development preview, version 1.5.6. The data plane runs, but physical-device
+Development preview, version 1.5.7. The data plane runs, but physical-device
 leak capture and production signing are still open. Do not rely on it for
 privacy-sensitive traffic. Reconnection removes the TUN between attempts; turn
 on Android's **Always-on VPN** with **Block connections without VPN** if that

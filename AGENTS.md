@@ -7,7 +7,7 @@ single source for project status and remaining work; other docs link here.
 - Android: min API 26, compile API 37, target API 35
 - Toolchain: Kotlin 2.4.21, Gradle 9.8.2, JDK 21, Go 1.27.3 (AGP in
   `gradle/libs.versions.toml`)
-- Current version: 1.5.6 (versionCode 45); notes in `docs/releases/`
+- Current version: 1.5.7 (versionCode 46); notes in `docs/releases/`
 
 ## Status
 
@@ -63,7 +63,7 @@ F-Droid compiles it out.
 5. A local ICMP reply or public Internet probe is not a gateway test.
 6. Close the TUN immediately after startup, pump, or health failure.
 7. Reject invalid or expired tokens in both Android and native code.
-8. Do not sign a release with the debug key.
+8. Development preview releases use the existing development key for upgrade compatibility; production signing and migration remain future work.
 9. The app does not exclude its own UID. Only Tailcat transport sockets are protected with `VpnService.protect`; gateway measurements use `Client.DialTCP`/`DialUDP`.
 10. Keep secrets, live tokens, signing keys, and captures out of the repo and public logs.
 

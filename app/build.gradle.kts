@@ -28,8 +28,8 @@ android {
         applicationId = "com.tailcat.vpn"
         minSdk = 26
         targetSdk = 35
-        versionCode = 45
-        versionName = "1.5.6"
+        versionCode = 46
+        versionName = "1.5.7"
 
         buildConfigField("String", "REPO_SLUG", "\"$repoSlug\"")
 
@@ -124,6 +124,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(libs.zxing.core)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
