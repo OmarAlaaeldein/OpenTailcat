@@ -13,9 +13,17 @@ run_instrumented com.tailcat.vpn.VpnStartupInstrumentedTest
 
 adb shell am start -n "$PKG/.ui.MainActivity" >/dev/null
 for _ in $(seq 1 10); do
-  if ui_nodes | grep -q '| OpenTailcat |'; then
+  nodes=$(ui_nodes || true)
+  if printf '%s\n' "$nodes" | grep -q '| OpenTailcat |'; then
     echo "PASS: emulator smoke (home screen: $(tunnel_state))"
     exit 0
+  fi
+  # A slow CI emulator can show the launcher's own ANR over our activity.
+  # Dismiss only that specific system dialog, then reopen the app.
+  if printf '%s\n' "$nodes" | grep -q "Pixel Launcher isn't responding"; then
+    echo "Closing stalled emulator launcher"
+    tap_node '\| Close app \|' || true
+    adb shell am start -n "$PKG/.ui.MainActivity" >/dev/null
   fi
   sleep 2
 done

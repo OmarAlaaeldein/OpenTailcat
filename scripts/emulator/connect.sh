@@ -55,8 +55,10 @@ for _ in $(seq 1 15); do
     diagnostic="no validated internet"
   elif printf '%s\n' "$nodes" | grep -qi 'expired'; then
     diagnostic="token expired"
-  elif printf '%s\n' "$nodes" | grep -qi 'handshake\|timed out\|timeout\|deadline exceeded'; then
-    diagnostic="handshake or network timeout"
+  elif printf '%s\n' "$nodes" | grep -qi 'gateway handshake failed'; then
+    diagnostic="gateway handshake failed"
+  elif printf '%s\n' "$nodes" | grep -qi 'timed out\|timeout\|deadline exceeded'; then
+    diagnostic="network timeout"
   elif printf '%s\n' "$nodes" | grep -qi 'VPN permission'; then
     diagnostic="VPN permission problem"
   elif printf '%s\n' "$nodes" | grep -qi 'engine unavailable\|engine is unavailable\|VPN engine failed\|engine did not become live\|ENGINE REQUIRED'; then
