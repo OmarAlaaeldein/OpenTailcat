@@ -12,6 +12,15 @@ adb shell am start -n "$PKG/.ui.MainActivity" >/dev/null
 ready=""
 for _ in $(seq 1 10); do
   nodes=$(ui_nodes || true)
+  # The launcher can ANR on slow CI emulators and obscure our activity.
+  # Only dismiss this specific system dialog, then reopen the app.
+  if printf '%s\n' "$nodes" | grep -q "Pixel Launcher isn't responding"; then
+    echo "Closing stalled emulator launcher"
+    tap_node '\| Close app \|' || true
+    adb shell am start -n "$PKG/.ui.MainActivity" >/dev/null
+    sleep 2
+    continue
+  fi
   if printf '%s\n' "$nodes" | grep -q "TAP TO CONNECT"; then
     ready=disconnected
     break
@@ -38,6 +47,8 @@ elif [ -z "$ready" ]; then
   echo "Connect control did not become ready" >&2
   # Report only fixed, allowlisted UI facts; do not print arbitrary screen text.
   if [ -z "$nodes" ]; then echo "UI diagnostic: no visible nodes"; fi
+  if printf '%s\n' "$nodes" | grep -qi "isn't responding"; then echo "UI diagnostic: application not responding dialog"; fi
+  if printf '%s\n' "$nodes" | grep -qi 'keeps stopping'; then echo "UI diagnostic: application stopped dialog"; fi
   if printf '%s\n' "$nodes" | grep -q 'OpenTailcat'; then echo "UI diagnostic: app visible"; fi
   if printf '%s\n' "$nodes" | grep -qi 'OFFLINE\|NO INTERNET'; then echo "UI diagnostic: device offline"; fi
   if printf '%s\n' "$nodes" | grep -qi 'ENGINE REQUIRED\|VPN DISABLED'; then echo "UI diagnostic: engine unavailable"; fi
