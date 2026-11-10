@@ -16,7 +16,7 @@ for _ in $(seq 1 10); do
     ready=disconnected
     break
   fi
-  if printf '%s\n' "$nodes" | grep -Eq '\| (CONNECTED|CONNECTING|RECONNECTING)'; then
+  if printf '%s\n' "$nodes" | grep -Eq '\| (CONNECTED|ESTABLISHING TUNNEL|RECONNECTING)'; then
     ready=active
     break
   fi
@@ -36,6 +36,13 @@ if [ "$ready" = disconnected ]; then
   tap_node '\| OK \|' 2>/dev/null || true
 elif [ -z "$ready" ]; then
   echo "Connect control did not become ready" >&2
+  # Report only fixed, allowlisted UI facts; do not print arbitrary screen text.
+  if [ -z "$nodes" ]; then echo "UI diagnostic: no visible nodes"; fi
+  if printf '%s\n' "$nodes" | grep -q 'OpenTailcat'; then echo "UI diagnostic: app visible"; fi
+  if printf '%s\n' "$nodes" | grep -qi 'OFFLINE\|NO INTERNET'; then echo "UI diagnostic: device offline"; fi
+  if printf '%s\n' "$nodes" | grep -qi 'ENGINE REQUIRED\|VPN DISABLED'; then echo "UI diagnostic: engine unavailable"; fi
+  if printf '%s\n' "$nodes" | grep -q 'Connect VPN'; then echo "UI diagnostic: connect control visible"; fi
+  if printf '%s\n' "$nodes" | grep -qi 'permission\|allow'; then echo "UI diagnostic: permission prompt or message visible"; fi
 fi
 # Print only fixed diagnostic categories, never arbitrary UI/error text: a
 # gateway error may contain a token, endpoint, or other private information.
@@ -44,7 +51,7 @@ for _ in $(seq 1 15); do
   nodes=$(ui_nodes || true)
   state=$(printf '%s\n' "$nodes" | sed -n -E 's/^[^|]*\| ((CONNECTED|CONNECTING|DISCONNECTED|RECONNECTING|DEGRADED|TAP TO CONNECT)[^|]*) \|.*/\1/p' | head -1 || true)
   diagnostic=""
-  if printf '%s\n' "$nodes" | grep -qi 'no validated internet connection\|no internet connection'; then
+  if printf '%s\n' "$nodes" | grep -qi 'no validated internet connection\|no internet connection\|OFFLINE.*NO INTERNET'; then
     diagnostic="no validated internet"
   elif printf '%s\n' "$nodes" | grep -qi 'expired'; then
     diagnostic="token expired"
@@ -52,7 +59,7 @@ for _ in $(seq 1 15); do
     diagnostic="handshake or network timeout"
   elif printf '%s\n' "$nodes" | grep -qi 'VPN permission'; then
     diagnostic="VPN permission problem"
-  elif printf '%s\n' "$nodes" | grep -qi 'engine unavailable\|engine is unavailable\|VPN engine failed\|engine did not become live'; then
+  elif printf '%s\n' "$nodes" | grep -qi 'engine unavailable\|engine is unavailable\|VPN engine failed\|engine did not become live\|ENGINE REQUIRED'; then
     diagnostic="VPN engine failure"
   fi
   if [ -n "$diagnostic" ] && [ "$diagnostic" != "$reported_diagnostic" ]; then
