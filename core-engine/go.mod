@@ -1,15 +1,15 @@
 module com.tailcat.vpn/engine
 
-go 1.27.3
+go 1.27.4
 
 replace github.com/tailscale/tailcat => ../third_party/tailcat
 
 require (
-	github.com/fxamacker/cbor/v2 v2.9.6
+	github.com/fxamacker/cbor/v2 v2.10.0
 	github.com/tailscale/tailcat v0.0.0-00010101000000-000000000000
 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745
 	gvisor.dev/gvisor v0.0.0-20260915211658-a6f909f08a72
-	tailscale.com v1.103.0-pre.0.20260929142145-a0e471a35b8f
+	tailscale.com v1.105.0-pre.0.20261013225543-fb79793d99f5
 )
 
 require (
@@ -42,7 +42,7 @@ require (
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f // indirect
 	github.com/tailscale/peercred v0.0.0-20250107143737-35a0c7bd7edc // indirect
 	github.com/tailscale/web-client-prebuilt v0.0.0-20260917222731-e0ed2d0d0fea // indirect
-	github.com/tailscale/wireguard-go v0.0.0-20260924224943-0a83b87f7908 // indirect
+	github.com/tailscale/wireguard-go v0.0.0-20260928213353-e61b6b78110b // indirect
 	github.com/u-root/u-root v0.16.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go4.org/netipx v0.0.0-20260823151212-3075585bcbeb // indirect

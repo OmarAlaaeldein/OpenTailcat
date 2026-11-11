@@ -12,9 +12,9 @@ work; other docs link here.
 
 - Android: min API 26, compile API 37, target API 35; application id
   `com.tailcat.vpn`
-- Toolchain: Kotlin 2.4.21, Gradle 9.8.2, JDK 21, Go 1.27.3
+- Toolchain: Kotlin 2.4.21, Gradle 9.9.1, JDK 21, Go 1.27.4
 - Versions: `gradle/libs.versions.toml`, `core-engine/go.mod`
-- Current version: 1.5.8 (versionCode 47); notes in `docs/releases/`
+- Current version: 1.5.9 (versionCode 48); notes in `docs/releases/`
 
 ## Status
 
@@ -100,7 +100,7 @@ not exclude its own UID from the tunnel.
 ## Build and verify
 
 Prerequisites: JDK 21 and the Android SDK (platform 37, matching build-tools,
-NDK `29.0.14206865`); Go 1.27.3 only for `core-engine/`. A fresh clone needs
+NDK `29.0.14206865`); Go 1.27.4 only for `core-engine/`. A fresh clone needs
 `git submodule update --init`; point Gradle at the SDK with `local.properties`
 (`sdk.dir=...`) or `ANDROID_HOME`. Kotlin-only work builds against the
 checked-in AAR and needs neither Go nor the NDK.
@@ -137,10 +137,10 @@ Rules that trip people up:
   the source tree.
 
 ```bash
-env GOTOOLCHAIN=go1.27.3 core-engine/build-aar.sh && unzip -l app/libs/libtailcat.aar
+env GOTOOLCHAIN=go1.27.4 core-engine/build-aar.sh && unzip -l app/libs/libtailcat.aar
 ```
 
-The AAR requires Go 1.27.3, NDK r29 (`29.0.14206865`), 16 KB ELF alignment,
+The AAR requires Go 1.27.4, NDK r29 (`29.0.14206865`), 16 KB ELF alignment,
 `-javapkg=com.tailcat.golib`, androidapi 26, and arm64 + amd64 targets.
 Cross-host CI compares the module list, Java API, and source hash.
 
@@ -366,8 +366,8 @@ still outstanding.
 
 ## Dependencies and provenance
 
-`third_party/tailcat` is pinned to upstream `52fbad32` (untagged/unsigned,
-17 commits after signed `v0.7.0`; carries `Client.DERPRegion()` and UDP
+`third_party/tailcat` is pinned to upstream `e00cdde6` (untagged/unsigned,
+18 commits after signed `v0.7.0`; carries `Client.DERPRegion()` and UDP
 forwarding). Re-pin to the next signed tag; do not patch the submodule. See
 `third_party/PROVENANCE.md`. Dependency updates are manual (a bump changes
 the AAR, so it lands with a rebuild + test output); Dependabot is disabled.
