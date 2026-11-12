@@ -592,3 +592,62 @@ type failingPingClient struct {
 func (c *failingPingClient) Ping(ctx context.Context) (tailcat.PingResult, error) {
 	return tailcat.PingResult{}, errors.New("simulated gateway handshake failure")
 }
+
+// TLA+ finding F1: a pump callback from a superseded bridge (the warm bridge
+// of the two-phase attach) must not fail the newer, routed attach.
+func TestStaleBridgePumpDeathDoesNotFailNewerAttach(t *testing.T) {
+	_ = Stop()
+	installClient(t, &prepareTestClient{})
+	if err := Prepare(officialTestToken(t)); err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	defer func() { _ = Stop() }()
+
+	r1, w1, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r1.Close()
+	defer w1.Close()
+	if err := AttachTun(int(r1.Fd())); err != nil {
+		t.Fatalf("warm AttachTun: %v", err)
+	}
+	globalCore.mu.Lock()
+	sess := globalCore.sess
+	warm := sess.bridge
+	globalCore.mu.Unlock()
+
+	DisarmPumps()
+	if err := DetachTun(); err != nil {
+		t.Fatalf("DetachTun: %v", err)
+	}
+	r2, w2, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r2.Close()
+	defer w2.Close()
+	if err := AttachTun(int(r2.Fd())); err != nil {
+		t.Fatalf("routed AttachTun: %v", err)
+	}
+
+	// The warm bridge's callback passed its liveness check earlier and runs
+	// only now, after the routed bridge is published.
+	globalCore.markFailed(sess, warm, errors.New("stale warm pump"))
+
+	if _, st := statsState(t); st != StateRunning {
+		t.Fatalf("stale bridge failure changed state to %s; want RUNNING", st)
+	}
+	if sess.ctx.Err() != nil {
+		t.Fatal("stale bridge failure cancelled the live session")
+	}
+}
+
+// TLA+ finding F3: after Stop, DetachTun must report failure so Android does
+// not go on to install default routes for a stopped engine.
+func TestDetachTunWithoutSessionFails(t *testing.T) {
+	_ = Stop()
+	if err := DetachTun(); err == nil {
+		t.Fatal("DetachTun without a prepared session returned nil")
+	}
+}

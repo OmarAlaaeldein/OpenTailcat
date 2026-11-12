@@ -1,10 +1,9 @@
 package com.tailcat.vpn.core.update
 
 import com.tailcat.vpn.BuildConfig
+import com.tailcat.vpn.core.net.AppHttp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * Fetches the latest GitHub release with system TLS (not PinnedHttps —
@@ -18,7 +17,7 @@ object GitHubReleaseClient {
 
     suspend fun fetchLatest(): Result<LatestRelease> = withContext(Dispatchers.IO) {
         runCatching {
-            val connection = (URL(LATEST_URL).openConnection() as HttpURLConnection)
+            val connection = AppHttp.open(LATEST_URL)
             try {
                 connection.connectTimeout = TIMEOUT_MS
                 connection.readTimeout = TIMEOUT_MS

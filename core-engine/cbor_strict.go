@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 )
 
 // strictCborReader provides deterministic, bounds-checked CBOR decoding with
@@ -82,88 +83,94 @@ var allowedCanonicalFields = map[string]bool{
 }
 
 // parseStrictTokenMap parses the top-level token CBOR map with strict validation.
-func parseStrictTokenMap(cborBytes []byte) (map[string]any, TokenErrorCode, error) {
+// parseStrictTokenMap decodes the top-level token map. keys lists the map's
+// keys in encoded order: callers validate fields in that order so the first
+// reported error is deterministic and matches the Kotlin parser, which keeps
+// insertion order (Go map iteration order is randomized).
+func parseStrictTokenMap(cborBytes []byte) (result map[string]any, keys []string, code TokenErrorCode, err error) {
 	if len(cborBytes) == 0 {
-		return nil, ErrCborMalformed, errors.New("empty CBOR payload")
+		return nil, nil, ErrCborMalformed, errors.New("empty CBOR payload")
 	}
 	if len(cborBytes) > MaxCborPayloadBytes {
-		return nil, ErrCborTooLarge, errors.New("CBOR payload exceeds maximum size")
+		return nil, nil, ErrCborTooLarge, errors.New("CBOR payload exceeds maximum size")
 	}
 
 	r := newStrictCborReader(cborBytes)
 	first, err := r.readByte()
 	if err != nil {
-		return nil, ErrCborMalformed, err
+		return nil, nil, ErrCborMalformed, err
 	}
 
 	major := first >> 5
 	info := first & 0x1f
 	if major != 5 { // Major type 5 is map
-		return nil, ErrNotMap, fmt.Errorf("expected top-level CBOR map (major 5), got major %d", major)
+		return nil, nil, ErrNotMap, fmt.Errorf("expected top-level CBOR map (major 5), got major %d", major)
 	}
 	if info == 31 {
-		return nil, ErrCborMalformed, errors.New("indefinite-length map is forbidden")
+		return nil, nil, ErrCborMalformed, errors.New("indefinite-length map is forbidden")
 	}
 
 	numPairs, err := r.readLength(info)
 	if err != nil {
-		return nil, ErrCborMalformed, err
+		return nil, nil, ErrCborMalformed, err
 	}
 	if numPairs > 32 {
-		return nil, ErrCborMalformed, fmt.Errorf("too many map entries: %d", numPairs)
+		return nil, nil, ErrCborMalformed, fmt.Errorf("too many map entries: %d", numPairs)
 	}
 
-	result := make(map[string]any, numPairs)
+	result = make(map[string]any, numPairs)
+	keys = make([]string, 0, numPairs)
 	seenExactKeys := make(map[string]bool, numPairs)
 
 	for i := uint64(0); i < numPairs; i++ {
 		keyHdr, err := r.readByte()
 		if err != nil {
-			return nil, ErrCborMalformed, err
+			return nil, nil, ErrCborMalformed, err
 		}
 		kMajor := keyHdr >> 5
 		kInfo := keyHdr & 0x1f
 		if kMajor != 3 { // Must be text string
-			return nil, ErrCborMalformed, fmt.Errorf("map key must be text string, got major %d", kMajor)
+			return nil, nil, ErrCborMalformed, fmt.Errorf("map key must be text string, got major %d", kMajor)
 		}
 		kLen, err := r.readLength(kInfo)
 		if err != nil {
-			return nil, ErrCborMalformed, err
+			return nil, nil, ErrCborMalformed, err
 		}
 		if kLen > 128 {
-			return nil, ErrCborMalformed, errors.New("map key length exceeds limit")
+			return nil, nil, ErrCborMalformed, errors.New("map key length exceeds limit")
 		}
 		kBytes, err := r.readBytes(int(kLen))
 		if err != nil {
-			return nil, ErrCborMalformed, err
+			return nil, nil, ErrCborMalformed, err
 		}
 		keyStr := string(kBytes)
 
 		// Check duplicate exact keys
 		if seenExactKeys[keyStr] {
-			return nil, ErrDuplicateKey, fmt.Errorf("duplicate map key: %q", keyStr)
+			return nil, nil, ErrDuplicateKey, fmt.Errorf("duplicate map key: %q", keyStr)
 		}
 		seenExactKeys[keyStr] = true
 
 		// Check that key is a permitted canonical field name (reject aliases and mixed-case)
 		if !allowedCanonicalFields[keyStr] {
-			return nil, ErrUnknownField, fmt.Errorf("unknown or alias token field %q", keyStr)
+			return nil, nil, ErrUnknownField, fmt.Errorf("unknown or alias token field %q", keyStr)
 		}
 
 		// Parse value strictly
 		val, err := r.readStrictValue(0)
 		if err != nil {
-			return nil, ErrCborMalformed, err
+			return nil, nil, ErrCborMalformed, err
 		}
 
 		result[keyStr] = val
+		keys = append(keys, keyStr)
 	}
 
 	if r.remaining() > 0 {
-		return nil, ErrTrailingData, fmt.Errorf("trailing %d bytes after CBOR map", r.remaining())
+		return nil, nil, ErrTrailingData, fmt.Errorf("trailing %d bytes after CBOR map", r.remaining())
 	}
 
-	return result, ErrNone, nil
+	return result, keys, ErrNone, nil
 }
 
 func (r *strictCborReader) readStrictValue(depth int) (any, error) {
@@ -215,6 +222,11 @@ func (r *strictCborReader) readStrictValue(depth int) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		// RFC 8949 text strings are UTF-8. Reject here, as the Kotlin
+		// parser does, instead of leaving it to the upstream decoder.
+		if !utf8.Valid(b) {
+			return nil, errors.New("CBOR text string is not valid UTF-8")
+		}
 		return string(b), nil
 	case 4: // Array
 		numItems, err := r.readLength(info)
@@ -260,6 +272,9 @@ func (r *strictCborReader) readStrictValue(depth int) (any, error) {
 			kB, err := r.readBytes(int(kLen))
 			if err != nil {
 				return nil, err
+			}
+			if !utf8.Valid(kB) {
+				return nil, errors.New("nested map key is not valid UTF-8")
 			}
 			kStr := string(kB)
 			if seen[kStr] {

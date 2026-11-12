@@ -78,12 +78,17 @@ var globalCore = &TailcatCore{}
 
 const stopWaitTimeout = 3 * time.Second
 
-func (c *TailcatCore) markFailed(sess *session, err error) {
-	if sess == nil {
+// markFailed fails the session only when bridge is still the session's
+// current bridge, checked under the same lock that publishes bridges. A pump
+// callback from a superseded bridge (the warm bridge during the routed
+// re-attach) must not fail the newer attach (TLA+ finding F1).
+func (c *TailcatCore) markFailed(sess *session, bridge *TunBridge, err error) {
+	if sess == nil || bridge == nil {
 		return
 	}
 	c.mu.Lock()
-	if c.sess != sess || (c.state != StateRunning && c.state != StateAttaching) {
+	if c.sess != sess || sess.bridge != bridge ||
+		(c.state != StateRunning && c.state != StateAttaching) {
 		c.mu.Unlock()
 		return
 	}
@@ -331,12 +336,7 @@ func AttachTun(tunFD int) (err error) {
 		globalCore.healthUnix.Store(time.Now().Unix())
 	}
 	bridge.setOnPumpDead(func(pumpErr error) {
-		globalCore.mu.Lock()
-		live := globalCore.sess == sess && sess.bridge == bridge
-		globalCore.mu.Unlock()
-		if live {
-			globalCore.markFailed(sess, pumpErr)
-		}
+		globalCore.markFailed(sess, bridge, pumpErr)
 	})
 
 	// Publish ownership before Start so a pump that dies during readiness
@@ -402,8 +402,11 @@ func DetachTun() (err error) {
 	defer recoverExported("DetachTun", &err)
 	globalCore.mu.Lock()
 	if globalCore.sess == nil {
+		// No session means Stop ran (or prepare never did). Report it so the
+		// caller does not go on to install default routes for a stopped
+		// engine (TLA+ finding F3).
 		globalCore.mu.Unlock()
-		return nil
+		return errors.New("cannot detach TUN: engine not prepared")
 	}
 	if globalCore.state != StateRunning && globalCore.state != StateAttaching && globalCore.state != StatePrepared {
 		globalCore.mu.Unlock()

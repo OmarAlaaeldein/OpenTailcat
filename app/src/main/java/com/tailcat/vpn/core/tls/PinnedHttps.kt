@@ -1,6 +1,7 @@
 package com.tailcat.vpn.core.tls
 
 import android.net.http.X509TrustManagerExtensions
+import com.tailcat.vpn.core.net.AppHttp
 import java.net.URL
 import java.security.KeyStore
 import java.security.cert.CertificateException
@@ -49,7 +50,7 @@ object PinnedHttps {
 
     fun open(endpoint: String): HttpsURLConnection {
         val url = URL(endpoint)
-        val connection = url.openConnection() as HttpsURLConnection
+        val connection = AppHttp.open(url) as HttpsURLConnection
         connection.sslSocketFactory = socketFactoryFor(url.host)
         return connection
     }

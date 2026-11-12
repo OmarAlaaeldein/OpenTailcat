@@ -2,6 +2,7 @@ package com.tailcat.vpn
 
 import android.app.Application
 import com.tailcat.vpn.core.NetworkMonitor
+import com.tailcat.vpn.core.net.AppHttp
 import com.tailcat.vpn.data.PreferencesStore
 import com.tailcat.vpn.data.ProfileRepository
 import com.tailcat.vpn.service.TunnelController
@@ -30,6 +31,9 @@ class TailcatApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Before any HTTP request: app sockets must never outlive their request
+        // (see AppHttp and TailcatVpnService.protectOpenTransportSockets).
+        AppHttp.disableConnectionReuse()
         instance = this
 
         preferencesStore = PreferencesStore(this)

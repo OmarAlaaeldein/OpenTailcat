@@ -1,6 +1,7 @@
 package com.tailcat.vpn.core.update
 
 import com.tailcat.vpn.BuildConfig
+import com.tailcat.vpn.core.net.AppHttp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.currentCoroutineContext
@@ -91,7 +92,7 @@ class ApkDownloader(private val cacheDir: File) {
         var url = startUrl
         repeat(MAX_REDIRECTS + 1) {
             check(UpdatePolicy.isAllowedDownloadUrl(url)) { "Download redirected off GitHub" }
-            val connection = URL(url).openConnection() as HttpURLConnection
+            val connection = AppHttp.open(url)
             connection.connectTimeout = 15_000
             connection.readTimeout = 30_000
             connection.requestMethod = "GET"

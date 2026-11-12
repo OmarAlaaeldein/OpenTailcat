@@ -66,7 +66,8 @@ not exclude its own UID from the tunnel.
 | `third_party/tailcat` | Upstream Tailcat submodule, pinned and unmodified |
 | `app/src/test/`, `app/src/androidTest/` | JVM unit tests, instrumented tests |
 | `scripts/emulator/`, `scripts/phase8/` | adb emulator suites; dual-capture leak tooling |
-| `.github/workflows/` | `ci.yml` gates; `emulator.yml` smoke and live-gateway suites |
+| `formal/` | TLA+ model of the connect/attach/reconnect/stop lifecycle (Kotlin service + Go engine), checked with TLC by `formal/check.sh` |
+| `.github/workflows/` | `ci.yml` gates; `emulator.yml` smoke and live-gateway suites; `formal.yml` TLC model check |
 | `docs/` | Documentation index, release notes, signing notes, screenshots |
 
 ### Start here by task
@@ -87,14 +88,22 @@ not exclude its own UID from the tunnel.
 ## Safety invariants
 
 1. Never install `0.0.0.0/0` or `::/0` for an engine that has not proven live pumps.
-2. Never use ordinary OS sockets for traffic claimed to be tunneled.
+2. Never use ordinary OS sockets for traffic claimed to be tunneled
+   (`core-engine/no_os_socket_test.go` enforces this for the engine package).
 3. Never report `CONNECTED` until authenticated transport and all pumps are live and native health is fresh.
 4. Never synthesize telemetry, reachability, handshake, speed, or egress values.
 5. A local ICMP reply or public Internet probe is not a gateway test.
 6. Close the TUN immediately after startup, pump, or health failure.
 7. Reject invalid or expired tokens in both Android and native code.
 8. Development preview releases use the existing development key for upgrade compatibility; production signing and migration remain future work.
-9. The app does not exclude its own UID. Only Tailcat transport sockets are protected with `VpnService.protect`; gateway measurements use `Client.DialTCP`/`DialUDP`.
+9. The app does not exclude its own UID. Only Tailcat transport sockets are
+   meant to be protected with `VpnService.protect`; gateway measurements use
+   `Client.DialTCP`/`DialUDP`. The service cannot tell transport sockets apart,
+   so before default routes it protects every open process socket
+   (`TransportSocketProtect`). App HTTP therefore never reuses connections:
+   open them only through `core/net/AppHttp` (`AppHttpSourceTest` enforces
+   it), so no app socket outlives its request into a tunnel session. An app
+   request still in flight during the sweep finishes off-tunnel.
 10. Keep secrets, live tokens, signing keys, and captures out of the repo and public logs.
 
 ## Build and verify
@@ -189,6 +198,9 @@ upgrade as a different signer.
    gh release create v<version> --title "OpenTailcat <version> (versionCode NN)" \
      --notes-file docs/releases/<version>.md <apks> <sums>
    ```
+
+7. After every release, stop all JVM instances and shut down any running
+   emulators or simulators used for the release. Verify they have exited.
 
 The `github` flavor self-updates from GitHub Releases and pins accepted signer
 certificates in `UpdatePolicy.kt`; `fdroid` compiles the updater out. Never
@@ -293,6 +305,32 @@ only shows `CONNECTED` after native `RUNNING` plus fresh health.
 - On mid-session failure the service closes the TUN, stops the engine, and
   reconnects with backoff while `vpnWanted` is set. Between attempts there is
   no TUN; Always-on VPN with Block connections without VPN closes that gap.
+- Concurrency rules (from the TLA+ model in `formal/`; keep them when editing
+  the service or `lifecycle.go`):
+  - Start jobs are serialized across service instances
+    (`launchSerializedStart`) and scoped to a shutdown epoch. A job that
+    `shutdown()` superseded never touches the controller, `vpnWanted`, or a
+    newer session; it only stops the native session it may have created.
+  - `shutdown()` sets `shuttingDown` and bumps the epoch under
+    `interfaceLock`. `establish()` + adopting the TUN, and publishing
+    CONNECTED, happen under the same lock after an epoch check, so no TUN or
+    CONNECTED state outlives a shutdown.
+  - A start job ends the service only through `failStart` /
+    `abandonStaleStart`: the staleness check and `onVpnStartFailed` share
+    one `interfaceLock` region, and `shutdown(epoch)` checks the epoch in the
+    CAS step. `onVpnStartFailed(serviceStopping = true)` leaves the UI state
+    to `onVpnStopped`, so Connect is not offered while that shutdown runs.
+  - A STOP intent stops only the starts its instance accepted before it
+    (`startGeneration`, checked in `shutdown()`'s CAS step), is ignored when
+    `vpnWanted` is set again, and only calls `stopSelf(startId)` on an idle
+    instance. `finish()` skips when a START was accepted after its CAS and
+    ends the service with `stopSelf(lastStartId)`, never plain `stopSelf()`,
+    so a start Android already queued is not dropped.
+  - `markFailed` acts only for the session's current bridge, so a pump
+    callback from the warm bridge cannot fail the routed attach.
+    `DetachTun` without a session is an error.
+  - `TunnelController` publishes poll/listener results only for the session
+    generation they observed (`stateLock`, `sessionGeneration`).
 
 ## Token contract
 
@@ -309,6 +347,13 @@ loopback/unspecified/link-local/multicast addresses are rejected.
 
 `core-engine/testdata/token_fixtures.json` (90 cases, `go run
 ./cmd/generate-fixtures`) is read by both test suites.
+`core-engine/testdata/token_differential.json` pins Go's verdict on ~2,600
+deterministic mutations of those fixtures; `TokenDifferentialTest` requires
+Kotlin to agree on classification, error code, keys, and region. Fields are
+validated in encoded order and invalid UTF-8 text is rejected while decoding,
+in both parsers. After an intended parser change, regenerate with
+`OTC_UPDATE_FIXTURES=1 go test -run TestTokenDifferentialCorpus .` and run both
+suites.
 
 ## Capabilities
 
@@ -343,6 +388,22 @@ engine (`TunnelEngineTest`); the gomobile implementation is `TunnelEngine`.
   update policy, telemetry formatting, and QR round-trip.
 - **Shared fixtures**: the `test` source set reads `core-engine/testdata/`, so
   a fixture change is a contract change exercised by both languages.
+- **Fuzzing** (`core-engine/fuzz_test.go`): property-checking targets for the
+  token parser, strict CBOR, DNS parsing/truncation, the DERP map filter,
+  IPv6 extension headers, and the outbound packet path. `go test ./...` runs
+  their seed corpora (`testdata/fuzz/`, including past failures); run one for
+  longer with `go test -run '^$' -fuzz '^FuzzParseToken$' -fuzztime 5m .` and
+  commit any new failing input it writes (then rebuild the AAR: the corpus is
+  part of the native source hash).
+- **Model checking** (`formal/`): `formal/check.sh` downloads a pinned
+  `tla2tools.jar` into `formal/.tools/` (ignored), runs TLC on every config,
+  and fails unless each behaves as its `EXPECT` line says: the fixed design
+  passes and mutants that re-introduce each past bug are caught.
+  `formal/README.md` maps model actions to code and lists what is not covered
+  (liveness is not model-checked; most fault scenarios are simulation). Update
+  the model when changing the lifecycle. The full run takes hours on a laptop;
+  CI (`formal.yml`) runs it in six parallel shards (`--shard I/6`) whenever
+  `formal/`, the service package, or `lifecycle.go` changes.
 - **Instrumented tests** (`app/src/androidTest/`) cover VPN consent/startup,
   pairing, and preference storage. They need a device or emulator.
 - **Emulator suites** (AVD `OpenTailcat_API35`; `start.sh` boots it headless
@@ -396,3 +457,6 @@ with `../third_party/tailcat`; the AAR embeds that copy.
 - Production signing, lineage migration, and artifact verification.
 - Upstream status API for WireGuard counters (they stay 0 until then).
 - Reconnect TUN gap: recommend Always-on lockdown.
+- Confirm the service-lifecycle fixes from the TLA+ model on a device
+  (`stopSelf(startId)` with a queued start, STOP after a failed start then a
+  quick Connect; see `formal/README.md`).

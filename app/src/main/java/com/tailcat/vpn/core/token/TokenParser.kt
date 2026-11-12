@@ -3,6 +3,8 @@ package com.tailcat.vpn.core.token
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
 import java.text.SimpleDateFormat
 import java.util.Base64
 import java.util.Date
@@ -117,7 +119,7 @@ object TokenParser {
     private const val MAX_UNIX_TIMESTAMP_SEC = 253_402_300_799L
     private const val PUBLIC_KEY_SIZE_BYTES = 32
 
-    private val ALLOWED_CANONICAL_FIELDS = setOf("p", "k", "q", "i", "r", "exp", "iat")
+    internal val ALLOWED_CANONICAL_FIELDS = setOf("p", "k", "q", "i", "r", "exp", "iat")
 
     /**
      * Validates a token string and returns structured validation state for UI presentation.
@@ -855,6 +857,13 @@ class StrictCborReader(private val data: ByteArray) {
             }
             seenExactKeys.add(kStr)
 
+            // Same order as Go's parseStrictTokenMap: an unknown field is
+            // reported before its value is decoded. (A key with invalid UTF-8
+            // decodes with U+FFFD and is unknown, as it is in Go.)
+            if (!TokenParser.ALLOWED_CANONICAL_FIELDS.contains(kStr)) {
+                throw StrictCborException(TokenErrorCode.ERR_UNKNOWN_FIELD, "unknown or alias token field \"$kStr\"")
+            }
+
             val v = readStrictValue(0)
             result[kStr] = v
         }
@@ -865,6 +874,21 @@ class StrictCborReader(private val data: ByteArray) {
 
         return result
     }
+
+    /**
+     * RFC 8949 text strings are UTF-8. String(bytes, UTF_8) would silently
+     * substitute U+FFFD, so a token Go rejects could be accepted here.
+     */
+    private fun decodeUtf8Strict(bytes: ByteArray, what: String): String =
+        try {
+            Charsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(bytes))
+                .toString()
+        } catch (e: CharacterCodingException) {
+            throw StrictCborException(TokenErrorCode.ERR_CBOR_MALFORMED, "$what is not valid UTF-8")
+        }
 
     private fun readStrictValue(depth: Int): Any? {
         if (depth > 16) throw StrictCborException(TokenErrorCode.ERR_CBOR_MALFORMED, "recursion depth exceeded")
@@ -898,7 +922,7 @@ class StrictCborReader(private val data: ByteArray) {
             3 -> {
                 val len = readLength(info)
                 if (len > 65536) throw StrictCborException(TokenErrorCode.ERR_CBOR_MALFORMED, "text string too long")
-                String(readBytes(len.toInt()), Charsets.UTF_8)
+                decodeUtf8Strict(readBytes(len.toInt()), "CBOR text string")
             }
             4 -> {
                 val numItems = readLength(info)
@@ -921,8 +945,10 @@ class StrictCborReader(private val data: ByteArray) {
                     if (kMajor != 3) throw StrictCborException(TokenErrorCode.ERR_CBOR_MALFORMED, "nested key must be text string")
                     val kLen = readLength(kInfo)
                     if (kLen > remaining().toLong()) throw StrictCborException(TokenErrorCode.ERR_CBOR_MALFORMED, "nested key exceeds remaining CBOR bytes")
-                    val kStr = String(readBytes(kLen.toInt()), Charsets.UTF_8)
-                    if (seen.contains(kStr)) throw StrictCborException(TokenErrorCode.ERR_DUPLICATE_KEY, "duplicate nested key: \"$kStr\"")
+                    val kStr = decodeUtf8Strict(readBytes(kLen.toInt()), "nested map key")
+                    // Go reports nested duplicates as malformed CBOR (only
+                    // top-level duplicates have their own code); match it.
+                    if (seen.contains(kStr)) throw StrictCborException(TokenErrorCode.ERR_CBOR_MALFORMED, "duplicate nested key: \"$kStr\"")
                     seen.add(kStr)
                     map[kStr] = readStrictValue(depth + 1)
                 }

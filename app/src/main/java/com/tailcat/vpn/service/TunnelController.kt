@@ -84,6 +84,34 @@ class TunnelController(
     @Volatile
     private var sessionLive = false
 
+    /**
+     * Serializes session-state transitions. The poll loop and the network
+     * listener read engine stats outside it and publish only if the session
+     * they observed is still live, so a poll that was already running when
+     * the session stopped cannot write CONNECTED or stale telemetry back
+     * (TLA+ model, F6). Cancelling a coroutine does not interrupt it.
+     */
+    private val stateLock = Any()
+
+    /** Session counter; bumped whenever a session starts or ends. */
+    private var sessionGeneration = 0L
+
+    private inline fun ifSessionCurrent(generation: Long, block: () -> Unit) {
+        synchronized(stateLock) {
+            if (sessionLive && sessionGeneration == generation) block()
+        }
+    }
+
+    private fun endSession(state: TunnelState) {
+        synchronized(stateLock) {
+            sessionLive = false
+            sessionGeneration++
+            pollingJob?.cancel()
+            _tunnelState.value = state
+            _networkMetrics.value = NetworkMetrics()
+        }
+    }
+
     init {
         scope.launch { ipAuditor.fetchCurrentEgress() }
 
@@ -100,12 +128,17 @@ class TunnelController(
                 // covers a service restart that has not finished its routed TUN.
                 networkType != NetworkType.NONE && _tunnelState.value == TunnelState.RECONNECTING &&
                     sessionLive -> {
+                    val generation = synchronized(stateLock) { sessionGeneration }
                     scope.launch(Dispatchers.IO) {
                         runCatching { tunnelEngine.getStats() }
                             .onSuccess { metrics ->
-                                _networkMetrics.value = metrics
-                                if (sessionLive && EngineHealth.shouldConnect(metrics, unixNow())) {
-                                    _tunnelState.value = TunnelState.CONNECTED
+                                ifSessionCurrent(generation) {
+                                    _networkMetrics.value = metrics
+                                    if (_tunnelState.value == TunnelState.RECONNECTING &&
+                                        EngineHealth.shouldConnect(metrics, unixNow())
+                                    ) {
+                                        _tunnelState.value = TunnelState.CONNECTED
+                                    }
                                 }
                             }
                     }
@@ -219,19 +252,28 @@ class TunnelController(
             "VPN engine is not live running"
         }
         _lastError.value = null
-        _networkMetrics.value = initialMetrics
-        _tunnelState.value = TunnelState.CONNECTED
-        sessionLive = true
+        val generation = synchronized(stateLock) {
+            sessionGeneration++
+            _networkMetrics.value = initialMetrics
+            _tunnelState.value = TunnelState.CONNECTED
+            sessionLive = true
+            pollingJob?.cancel()
+            sessionGeneration
+        }
 
-        pollingJob?.cancel()
-        pollingJob = scope.launch {
+        val job = scope.launch {
             var consecutiveFailures = 0
             var consecutiveStaleHealth = 0
             while (isActive && _tunnelState.value != TunnelState.DISCONNECTED) {
                 runCatching { tunnelEngine.getStats() }
                     .onSuccess { metrics ->
                         consecutiveFailures = 0
-                        _networkMetrics.value = metrics
+                        var current = false
+                        ifSessionCurrent(generation) {
+                            current = true
+                            _networkMetrics.value = metrics
+                        }
+                        if (!current) return@launch
                         val reason = EngineHealth.teardownReason(metrics, unixNow())
                         consecutiveStaleHealth = EngineHealth.nextStalePollCount(
                             reason,
@@ -244,15 +286,17 @@ class TunnelController(
                             else -> true // PumpFailed / GatewayLost: fail closed immediately
                         }
                         if (tearDown) {
-                            onSessionFailed(dataPlaneFailureMessage(reason, metrics))
+                            onSessionFailed(generation, dataPlaneFailureMessage(reason, metrics))
                             return@launch
                         }
                         if (reason == EngineHealth.TeardownReason.Healthy) {
                             // Pumps live but live DiscoPing is stale: degraded, still usable.
-                            _tunnelState.value = if (metrics.discoStale) {
-                                TunnelState.DEGRADED
-                            } else {
-                                TunnelState.CONNECTED
+                            ifSessionCurrent(generation) {
+                                _tunnelState.value = if (metrics.discoStale) {
+                                    TunnelState.DEGRADED
+                                } else {
+                                    TunnelState.CONNECTED
+                                }
                             }
                         }
                     }
@@ -262,6 +306,7 @@ class TunnelController(
                             val base = "Lost contact with the VPN engine"
                             val detail = it.message ?: "no detail"
                             onSessionFailed(
+                                generation,
                                 if (preferences.debugMode) {
                                     "$base ($consecutiveFailures consecutive failure(s); last: $detail)"
                                 } else {
@@ -274,6 +319,9 @@ class TunnelController(
                 delay(METRICS_POLL_INTERVAL_MS)
             }
         }
+        synchronized(stateLock) {
+            if (sessionGeneration == generation) pollingJob = job else job.cancel()
+        }
     }
 
     /**
@@ -282,13 +330,19 @@ class TunnelController(
      * reconnects with backoff (the notification stays up and names the
      * cause); otherwise the VPN stops as before.
      */
-    private fun onSessionFailed(cause: String) {
-        sessionLive = false
+    private fun onSessionFailed(generation: Long, cause: String) {
+        val handler = synchronized(stateLock) {
+            // A stop or a newer session already superseded this one.
+            if (!sessionLive || sessionGeneration != generation) return
+            val handler = sessionFailureHandler
+            endSession(
+                if (handler != null && preferences.vpnWanted) TunnelState.RECONNECTING
+                else _tunnelState.value
+            )
+            handler
+        }
         reportError(cause)
-        val handler = sessionFailureHandler
         if (handler != null && preferences.vpnWanted) {
-            _tunnelState.value = TunnelState.RECONNECTING
-            _networkMetrics.value = NetworkMetrics()
             handler(cause)
         } else {
             stopTunnel()
@@ -296,10 +350,7 @@ class TunnelController(
     }
 
     fun onVpnStopped() {
-        sessionLive = false
-        pollingJob?.cancel()
-        _tunnelState.value = TunnelState.DISCONNECTED
-        _networkMetrics.value = NetworkMetrics()
+        endSession(TunnelState.DISCONNECTED)
         refreshPublicIp()
     }
 
@@ -309,21 +360,21 @@ class TunnelController(
      * without a new event per attempt.
      */
     fun onStartRetrying(message: String, retryInMs: Long) {
-        sessionLive = false
-        pollingJob?.cancel()
-        _tunnelState.value = TunnelState.RECONNECTING
-        _networkMetrics.value = NetworkMetrics()
+        endSession(TunnelState.RECONNECTING)
         _lastError.value = "${message.trimEnd('.')}. Retrying in ${retryInMs / 1000} s."
     }
 
-    fun onVpnStartFailed(message: String) {
+    /**
+     * [serviceStopping]: the service calls shutdown() right after this, and its
+     * onVpnStopped sets DISCONNECTED. Until then the state stays as it is, so
+     * the UI does not offer Connect while that shutdown is still running; a
+     * Connect accepted then would be cancelled by it (TLA+ finding N1).
+     */
+    fun onVpnStartFailed(message: String, serviceStopping: Boolean = false) {
         // Resume/process recreation must not retry a start Android has rejected.
         // A new explicit Connect request sets this again after UI consent.
         preferences.vpnWanted = false
-        sessionLive = false
-        pollingJob?.cancel()
-        _tunnelState.value = TunnelState.DISCONNECTED
-        _networkMetrics.value = NetworkMetrics()
+        endSession(if (serviceStopping) _tunnelState.value else TunnelState.DISCONNECTED)
         refreshPublicIp()
         reportError(message)
     }

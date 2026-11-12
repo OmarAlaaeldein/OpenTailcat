@@ -79,3 +79,6 @@ signing.properties
 
 __pycache__/
 *.py[cod]
+
+# TLA+ tooling (downloaded by formal/check.sh) and TLC scratch state
+formal/.tools/

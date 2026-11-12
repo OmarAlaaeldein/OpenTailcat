@@ -201,7 +201,7 @@ func ParseToken(raw string) (_ *ParsedToken, err error) {
 		}, fmt.Errorf("base64 decode: %w", err)
 	}
 
-	rawMap, code, err := parseStrictTokenMap(cborBytes)
+	rawMap, keyOrder, code, err := parseStrictTokenMap(cborBytes)
 	if err != nil {
 		return &ParsedToken{
 			RawToken:       raw,
@@ -223,8 +223,10 @@ func ParseToken(raw string) (_ *ParsedToken, err error) {
 		iatSec              *int64
 	)
 
-	// Extract and validate each permitted canonical field
-	for k, v := range rawMap {
+	// Extract and validate each permitted canonical field in encoded order,
+	// so a token with several bad fields always reports the same error.
+	for _, k := range keyOrder {
+		v := rawMap[k]
 		switch k {
 		case "p":
 			b, ok := v.([]byte)
