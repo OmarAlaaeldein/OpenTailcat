@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CI emulator smoke test (no gateway, no secrets): installs the debug and
-# test APKs, runs VpnStartupInstrumentedTest (consent handling and fail-closed
-# startup with a synthetic token), and checks that the home screen renders.
+# test APKs, checks consent/fail-closed startup with a synthetic token and
+# Service start-id ordering, then checks that the home screen renders.
 # Needs ./gradlew assembleGithubDebug assembleGithubDebugAndroidTest first.
 set -euo pipefail
 DIR="$(dirname "$0")"
@@ -10,6 +10,7 @@ source "$DIR/lib.sh"
 "$DIR/start.sh"
 install_test_apk
 run_instrumented com.tailcat.vpn.VpnStartupInstrumentedTest
+run_instrumented com.tailcat.vpn.ServiceStartIdInstrumentedTest
 
 adb shell am start -n "$PKG/.ui.MainActivity" >/dev/null
 for _ in $(seq 1 10); do

@@ -66,7 +66,7 @@ not exclude its own UID from the tunnel.
 | `third_party/tailcat` | Upstream Tailcat submodule, pinned and unmodified |
 | `app/src/test/`, `app/src/androidTest/` | JVM unit tests, instrumented tests |
 | `scripts/emulator/`, `scripts/phase8/` | adb emulator suites; dual-capture leak tooling |
-| `formal/` | TLA+ model of the connect/attach/reconnect/stop lifecycle (Kotlin service + Go engine), checked with TLC by `formal/check.sh` |
+| `formal/` | TLA+ lifecycle model, focused exhaustive cleanup/liveness and network-callback models, and deterministic counterexample replays, checked with TLC by `formal/check.sh` |
 | `.github/workflows/` | `ci.yml` gates; `emulator.yml` smoke and live-gateway suites; `formal.yml` TLC model check |
 | `docs/` | Documentation index, release notes, signing notes, screenshots |
 
@@ -331,6 +331,8 @@ only shows `CONNECTED` after native `RUNNING` plus fresh health.
     `DetachTun` without a session is an error.
   - `TunnelController` publishes poll/listener results only for the session
     generation they observed (`stateLock`, `sessionGeneration`).
+    Its network-loss transition uses `StateFlow.compareAndSet`, so a stopped
+    session cannot be put back into RECONNECTING by a split read/write.
 
 ## Token contract
 
@@ -395,17 +397,25 @@ engine (`TunnelEngineTest`); the gomobile implementation is `TunnelEngine`.
   longer with `go test -run '^$' -fuzz '^FuzzParseToken$' -fuzztime 5m .` and
   commit any new failing input it writes (then rebuild the AAR: the corpus is
   part of the native source hash).
-- **Model checking** (`formal/`): `formal/check.sh` downloads a pinned
-  `tla2tools.jar` into `formal/.tools/` (ignored), runs TLC on every config,
-  and fails unless each behaves as its `EXPECT` line says: the fixed design
-  passes and mutants that re-introduce each past bug are caught.
-  `formal/README.md` maps model actions to code and lists what is not covered
-  (liveness is not model-checked; most fault scenarios are simulation). Update
-  the model when changing the lifecycle. The full run takes hours on a laptop;
-  CI (`formal.yml`) runs it in six parallel shards (`--shard I/6`) whenever
-  `formal/`, the service package, or `lifecycle.go` changes.
+- **Model checking** (`formal/`, Java 21 + Python 3.10+): `formal/check.sh`
+  downloads a pinned `tla2tools.jar` into ignored `formal/.tools/`. Run
+  `python3 -m unittest discover -s formal -p 'test_*.py'` and
+  `formal/check.sh --regressions` for the baseline, saved counterexample
+  schedules and focused exhaustive progress/network-loss models. The focused
+  shutdown model checks eventual cleanup and Start/Stop completion under
+  documented fairness/call-completion assumptions; four temporal mutants
+  demonstrate failures while a heartbeat keeps running. The full lifecycle
+  model's temporal properties remain unchecked, and larger restart scenarios
+  remain random samples. `formal/check.sh --extended` runs the larger checks;
+  CI shards these six ways after the fast regressions. CHECKED, reproduced
+  counterexamples and SAMPLED evidence are distinct results; crashes, resource
+  failures and external kills fail the gate. `formal/README.md` maps actions
+  to code and states the scope. Update the models with lifecycle changes. Full
+  exploration can take hours; do not run concurrent checkers in one checkout.
 - **Instrumented tests** (`app/src/androidTest/`) cover VPN consent/startup,
-  pairing, and preference storage. They need a device or emulator.
+  pairing, preference storage, and Android's queued/newer-start
+  `stopSelf(startId)` contract using a debug-only ordinary Service probe.
+  They need a device or emulator; the emulator smoke suite runs the probe.
 - **Emulator suites** (AVD `OpenTailcat_API35`; `start.sh` boots it headless
   when no device is attached):
 
@@ -459,4 +469,6 @@ with `../third_party/tailcat`; the AAR embeds that copy.
 - Reconnect TUN gap: recommend Always-on lockdown.
 - Confirm the service-lifecycle fixes from the TLA+ model on a device
   (`stopSelf(startId)` with a queued start, STOP after a failed start then a
-  quick Connect; see `formal/README.md`).
+  quick Connect; see `formal/README.md`). The new instrumented platform probe
+  covers start-id ordering, not these full VPN flows; local compilation alone
+  is not device evidence.

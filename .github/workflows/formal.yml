@@ -40,6 +40,21 @@ jobs:
           formal/check.sh --translate
           git diff --exit-code -- formal/Lifecycle.tla \
             || { echo "Run formal/check.sh --translate and commit Lifecycle.tla"; exit 1; }
+      - name: Checker harness regressions
+        run: python3 -m unittest discover -s formal -p 'test_*.py'
+      - name: Deterministic counterexamples and focused progress checks
+        env:
+          TLC_XMX: 2g
+          TLC_DIRECT: 256m
+          TLC_CHECK_TIMEOUT: 180
+        run: formal/check.sh --regressions
+      - name: Upload regression logs
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: tlc-regression-logs
+          path: formal/.tools/logs/
+          retention-days: 14
 
   tlc:
     needs: translation
@@ -59,7 +74,7 @@ jobs:
         env:
           TLC_XMX: 4g
           TLC_DIRECT: 1g
-        run: formal/check.sh --shard ${{ matrix.shard }}/6
+        run: formal/check.sh --extended --shard ${{ matrix.shard }}/6
       - name: Upload TLC logs
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6

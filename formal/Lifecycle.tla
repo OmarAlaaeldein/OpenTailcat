@@ -960,7 +960,7 @@ Tk:   await Timed /\ ~(pollDue /\ pollOn) /\ (UiRaces \/ pc[1000] # "PA");
       hAge := NextH;
       disco := NextDisco;
       pollDue := pollOn;
-      badTicks := IF Unjustified(NextH) /\ ~ShutBusy
+      badTicks := IF Unjustified(hAge) /\ ~ShutBusy
                   THEN Min(badTicks + 1, BadBound + 1) ELSE 0;
 end while;
 end process;
@@ -969,7 +969,7 @@ end process;
 process env = 4000
 begin
 EL: while TRUE do
-EE:   either                                           \* NetworkCallback.onLost
+EE:   either                                           \* NetworkCallback.onLost: StateFlow.compareAndSet is atomic
         await EnNet /\ net = "up" /\ faults < MaxFaults;
         faults := faults + 1;
         net := "down";
@@ -3883,7 +3883,7 @@ Tk == /\ pc[2000] = "Tk"
       /\ hAge' = NextH
       /\ disco' = NextDisco
       /\ pollDue' = pollOn
-      /\ badTicks' = (IF Unjustified(NextH) /\ ~ShutBusy
+      /\ badTicks' = (IF Unjustified(hAge') /\ ~ShutBusy
                       THEN Min(badTicks + 1, BadBound + 1) ELSE 0)
       /\ pc' = [pc EXCEPT ![2000] = "TL"]
       /\ UNCHANGED << eSt, eCur, stopping, nSess, sCanc, sClient, sBr, sProven, 

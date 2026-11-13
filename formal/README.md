@@ -1,397 +1,230 @@
-# Lifecycle model (TLA+ / PlusCal, checked with TLC)
+# Lifecycle verification
 
-Design-level model of the **connect / attach / reconnect / stop** lifecycle that
-spans the Kotlin service and the Go engine. It is **not a proof of the code**:
-it checks a hand-written abstraction of the concurrency, and every claim below
-is scoped to what TLC actually explored (exhaustively, or by random-walk
-simulation where it says so).
+These are hand-written design models of the Android service and Go engine.
+They do not prove the implementation or establish that the VPN is secure.
+Results apply to each model's assumptions, bounds and enabled faults.
 
-The model's baseline is the **fixed code**: findings F1–F7 of the first round
-were fixed in `core-engine/lifecycle.go`, `TailcatVpnService.kt` and
-`TunnelController.kt`, and the model was brought in line with those fixes. Each
-old behaviour is still available as a named *mutant* switch, so a "pass" can be
-shown not to be vacuous. The second round found three new problems (N1, N1b,
-N2); all three were then fixed in the code and verified the same way (see
-"Findings").
+## Run the checks
+
+Requires Java 21, Python 3.10+ and Bash. The script downloads sha256-pinned
+`tla2tools.jar` v1.7.4 into ignored `formal/.tools/`.
 
 ```bash
-formal/check.sh                 # every config in formal/configs/ (2-3 h on 6 cores)
-formal/check.sh --quick         # skips the configs tagged `TIER: slow`
-formal/check.sh --shard 2/6     # one of 6 balanced shards (what CI runs)
-formal/check.sh baseline-connect fixed-f2-prepare-after-shutdown   # a subset
-formal/check.sh --translate     # only regenerate the PlusCal -> TLA+ block
+python3 -m unittest discover -s formal -p 'test_*.py'
+formal/check.sh --regressions     # baseline, counterexample replays, small models
+formal/check.sh --extended        # larger scenarios and exploratory sampling
+formal/check.sh                   # both sets
+formal/check.sh --quick           # omit configs tagged TIER: slow
+formal/check.sh --extended --shard 2/6
+formal/check.sh progress-fixed network-loss-fixed
+formal/check.sh --translate       # regenerate PlusCal -> TLA+ only
 ```
 
-`check.sh` downloads `tla2tools.jar` **v1.7.4** into `formal/.tools/` (git-ignored),
-verifies its sha256 (`936a2620…050e88`), regenerates the TLA+ from the PlusCal,
-runs TLC on each config, and exits non-zero if a config does not behave as its
-`\* EXPECT:` line says. Configs marked `violation` document findings and
-mutation checks; they pass when TLC *does* report the violation. Java 21 is
-enough; nothing is written outside `formal/`. Safety nets: TLC's on-disk state
-queue is deleted after every config and a watchdog kills TLC when fewer than
-4 GiB are free (`TLC_MIN_FREE_KB` overrides). `TLC_XMX` / `TLC_DIRECT` set the
-heap and off-heap fingerprint memory (defaults 5g / 2g).
+Do not run two copies in the same checkout: they share generated files and
+scratch directories. Full exploration can take hours. `TLC_XMX` / `TLC_DIRECT`
+set heap / fingerprint memory (defaults 5g / 2g); CI uses smaller limits.
+`TLC_MIN_FREE_KB` defaults to 4 GiB and guards every run. Optional
+`TLC_CHECK_TIMEOUT` is a hard failure deadline for non-sampling runs.
 
-## Files
+## Models and checked properties
 
-| File | Purpose |
+| Model | Scope | Checks |
+| --- | --- | --- |
+| `Lifecycle.tla` | Full connect / warm attach / routed attach / reconnect / stop design across Kotlin and Go; PlusCal source plus generated TLA+ | Safety within individual exhaustive configurations; random simulation for larger configurations; historical counterexample replays |
+| `Shutdown.tla` | One in-flight start, one Disconnect, one session and one TUN; no retries or younger start | Exhaustive safety and **liveness** checks of cancellation cleanup and call completion under explicit fairness assumptions |
+| `NetworkCallback.tla` | Network loss racing `onVpnStopped` | Exhaustive check that a late callback cannot restore RECONNECTING after stop; old split read/write is rejected |
+
+### Full lifecycle model
+
+Actors: start jobs (serialized across service instances), inline shutdown,
+posted finish, main-thread intent dispatch / destruction, asynchronous native
+stop, poll loop and its post-lock tail, network restore, pump callbacks,
+asynchronous session close, clock, environment and user.
+
+Tracked state includes engine/session/bridge identity, duplicated TUN ownership,
+shutdown epochs and start generations, job cancellation/predecessors, UI session
+generation, health age, intent queue and `vpnWanted`. Native procedures split at
+mutex release points. Kotlin lock regions are atomic actions, rather than
+blocking locks. Cancellation is cooperative; JNI calls are not interrupted.
+
+The safety checks include:
+
+- Routed-interface installation requires a PREPARED session that previously
+  proved live pumps on the warm TUN (`Act1_RoutedInstallNeedsProven`, now enabled
+  in every passing full-model configuration). The state invariant alone is
+  weaker: it is conditional on a current session and excludes pending adoption.
+- RUNNING has a current, uncancelled session with the correct bridge ownership.
+- An older start cannot stop a younger start's session.
+- At quiescence (`Rest`), UI, user intent, native session and TUN ownership agree;
+  Disconnect leaves no session/TUN, and a wanted Connect is not silently lost.
+- Timed configurations check a bound on unjustified live UI claims. Health
+  windows are scaled ticks, not a verification of Android wall-clock latency.
+
+`Rest` means no job, native call, intent, posted runnable, callback, poll tail or
+pending close is in flight. **These conditional invariants do not prove that
+Rest is eventually reached.** A deadlock check does not establish termination
+while another actor can keep taking steps. The full model's `Live3_*` through
+`Live6_*` remain defined but are not checked. Its `SpecQ` has no fairness;
+`Spec` has weak process fairness, but simulation is not a fairness proof.
+
+The clock records `Unjustified(hAge)` after assigning the new health age. Using
+`NextH` again there would age health twice in the same PlusCal step.
+
+Bounds are per `.cfg`: maximum starts, Disconnects, faults, sessions, bridges,
+TUNs, jobs and instances. `BoundsOK` detects exhausted allocation bounds;
+it does not lift the explicit user/fault budgets. Single-start cases can be
+exhaustive, while the larger two-start cases remain sampled. A TUN is alive
+while either Android or a bridge retains its descriptor. The model permits the
+known gap without a TUN between reconnect attempts; Android lockdown is outside
+its scope. It does not assert that routed installation and attachment have no
+intervening window.
+
+### Focused progress model
+
+`progress-fixed` exhaustively checks these temporal properties in `Shutdown`:
+
+- `LiveDisconnectObserved`: the fair Disconnect actually occurs, guarding
+  against a vacuous conditional cleanup check.
+- `LiveCleanup`: after cancellation, Android and bridge descriptors close,
+  the session clears, native Stop ends, both callers finish and live UI clears.
+- `LiveStopReturns`: each invoked Stop eventually returns, including a caller
+  waiting behind another Stop.
+- `LiveStartReturns`: the cancelled start eventually returns.
+
+It includes the late-Prepare race: a job that passed its last Kotlin check can
+create a session after shutdown's Stop has already returned. The job's
+`abandonStaleStart` must stop that session. It also separates bridge duplication
+from publication, so Stop can miss a locally owned duplicate that AttachTun
+must close itself. Stop can return before background descriptor close completes.
+A continuously enabled heartbeat keeps the system moving even if cleanup fails.
+
+Assumptions: no younger start/retry; one session and TUN; fair scheduling of
+continuously enabled operations; handshake/probe/error-cleanup calls eventually
+return; background bridge close eventually runs once requested. Native timeout
+and close implementation internals, upstream Client.Close hangs, lock blocking,
+Android scheduling latency and wall-clock bounds are not proved. The warm/routed
+rebind and multiple service instances remain the full model's responsibility.
+This is a focused abstraction, not a mechanically checked refinement of that
+model or the code.
+
+Four fault switches demonstrate non-vacuity. `progress-mutant-abandon`, `-dup`
+and `-close` must violate **LiveCleanup** by omitting late-session Stop, local
+fd cleanup or a background-close request respectively. `progress-mutant-stop`
+must violate **LiveStopReturns** by leaving the shared Stop gate closed. These
+are temporal counterexamples, not merely terminal deadlocks.
+
+## Implementation mapping and regressions
+
+| Model action | Implementation |
 | --- | --- |
-| `Lifecycle.tla` | The PlusCal algorithm, the generated TLA+ (between the `BEGIN/END TRANSLATION` markers) and the properties. Edit the PlusCal, never the generated block. |
-| `configs/*.cfg` | One TLC config per scenario: constants, invariants, `EXPECT`, optional `MODE: simulate N` and `TIER: slow`. |
-| `check.sh` | Pinned download, translation, run-all / `--quick`, exit code, disk guard. |
-| `.tools/` | Jar, TLC state, logs (ignored). |
+| Full `P1..P5`, focused check/prepare/handshake | `core-engine/lifecycle.go`: `Prepare`, final identity/cancellation check |
+| Full `A1..A8`, focused dup/publish | `AttachTun`: local bridge ownership, locked publication and stale-bridge `Stop` |
+| Full `S1..SWait`, focused StopEnter/Return/Wait | `Stop`: `stopping`, `stopWait`, deferred release; `closeSession` timeout/background work |
+| Full Abandon, focused cleanup | `TailcatVpnService.abandonStaleStart`: native Stop even after shutdown already stopped |
+| WarmEst / RoutedEst / SetHandler | `establishAndAdopt`, CONNECTED publication under `interfaceLock` after epoch check |
+| SHc..SH4, FNw | `shutdown`: scoped CAS, cancellation, TUN close, native stop; `finish` generation check and `stopSelf(lastStartId)` |
+| MS / MS2 | `onStartCommand`, `handleStopIntent`, start generation and serialized launch |
+| PR / PA / PRc / PRe, NR1..NR3 | `TunnelController`: session generation check, poll/listener publication and post-lock failure handler |
+| Environment loss, focused Loss | NetworkMonitor listener NONE branch: `MutableStateFlow.compareAndSet(CONNECTED, RECONNECTING)` |
 
-## What is modelled
+The former NONE branch read CONNECTED and wrote RECONNECTING separately; a stop
+could intervene. The implementation now uses CAS, matching the atomic model.
+`network-loss-mutant` restores the split transition and violates
+`NoResurrection`; `network-loss-fixed` explores both callback/stop orderings.
 
-Concurrent actors (PlusCal processes and procedures):
+`ServiceStartIdInstrumentedTest` uses a debug-only ordinary Service to test the
+Android platform assumption behind PendingStart: an older `stopSelf(startId)`
+preserves both queued and delivered newer starts, while the latest id stops the
+service. This follows the [Android Service contract](https://developer.android.com/reference/android/app/Service#stopSelfResult(int)).
+The probe never runs a VPN or needs a gateway. CI's emulator smoke runs it;
+compiling the APK alone is not platform validation. Testing the actual VPN's
+queued-start and failed-start/quick-Connect paths on a device remains outstanding.
 
-| Process | Represents |
+## Historical counterexamples
+
+Full-model mutation configs restore previous behaviour. Saved schedules in
+`replays/*.json` now replace time-budget searches for simulated mutation
+regressions. They contain only action names and process ids. `replay.py` builds
+an ignored wrapper that calls the **current model's actions and guards** in
+that order, exhaustively exploring nondeterministic choices along the schedule.
+It never injects saved states. A schedule incompatible with the current model
+cannot count as a reproduced violation. Deadlock checking is disabled only for
+these restricted schedules: an incompatible branch is not a deadlock of the
+unrestricted design. A replay passes only if the specifically named property
+is actually violated with a TLC model-error exit status.
+
+Replays prove that a counterexample exists in the mutant. They do not establish
+absence of other bugs in the fixed model, which is checked separately.
+
+| Mutation | Reintroduced behaviour |
 | --- | --- |
-| `job` | one start / reconnect coroutine: `launchSerializedStart` (join of `lastStartJob`) + `startWithRetry` + `establishAndStartEngine` |
-| `Shutdown` (procedure) | `shutdown(epoch?)`: optional epoch check + CAS + `shutdownEpoch` bump in one `interfaceLock` step, handler null, `startJob.cancel()`, TUN close, native stop (sync) or `pendingNativeStop` (main thread), `finish`. Called **inline** by whoever invokes it: a job (`abandonStaleStart`, `failStart`, both scoped to the job's epoch), the `sd` coroutine, or the main thread (`onDestroy`). |
-| `sd` | `serviceScope.launch { shutdown() }` of a STOP intent / `onRevoke` |
-| `fin` | the `Handler.post(finish)`: skipped when a START was accepted after the CAS; else `onVpnStopped` (UI -> DISCONNECTED) and `stopSelf(lastStartId)`, which leaves the instance up while a start intent is queued (`PendingStart`) and otherwise, with `EnOnDestroy`, is followed by the `onDestroy()` the system delivers |
-| `ns` | the async native stop `shutdown()` launches when called on the main thread (`pendingNativeStop`) |
-| `main` | `onStartCommand` (the intent queue: USER / AUTO / AO / STOP / REVOKE / DESTROY) and `onDestroy`; the START path is two steps (`shuttingDown.set(false)`, then epoch read + launch) |
-| `poll` | `TunnelController.onEngineConnected`'s 1 s poll loop, including the part of `onSessionFailed` **after** the `stateLock` region (`handler(cause)` / `reconnectAfterFailure`) |
-| `ncb` | the network-restore coroutine in the `NetworkMonitor` listener |
-| `bpump` | one bridge's required pumps dying and the `onPumpDead` -> `markFailed(sess, bridge, err)` callback |
-| `gc` | `markFailed`'s `go closeSession(sess)` |
-| `clk` | the 1 s clock (health aging, poll cadence) |
-| `env` | network loss / return, gateway loss / return, OS destroying the service |
-| `user` | Connect tap, restore on resume, Always-on start, Disconnect tap, `onRevoke` |
+| F1 | Old warm-bridge callback fails the newer routed bridge |
+| F2 | Cancelled start leaves a session created after shutdown's Stop |
+| F3a | Interface establishment/adoption races shutdown |
+| F3b (redundant scenario) | Detach without a session returns success |
+| F4 | Stale start changes current UI/intent/session state |
+| F5 | CONNECTED publication races shutdown |
+| F6 | Stale poll/network-restore snapshot publishes after session end |
+| F7 | Delayed STOP overwrites a newer Connect's vpnWanted |
+| N1 / N1b | Early DISCONNECTED / unscoped STOP or finish loses Connect |
+| N2 | Catch-path stale check and effects occur in separate lock regions |
+| Serial | Jobs run without joining all earlier starts |
+| Identity | Attach omits native session-identity checks |
 
-Go engine calls are PlusCal procedures (`Prepare`, `AttachTun`, `Stop`), split
-at every point where `globalCore.mu` is released. `DisarmPumps` and `DetachTun`
-are single atomic steps.
+Some historical configurations deliberately restore **multiple** old behaviours;
+read their `Mutants` constants. In particular N1's original witness also restores
+N1b. The old `mutant-dup-guard` config wrongly expected Dup alone to reproduce a
+pre-N1 failure against the final fixed model. It is replaced by
+`mutant-n1-old-dup-guard`: explicitly restore N1 and Dup, then reproduce the lost
+Connect. This makes no claim that Dup alone violates the fixed design.
 
-State that is kept: engine state, current session identity (and which job
-created it), per-session cancelled / client / bridge, per-bridge state and the
-TUN it holds a dup'd fd of, callback armed / in flight, health age, gateway
-freshness, TUN objects, `vpnInterface`, `shuttingDown`, **`shutdownEpoch`**,
-`startJob`, **`lastStartJob`**, per-job epoch / predecessor / cancellation,
-`vpnWanted`, UI state, `sessLive`, **`sessionGeneration`**,
-`sessionFailureHandler`, poll state, the intent queue.
+Schedules were extracted from commit 4473b37's CI counterexamples (run
+43328682874), with a local F2 witness and fresh identity witness. F7, network
+restore and the N1+Dup schedules were composed from the same action definitions
+and validated by TLC. To extract another recorded counterexample:
 
-### Mutants
-
-`Mutants` (a set constant; `{}` = the fixed code) switches OLD behaviour back on:
-
-| Element | Old behaviour restored |
-| --- | --- |
-| `"F1"` | the pump callback checks `live` in one lock region and `markFailed` (no bridge check) runs in another |
-| `"F2"` | no re-check before `prepare()`; the cancel path only calls `shutdown()` (no native `stop()`) |
-| `"F3a"` | `establish()` and `adoptInterface()` are separate steps and `establish()` is not preceded by a staleness check |
-| `"F3b"` | `DetachTun` returns nil when there is no session |
-| `"F4"` | a plain exception in a cancelled / stale job goes through `onVpnStartFailed` / `resetForRetry`; the reconnect body has no `isStale` early return |
-| `"F5"` | `sessionFailureHandler` / `onEngineConnected` are published without a re-check |
-| `"F6"` | poll iteration and network-restore write without the `sessionGeneration` check |
-| `"F7"` | the STOP intent writes `vpnWanted = false` |
-| `"N1"` | `onVpnStartFailed` sets the UI to DISCONNECTED before `shutdown()` has finished |
-| `"N1b"` | a STOP intent always launches an unscoped `shutdown()`; `finish()` always calls `stopSelf()` |
-| `"N2"` | the catch block checks staleness once, calls `onVpnStartFailed` in a later step, then an unscoped `shutdown()`; `abandonStaleStart` checks the epoch and calls `shutdown()` in separate steps |
-| `"Serial"` | start jobs join nothing (a reconnect joins only `startJob`) |
-| `"Dup"` | the old duplicate-start guard (no `!shuttingDown`) |
-| `"Epoch"` | `isStale = shuttingDown` only |
-
-The older switches `GuardJoinNS`, `GuardIdentity`, `GuardMarkFailed` are kept
-(production = `TRUE`); `SplitCb` makes the pump callback its own step.
-
-### Abstraction choices
-
-* **No data plane.** No bytes, DNS, MTU, UDP table, telemetry values. Health is
-  an age counter; the gateway is `ok / stale / lost`.
-* **Time is a 1 s tick, scaled.** `FreshMax = 1` tick stands for the 15 s
-  health window, `StalePolls = 2` for the 3 stale polls, `lost` after two
-  silent ticks for `GATEWAY_LOSS_SEC = 60`. A poll runs exactly once per tick.
-  `Timed = FALSE` removes the clock for scenarios that do not need it.
-* **Atomicity follows the lock regions.** Each Go call is split where
-  `globalCore.mu` is dropped. `interfaceLock` regions are modelled as single
-  atomic steps (the CAS + epoch bump in `shutdown()`, `establishAndAdopt`, the
-  CONNECTED publish); `stateLock` regions likewise (poll decision,
-  `endSession`). A lock is never modelled as *blocking*: a thread waiting for
-  `interfaceLock` while `establish()` runs is not represented (see "Not
-  covered").
-* **`shutdown()` runs inline** in its caller, so a job is not "done" until its
-  own `shutdown()` returned. `finish` is posted to the main looper and cannot
-  run inside another main-thread message.
-* **Cancellation is cooperative.** A cancelled job only notices at
-  `ensureActive`, `join`, `delay` and `checkNotShuttingDown`; JNI calls are
-  never interrupted.
-* **A TUN stays alive while any Go bridge holds its dup'd fd**, so "TUN closed"
-  means the Android fd *and* every bridge fd are gone (`TunAlive`).
-* **One live service instance at a time**; `stopSelf()` takes the instance out
-  of service at `finish` (a later START creates a new one). A zombie job keeps
-  running after its instance died (`serviceScope` is never cancelled).
-* **Faults are budgeted** (`MaxFaults`) and each class can be switched off
-  (`EnPump`, `EnPrepFail`, `EnAttachFail`, `EnNet`, `EnGw`, `EnDestroy`). The
-  environment actions are not fair; everything else is weakly fair.
-* **Bound-hit detector.** `BoundsOK` is an invariant: if a finite bound (jobs,
-  instances, sessions, bridges, TUNs) is exhausted the model flags it instead
-  of silently cutting behaviour. (Two configs needed larger bounds because of
-  it: a late STOP intent legitimately creates a second service instance.)
-* **PlusCal assignments within a label are sequential**: `gen := gen + 1;
-  pollGen := gen` gives `pollGen = gen + 1`. An early version of this model
-  wrote `pollGen := gen + 1` and silently disabled every poll iteration; it was
-  caught by `timed-pump`.
-* **Known, expected behaviour (not a violation):** between reconnect attempts
-  there is no TUN (`resetForRetry` closes it before the next attempt); traffic
-  then uses the underlying network unless Always-on lockdown is on.
-
-### Action -> code mapping
-
-| TLA+ label(s) | Code |
-| --- | --- |
-| `P1 P2 P3 P5` (Prepare) | `core-engine/lifecycle.go` `Prepare` |
-| `A1 … A8` (AttachTun) | `lifecycle.go` `AttachTun` |
-| `S1 S2 S3 SWait` (Stop) | `lifecycle.go` `Stop` |
-| `Disarm`, `Detach` | `DisarmPumps`, `DetachTun` (errors when there is no session) |
-| `bpump` | `bridge.go` `reportPumpDead`; the closure installed in `AttachTun`; `markFailed(sess, bridge, err)` (`lifecycle.go:85`) |
-| `gc` | `markFailed`: `go closeSession(sess)` |
-| `MS MS2` | `TailcatVpnService.onStartCommand` (`:55`): STOP / duplicate-start guard (`:66`) / `shuttingDown.set(false)` (`:88`) / epoch read + `launchSerializedStart` (`:110`) |
-| `JJoin RChk` | `launchSerializedStart` (`:243`): `previous?.join()`; the `isStale(epoch)` early return of the reconnect body (`:298`) |
-| `RReset RNote JoinNS` | `resetForRetry`, notification, `pendingNativeStop?.join()` |
-| `Loop PrepCall PrepRet` | `establishAndStartEngine`: the pre-`prepare` check (`:342`), `prepare`, post-`prepare` `ensureActive` + `checkNotShuttingDown(epoch)` |
-| `WarmEst RoutedEst RoutedClear` | `establishAndAdopt` (`:422`) for the warm / routed TUN; `warm.close()` |
-| `WarmAttach … Sweep1 Disarm Detach` | `attachLive`, protect sweep, `disarmPumps`, `detachTun` |
-| `SetHandler` | `synchronized(interfaceLock) { checkNotShuttingDown(epoch); sessionFailureHandler = …; onEngineConnected }` |
-| `Catch Abandon AbShut` | `startWithRetry`'s catch: `abandonStaleStart(epoch)` (`:206`) = `stop()` then `shutdown(epoch)` |
-| `CatchPerm CatchDecide CatchShut` | `permanent` evaluation (`prepare(this)`, `:181`), `failStart(epoch, message)` (`:221`): staleness re-check + `onVpnStartFailed(serviceStopping = true)` under `interfaceLock`, then `shutdown(epoch)` |
-| `RetryReset RetryNotify RetryDelay*` | `resetForRetry`, `onStartRetrying`, `delay(waitMs)` |
-| `SHc SH1 … SH4` (`Shutdown`) | `shutdown(epoch?)` (`:527`): epoch check + CAS + epoch bump under `interfaceLock`, handler null, `startJob?.cancel()` (`:538`), TUN close, native stop sync / async |
-| `FNw` | `finish` (`:550`): `onVpnStopped`, `stopSelf()` (`:553`) and the `onDestroy()` (`:569`) that follows |
-| `PR PA PRc PRe` | `TunnelController` poll loop, `ifSessionCurrent`, `onSessionFailed(generation, cause)` (`:333`), `reconnectAfterFailure` (`:290`) |
-| `NR1 NR2 NR3` | `TunnelController` network listener restore path |
-| `Tk` | `rateCalcLoop` heartbeat + `delay(METRICS_POLL_INTERVAL_MS)` cadence |
-
-## Properties checked
-
-| # | Property | Where | How |
-| --- | --- | --- | --- |
-| 1 | Default routes ⇒ the engine session proved live pumps. | `Inv1_RoutesNeedProvenSession`, `Act1_RoutedInstallNeedsProven` | invariant / action property |
-| 2 | UI `CONNECTED`/`DEGRADED` ⇒ native `RUNNING`, fresh health, same session, with bounded staleness (`BadBound`). | `Inv2_UiLiveBounded` | invariant (timed configs) |
-| 3 | After a pump / health failure the TUN is eventually closed. | `Inv3_RestNoDeadTun` | safety form |
-| 4 | No deadlock; `Stop` terminates; a start does not hang. | TLC deadlock check with `NEXT NextQ` (quiescent states stutter, so any other terminal state is a stuck state); `Inv7_RestNotConnecting` | see "Not covered" for the temporal forms |
-| 5 | A stale session never sets RUNNING/CONNECTED or publishes its bridge. | `Inv5_*` | invariant |
-| 6 | After Disconnect eventually no TUN, no engine session, UI DISCONNECTED. | `Inv6_RestNoTun`, `Inv6_RestEngineStopped`, `Inv6_RestUiDisconnected` | "when nothing is in flight and the user does not want the VPN, nothing is left" |
-| 7 | UI / intent / engine consistency at rest. `Inv7_RestUiLiveNeedsSession` (F6), `Inv7_RestUiLiveNeedsWanted` (F4 / F7), `Inv7_RestUiLiveNeedsEngine` (no poll), `Inv7_RestNotConnecting` (a start never hangs), `Inv7_RestWantedNotDisconnected` (**a Connect is never silently dropped**). | `Inv7_*` | invariant |
-| 8 | A stale (older) start job never stops or preempts the session of a younger one. | `Safe7_NoStopOfNewerSession` | history flag |
-| 9 | No service instance lingers idle: at rest every live instance runs a start it accepted and has not shut down (N1b's `stopSelf(startId)` can keep an instance up). | `Inv8_RestNoIdleInstance` | invariant |
-
-`Rest` = no job / Go call / queued intent / posted runnable / poll-thread tail /
-pending request in flight.
-
-## Results
-
-| Config | Mode | Tier | EXPECT |
-| --- | --- | --- | --- |
-| `baseline-connect` | exhaustive | quick | pass |
-| `disconnect-restart` | simulate 240 | quick | pass |
-| `fixed-f1-markfailed-bridge` | exhaustive | slow | pass |
-| `fixed-f2-prepare-after-shutdown` | exhaustive | slow | pass |
-| `fixed-f3-route-install-during-shutdown` | exhaustive | slow | pass |
-| `fixed-f4-stale-start-job` | simulate 240 | quick | pass |
-| `fixed-f5-connected-after-shutdown` | exhaustive | slow | pass |
-| `fixed-f6-network-restore` | exhaustive | slow | pass |
-| `fixed-f6-poll-races` | exhaustive | slow | pass |
-| `fixed-f7-stale-stop-intent` | simulate 240 | quick | pass |
-| `fixed-n1-connect-after-failed-start` | simulate 240 | quick | pass |
-| `fixed-n1b-stale-stop-intent` | simulate 300 | quick | pass |
-| `mutant-dup-guard` | simulate 300 | quick | violation: `Inv7_RestWantedNotDisconnected` |
-| `mutant-f1-markfailed-bridge` | simulate 240 | quick | violation: `Inv5_RunningOwnsBridge` |
-| `mutant-f2-prepare-after-shutdown` | simulate 240 | quick | violation: `Inv6_RestEngineStopped` |
-| `mutant-f3a-nonatomic-establish` | simulate 240 | quick | violation: `action Act1_RoutedInstallNeedsProven` |
-| `mutant-f4-stale-start-job` | simulate 300 | quick | violation: `[A-Za-z0-9_]+` |
-| `mutant-f5-connected-after-shutdown` | exhaustive | slow | violation: `Inv[67]_Rest[A-Za-z]+` |
-| `mutant-f6-network-restore` | exhaustive | slow | violation: `Inv[67]_Rest[A-Za-z]+` |
-| `mutant-f6-poll-races` | exhaustive | slow | violation: `Inv[67]_Rest[A-Za-z]+` |
-| `mutant-f7-stale-stop-intent` | simulate 300 | quick | violation: `[A-Za-z0-9_]+` |
-| `mutant-n1-connect-lost-during-shutdown` | simulate 300 | quick | violation: `Inv7_RestWantedNotDisconnected` |
-| `mutant-n1b-stale-stop-intent` | simulate 3600, seed 22 | slow | violation: `Inv7_RestWantedNotDisconnected` |
-| `mutant-n2-catch-toctou` | simulate 300 | quick | violation: `[A-Za-z0-9_]+` |
-| `mutant-no-identity-check` | simulate 240 | quick | violation: `Inv5_[A-Za-z]+` |
-| `mutant-serial-start-jobs` | simulate 300 | quick | violation: `Safe7_NoStopOfNewerSession` |
-| `pump-failure` | simulate 180 | quick | pass |
-| `redundant-epoch` | simulate 240 | quick | pass |
-| `redundant-f3b-detach-nil` | exhaustive | slow | pass |
-| `timed-pump` | simulate 180 | quick | pass |
-| `ui-races` | simulate 180 | quick | pass |
-
-CI (`.github/workflows/formal.yml`) runs every config on each push or pull
-request that touches `formal/`, the service package or `core-engine/lifecycle.go`,
-in six parallel shards, and uploads the TLC logs. It also fails when the
-committed TLA+ translation is out of date.
-
-`simulate N` = random-walk simulation of N seconds: **evidence, not a proof**;
-for a `violation` config it means the walk found the violation (a miss would
-fail `check.sh`), for a `pass` config it means none was found. Everything
-marked exhaustive explored the complete reachable state space of its bounds,
-with the invariants and the deadlock check listed in its `.cfg`.
-
-## Findings
-
-### Round 1 (F1–F7): fixed — verified
-
-| # | Fix (in the code) | Verified by (EXPECT pass) | Old bug reproduced by (EXPECT violation) |
-| --- | --- | --- | --- |
-| F1 | `markFailed(sess, bridge, err)` requires `sess.bridge == bridge` under the same lock; callback calls it directly (`lifecycle.go:85`, `:339`) | `fixed-f1-markfailed-bridge` (exhaustive, callback split into its own step) | `mutant-f1-markfailed-bridge` → `Inv5_RunningOwnsBridge` |
-| F2 | re-check before `prepare`, `abandonStaleStart` stops the engine on cancel (`:258`, `:204`) | `fixed-f2-prepare-after-shutdown` (exhaustive; `Inv6_RestEngineStopped`, `Inv6_RestNoTun`, `Inv6_RestUiDisconnected`) | `mutant-f2-prepare-after-shutdown` → `Inv6_RestEngineStopped` |
-| F3 | `establishAndAdopt` under `interfaceLock` after `checkNotShuttingDown`; `DetachTun` errors without a session | `fixed-f3-route-install-during-shutdown` (exhaustive, action property `Act1_RoutedInstallNeedsProven`) | `mutant-f3a-nonatomic-establish` → `Act1_…`. **`redundant-f3b-detach-nil`**: the `DetachTun` change alone is redundant in the model (every path with no session has set `shuttingDown` first, and `establishAndAdopt` refuses then) — defense in depth |
-| F4 | `isStale`/`isActive` in the catch → `abandonStaleStart`; `shutdownEpoch`; `launchSerializedStart` | `fixed-f4-stale-start-job` (**simulation**) | `mutant-f4-stale-start-job`, `mutant-serial-start-jobs` (→ `Safe7_NoStopOfNewerSession`). **`redundant-epoch`**: removing the epoch changes nothing observable in the modelled scenarios (it only matters in the N1 window, where the Connect is lost anyway) |
-| F5 | publish under `synchronized(interfaceLock) { checkNotShuttingDown(epoch); … }` | `fixed-f5-connected-after-shutdown` (exhaustive) | `mutant-f5-connected-after-shutdown` → `Inv6_RestUiDisconnected` |
-| F6 | `stateLock` + `sessionGeneration`; `ifSessionCurrent`; `onSessionFailed(generation, …)` | `fixed-f6-poll-races`, `fixed-f6-network-restore` (exhaustive, `UiRaces = TRUE`) | `mutant-f6-poll-races`, `mutant-f6-network-restore` → `Inv6_RestUiDisconnected` / `Inv7_*` |
-| F7 | the STOP intent no longer writes `vpnWanted` (`:57-60`) | `fixed-f7-stale-stop-intent` (**simulation**) | `mutant-f7-stale-stop-intent` |
-
-Caveats that matter for reading the table: F4 and F7 need two starts, which is
-far beyond exhaustive search (the first N1 search reached 7 M distinct states at
-depth 29 with the violation at depth ~60), so their "fixed" configs are random
-walks; and they only pass with the N2 fix, because N2 masks them
-(`mutant-n2-catch-toctou` is the same scenario without it). The duplicate-start-guard change
-(`!shuttingDown`) is not observable either: `mutant-dup-guard` (old guard)
-produces the same violation as the new guard (finding N1).
-
-### Round 2 (N1, N1b, N2): fixed — verified
-
-| # | Fix (in the code) | Verified by (EXPECT pass) | Old bug reproduced by (EXPECT violation) |
-| --- | --- | --- | --- |
-| N1 | `onVpnStartFailed(message, serviceStopping = true)` keeps the UI state; only `finish()`'s `onVpnStopped` sets DISCONNECTED, so Connect (offered only in DISCONNECTED) is not offered while that `shutdown()` runs (`TunnelController.kt:373`) | `fixed-n1-connect-after-failed-start` (**simulation**) | `mutant-n1-connect-lost-during-shutdown` → `Inv7_RestWantedNotDisconnected` |
-| N1b | `handleStopIntent`: a STOP intent is scoped to the starts accepted before it (`startGeneration`, checked in `shutdown()`'s CAS step), ignored when `vpnWanted` is set again, and only `stopSelf(startId)` on an idle instance; `finish()` skips when a START was accepted after its CAS and ends with `stopSelf(lastStartId)` | `fixed-n1b-stale-stop-intent` (**simulation**; also `Inv8_RestNoIdleInstance`: no instance lingers idle) | `mutant-n1b-stale-stop-intent` → `Inv7_RestWantedNotDisconnected` |
-| N2 | `failStart(epoch, message)` (`TailcatVpnService.kt:221`): the staleness re-check and `onVpnStartFailed` run in one `interfaceLock` region, which `shutdown()`'s CAS also takes; the following `shutdown(epoch)` and `abandonStaleStart`'s `shutdown(epoch)` check the epoch in the CAS step | `fixed-f4-stale-start-job`, `fixed-f7-stale-stop-intent`, `disconnect-restart` (**simulation**; N2 masked F4 / F7 before) | `mutant-n2-catch-toctou` |
-
-#### N1 — a Connect that arrives while `shutdown()` is still running is lost
-
-Not introduced by the round-1 fixes (the same mechanism exists in the old
-code; the old model could not show it because it did not model `shutdown()` as
-inline, the posted `finish`, or the `onDestroy` after `stopSelf()`).
-
-Trace (`mutant-n1…`, about 80 states): Connect #1; `prepare` fails; the catch
-called `onVpnStartFailed` → **UI DISCONNECTED** and only then `shutdown()`. The
-user taps Connect #2 in between (or while `shutdown()` is stopping the engine,
-up to 3 s): `startTunnel` sets `vpnWanted = true`; `onStartCommand` runs on the
-same instance, `shuttingDown` is true so the duplicate guard lets it in,
-`shuttingDown.set(false)` and a new start job is launched. The in-flight
-`shutdown()` then finishes: the posted `finish` → `onVpnStopped` →
-`stopSelf()` → the system's `onDestroy()` sees `shuttingDown == false` and
-calls `shutdown()` again, which cancels the new job. End state: no TUN, engine
-stopped, **UI DISCONNECTED, `vpnWanted == true`**, no error shown. A lost tap,
-no leak.
-
-Fixed by keeping the UI state until `finish()` (see the table). The Connect
-action in `HomeViewModel` is only offered in DISCONNECTED, and `finish()` runs
-`onVpnStopped` and `stopSelf()` in one main-thread message, so the next tap
-reaches a new service instance.
-
-#### N1b — a stale STOP intent on a fresh instance
-
-Disconnect tap queues a STOP intent; a failed start has already finished the
-instance (UI DISCONNECTED); the user taps Connect; the STOP intent is handled
-by a **freshly created** instance whose launched `shutdown()` races the very
-next START on that instance and cancels it. Same effect as N1: a lost tap, no
-leak. The same `finish()` → `stopSelf()` → `onDestroy()` path also dropped a
-START that was accepted (or already queued by Android) while a shutdown was
-in flight.
-
-Fixed by scoping the STOP intent and `finish()` (see the table). The fix relies
-on documented `Service` behaviour that the model encodes as an assumption:
-`stopSelf(startId)` does not stop the service when a newer start id exists,
-and a STOP and a START are handled in the order they were sent. Neither was
-checked on a device.
-
-#### N2 — the catch block checked `isStale(epoch)` once, but acted later
-
-Residual of F4. `startWithRetry` tested `!isActive || isStale(epoch)`, then
-computed `permanent`, which may call `VpnService.prepare(this)` (a binder call),
-and only then called `onVpnStartFailed` and `shutdown()`. If a Disconnect
-finished **and the user tapped Connect again** inside that gap, the old job ran
-`onVpnStartFailed` under the new tap: it cleared `vpnWanted` and ended the
-session state; the new start (serialized behind the old job) then connected
-with `vpnWanted == false` (no reconnect on failure, no restore), and the old
-job's unscoped `shutdown()` could end the service the new start owned.
-
-Trace (`mutant-n2…`, about 120 states): Connect; `prepare` fails; the job
-passes the stale check; STOP processed, `finish` → DISCONNECTED; Connect again;
-the old job's `onVpnStartFailed` → `vpnWanted = false`; the second start
-connects with `vpnWanted == false`. Likelihood was very low (the window is one
-binder call). Fixed by `failStart` (see the table).
-
-### Looked for and **not** found
-
-* **Deadlock / hang**: no deadlock reported (TLC deadlock check with `NEXT NextQ`)
-  in the exhaustive configs listed as `pass` above nor in the random walks;
-  `launchSerializedStart` joins only older jobs (job ids are launch order), so
-  there is no join cycle, and `Inv7_RestNotConnecting` shows no start left
-  hanging in CONNECTING in the passing configs. A job *does* wait behind an
-  older job's blocking `prepare` (up to its handshake timeout) — a latency
-  effect, not modelled in time.
-* **A stale job stopping a newer session**: `Safe7_NoStopOfNewerSession` holds
-  in every passing config; it is violated by `mutant-serial-start-jobs`, so the
-  serialization is what prevents it.
-* **Lock order / `shutdown()` on the main thread waiting for `interfaceLock`
-  while `establish()` runs** — *code reading only, not TLC*: `establish()` is a
-  binder call to system_server that does not need the app's main thread, and
-  no path takes `stateLock` and then `interfaceLock` (order is `interfaceLock` →
-  `stateLock`, `startLock` → `START_SERIAL`), so no cycle was found; a slow
-  `establish()` would delay `onDestroy` on the main thread, which is a latency
-  concern, not a deadlock.
-* **`NetworkCallback` loss branch** — *code reading only, not TLC*:
-  `TunnelController.kt:124` still does an unlocked read-then-write
-  (`CONNECTED` → `RECONNECTING`) outside `stateLock`; the model keeps it atomic
-  (`NetLose`), so it neither confirms nor refutes the same F6 shape there.
-
-## What is NOT covered
-
-* **Temporal properties are defined but not model-checked.** `Live3_*`,
-  `Live4_*`, `Live5_*`, `Live6_*` are in `Lifecycle.tla`; TLC liveness checking
-  on this model is far too slow. Their safety shadows (`Rest`-based invariants
-  and the deadlock check) were checked in the explored scope.
-* **Exhaustive coverage of the two-start scenarios** (F4, F7, N1, N1b, N2):
-  random walks only. Violation configs found only by random walk pin a
-  `\* SEED:` and run single-worker, so `check.sh` reproduces the same walk. Single-start scenarios (F1, F2, F3, F5, F6, baseline) are
-  exhaustive within their bounds.
-* Data plane, DNS policy, MTU, UDP table, token validation, telemetry values,
-  split-tunnel exclusions, Always-on lockdown, notifications, the metrics
-  notification coroutine, telemetry read failures, consent revocation (only a
-  nondeterministic "permanent error" choice), `rejectStart`, the `onTaskRemoved`
-  no-op, fd-number reuse, process death.
-* **Blocking locks** (see abstraction choices) and any real-time latency.
-* `pendingNativeStop`'s join guard is modelled (`GuardJoinNS`) but dropping it
-  produces no invariant violation, so there is no mutant config for it.
-* Scaled time: the *bound formula* is checked, not the 15 s / 3 s constants.
-  The JVM memory model and Android's internal ordering of `onStartCommand` /
-  `onDestroy` beyond a FIFO intent queue plus "`finish` then `onDestroy`" are
-  abstracted; in particular that a START delivered between `shuttingDown`'s CAS
-  and `stopSelf()` is destroyed by that `stopSelf()` is an assumption about
-  Android's `Service` semantics (N1 depends on it).
-
-## Model-checking notes
-
-* TLC 2.19's default fingerprint set (`MSBDiskFPSet`) intermittently throws
-  `ArithmeticException: Division by zero` in `AbstractChecker.reportSuccess`,
-  i.e. after a search that found no violation (seen with a JVM exception log);
-  `check.sh` uses `OffHeapDiskFPSet` instead and still retries once if it
-  happens.
-* Constants: `MaxSess MaxBr MaxTun MaxJobs MaxInst` (finite bounds, guarded by
-  `BoundsOK`; kept as small as each scenario allows because TLC spills its BFS
-  queue to disk at ~2 KB per queued state), `MaxFaults MaxStarts MaxDisc`
-  (budgets), `FreshMax StalePolls BadBound` (scaled time), scenario switches
-  `UiRaces Timed EnPoll En*`, `EnOnDestroy`, and `Mutants`.
-* TLC processes roughly 0.8–1.3 M distinct states/min on 6 cores here.
-
-## Run log
-
-The authoritative run is the `formal` workflow on the commit in question; its
-logs are uploaded as `tlc-logs-shard-*` artifacts.
-
-Local runs on the final spec (TLC 2.19, tla2tools v1.7.4, JDK 21, 6 cores),
-before the full suite moved to CI:
-
-```text
-PASS    baseline-connect             2220545 states generated, 309248 distinct, depth 68 (6 of 6 runs, OffHeapDiskFPSet)
-PASS    fixed-n1b-stale-stop-intent  [simulate 300] no violation
-EXPECTED-VIOLATION mutant-n1b-stale-stop-intent  [seed 22, 1 worker] Inv7_RestWantedNotDisconnected after ~3.1 M states (905 s)
+```bash
+python3 formal/replay.py --extract path/to/tlc.log --output formal/replays/name.json
 ```
 
-Earlier rounds (the spec before the N1/N1b/N2 fixes) passed `fixed-f1`
-(exhaustive, 2,960,384 distinct states, depth 70) and `fixed-f2` (exhaustive,
-12,724,224 distinct states, depth 90); the configs are re-run by CI on the
-final spec.
+Add `\* REPLAY: replays/name.json` to the corresponding config and an exact
+`EXPECT: violation` property. A new replay does not replace the fixed-design
+checks or widen their claimed scope.
+
+## Result handling and CI
+
+- **CHECKED** requires exit 0 and TLC's positive completed-model-check message.
+- **expected counterexample** requires the named property and a TLC safety,
+  liveness or deadlock exit code; crashes cannot satisfy this expectation.
+- **SAMPLED** means a depth-300 random walk reached the runner's own sampling
+  deadline with positive progress and no error. It is evidence, not exhaustive
+  checking. The JVM records its random seed in the log.
+- SIGKILL/exit 137, external termination, OOM, exceptions, disk guards, absent
+  progress, forced kills and incomplete searches fail. No generic signal code
+  is converted into success. OffHeapDiskFPSet avoids a known TLC statistics
+  exception, but any exception still fails rather than being ignored.
+
+`test_tlc_runner.py` exercises real subprocess termination/resource handling as
+well as classification; `test_replay.py` checks extraction and wrapper generation.
+CI checks these, translation freshness and the fast regressions first, then
+runs the extended suite in six shards. Logs are uploaded even on failure.
+The authoritative result is the workflow for the exact commit, not an earlier
+run or the EXPECT comments in configs.
+
+Local validation of this revision (2026-11-12): all 22 fast configurations
+behaved as expected with CI's 2g heap / 256m direct-memory limits; the 11 harness
+tests passed, and empty selections, empty shards and all-skipped runs correctly
+failed. The timed-pump and ui-races 180-second samples found no violation.
+Both Android flavors passed 155 JVM tests each and lint; debug and instrumented
+test APK builds passed. The full extended suite was not rerun locally. No
+Android emulator was available to execute the new platform probe locally.
+
+## Remaining scope limits
+
+No packet/data-plane model, cryptographic proof, DNS/MTU/UDP-table verification,
+token-parser proof, split-tunnel/lockdown proof, fd-number reuse, process-death
+model, blocking-lock or JVM-memory-model proof. Full-model temporal properties
+and exhaustive coverage of larger restart scenarios remain open. Telemetry
+read exceptions and several Android callback/rejection paths are abstracted.
+Physical ARM64 dual-capture leak acceptance and actual VPN lifecycle/device
+validation remain separate requirements; see `AGENTS.md`.

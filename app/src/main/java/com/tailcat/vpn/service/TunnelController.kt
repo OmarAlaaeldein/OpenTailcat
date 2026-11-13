@@ -121,8 +121,10 @@ class TunnelController(
                 tunnelEngine.updateNetworkState(stateJson)
             }
             when {
-                networkType == NetworkType.NONE && _tunnelState.value == TunnelState.CONNECTED -> {
-                    _tunnelState.value = TunnelState.RECONNECTING
+                networkType == NetworkType.NONE -> {
+                    // Match the atomic transition in the lifecycle model. A
+                    // separate read/write can restore RECONNECTING after stop.
+                    _tunnelState.compareAndSet(TunnelState.CONNECTED, TunnelState.RECONNECTING)
                 }
                 // Only a live session may return to CONNECTED; RECONNECTING also
                 // covers a service restart that has not finished its routed TUN.
