@@ -93,7 +93,12 @@ run_instrumented() {
 
 # has_mobile_data reports whether a cellular network is up besides Wi-Fi.
 has_mobile_data() {
-  adb shell dumpsys connectivity | grep -E 'NetworkAgentInfo\{' | grep -q -E 'Transports: CELLULAR([^|A-Z]|$)'
+  # Consume the full dump. An early grep -q can close a pipe while adb or the
+  # preceding grep is writing, turning a match into failure under pipefail.
+  adb shell dumpsys connectivity | awk '
+    /NetworkAgentInfo\{/ && /Transports: CELLULAR([^|A-Z]|$)/ { found = 1 }
+    END { exit !found }
+  '
 }
 
 # tcp_probe sends HTTP HEAD to 1.1.1.1:80 from the shell uid and prints the

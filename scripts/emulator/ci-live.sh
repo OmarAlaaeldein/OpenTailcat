@@ -59,7 +59,15 @@ if [ "$(adb shell getprop ro.kernel.qemu | tr -d '\r')" = 1 ]; then
     has_mobile_data && break
     sleep 2
   done
-  has_mobile_data || { echo "FAIL: emulator cellular network did not become available"; exit 1; }
+  if ! has_mobile_data; then
+    echo "FAIL: emulator cellular network did not become available"
+    adb emu gsm status
+    adb shell settings get global mobile_data
+    adb shell settings get global mobile_data_always_on
+    adb shell dumpsys telephony.registry | grep -E 'mServiceState=|mDataConnectionState=|mDataConnectionNetworkType=|mSimState=' || true
+    adb shell dumpsys connectivity | grep -E 'NetworkAgentInfo\{' || true
+    exit 1
+  fi
 fi
 if [ -n "${OTC_LIVE_TOKEN:-}" ]; then
   "$DIR/pair.sh" || { echo "FAIL pairing"; exit 1; }
