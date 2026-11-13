@@ -3,6 +3,7 @@ package com.tailcat.vpn.service
 import android.content.Context
 import android.content.Intent
 import android.net.VpnService
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.tailcat.vpn.core.NetworkMonitor
 import com.tailcat.vpn.core.NetworkType
@@ -288,7 +289,15 @@ class TunnelController(
                             else -> true // PumpFailed / GatewayLost: fail closed immediately
                         }
                         if (tearDown) {
-                            onSessionFailed(generation, dataPlaneFailureMessage(reason, metrics))
+                            // Keep background failures diagnosable without
+                            // exposing tokens, gateway addresses or raw stats.
+                            val diagnostic = when (reason) {
+                                EngineHealth.TeardownReason.Healthy -> "HEALTHY"
+                                is EngineHealth.TeardownReason.PumpFailed -> "PUMP_FAILED"
+                                is EngineHealth.TeardownReason.HealthStale -> "HEALTH_STALE age=${reason.ageSec}s"
+                                is EngineHealth.TeardownReason.GatewayLost -> "GATEWAY_LOST age=${reason.ageSec}s"
+                            }
+                            onSessionFailed(generation, dataPlaneFailureMessage(reason, metrics), diagnostic)
                             return@launch
                         }
                         if (reason == EngineHealth.TeardownReason.Healthy) {
@@ -313,7 +322,8 @@ class TunnelController(
                                     "$base ($consecutiveFailures consecutive failure(s); last: $detail)"
                                 } else {
                                     base
-                                }
+                                },
+                                "STATS_UNAVAILABLE"
                             )
                             return@launch
                         }
@@ -332,7 +342,7 @@ class TunnelController(
      * reconnects with backoff (the notification stays up and names the
      * cause); otherwise the VPN stops as before.
      */
-    private fun onSessionFailed(generation: Long, cause: String) {
+    private fun onSessionFailed(generation: Long, cause: String, diagnostic: String) {
         val handler = synchronized(stateLock) {
             // A stop or a newer session already superseded this one.
             if (!sessionLive || sessionGeneration != generation) return
@@ -343,6 +353,7 @@ class TunnelController(
             )
             handler
         }
+        Log.w("TailcatVpn", "Tunnel health failure: $diagnostic")
         reportError(cause)
         if (handler != null && preferences.vpnWanted) {
             handler(cause)

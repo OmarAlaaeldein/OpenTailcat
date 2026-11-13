@@ -299,6 +299,9 @@ only shows `CONNECTED` after native `RUNNING` plus fresh health.
   only after TUN reader, gVisor writer, UDP loop, and health loop entered.
 - Unexpected pump exit sets `FAILED` and clears `healthUnixSec`. Kotlin
   requires native `RUNNING` + fresh health before showing CONNECTED.
+- Health-triggered reconnects log only a fixed reason category and heartbeat
+  or gateway-silence age after accepting the current session generation;
+  never log raw stats, gateway addresses, or credentials.
 - `stop` is idempotent and bounded; TUN closes before native stop.
   `detachTun` returns to `PREPARED`; `disarmPumps` clears a pump failure
   without stopping.
