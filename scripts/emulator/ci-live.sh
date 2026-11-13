@@ -83,6 +83,7 @@ check "tunnel UDP payload limit" probe_payload_limit
 check "TCP half-close" probe_half_close
 check "UDP DNS burst" probe_dns_burst
 check "Wi-Fi/cellular roaming" "$DIR/roam-test.sh"
+check "background and screen-off forwarding" "$DIR/background-test.sh"
 check "gateway loss and reconnect" "$DIR/gateway-loss-test.sh"
 adb wait-for-device
 check "reconnect after gateway loss" reconnect
