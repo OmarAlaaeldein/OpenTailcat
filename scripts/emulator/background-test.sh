@@ -28,11 +28,28 @@ verify_forwarding() {
   [[ "$route" == tun* && "$response" == HTTP/* && -n "$state" ]]
 }
 
+observe_forwarding() {
+  local phase=$1 remaining=$2 elapsed=0 delay_secs
+  [[ "$remaining" =~ ^[0-9]+$ && "$remaining" -gt 0 ]]
+  while (( remaining > 0 )); do
+    delay_secs=$(( remaining < 15 ? remaining : 15 ))
+    sleep "$delay_secs"
+    remaining=$(( remaining - delay_secs ))
+    elapsed=$(( elapsed + delay_secs ))
+    if [[ "$phase" == screen-off ]]; then
+      # Traffic probes may wake the CPU; the screen must stay asleep.
+      adb shell dumpsys power | awk '
+        /mWakefulness=Asleep/ { asleep = 1 }
+        END { exit !asleep }
+      '
+    fi
+    verify_forwarding "$phase+${elapsed}s"
+  done
+}
+
 verify_forwarding before
 adb shell input keyevent KEYCODE_HOME
-sleep "$BACKGROUND_SECS"
-verify_forwarding background
+observe_forwarding background "$BACKGROUND_SECS"
 adb shell input keyevent KEYCODE_SLEEP
-sleep "$SCREEN_OFF_SECS"
-verify_forwarding screen-off
+observe_forwarding screen-off "$SCREEN_OFF_SECS"
 echo "PASS: background and screen-off forwarding"

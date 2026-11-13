@@ -436,7 +436,8 @@ never runs on a PR.
 The live suite keeps the emulator's cellular network active for roaming;
 unavailable roaming exits 77 and fails the full suite instead of reporting PASS.
 The live suite also checks real TCP forwarding with the UI backgrounded and
-the screen off, reading notification health without bringing the app forward.
+the screen off at 15-second intervals, reading notification health without
+bringing the app forward and checking that the screen stays asleep.
 
 `scripts/phase8/` holds host capture and analysis tooling (`e2e-analyze.sh` is
 a synthetic harness). It is not physical leak acceptance; that evidence is
