@@ -3,6 +3,8 @@ package com.tailcat.vpn
 import android.app.ActivityManager
 import android.app.NotificationManager
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -40,8 +42,9 @@ class VpnStartupInstrumentedTest {
                 "appops set ${app.packageName} ACTIVATE_VPN ignore"
             )).use { it.readBytes() }
             assertNotNull("Test requires VPN consent to be absent", VpnService.prepare(app))
+            awaitValidatedEmulatorNetwork(app)
             ActivityScenario.launch(MainActivity::class.java).use {
-                await("Emulator must have validated internet") { app.networkMonitor.isOnline }
+                await("App must recognize the emulator's validated network") { app.networkMonitor.isOnline }
                 assertNull(app.tunnelController.validateStartRequest())
                 app.preferencesStore.vpnWanted = true
                 assertFalse("Restore must check consent before starting a service", app.tunnelController.restoreIfWanted())
@@ -118,6 +121,26 @@ class VpnStartupInstrumentedTest {
                 .activeNotifications.none { it.id == VpnNotificationManager.NOTIFICATION_ID }
         }
         assertEquals("STOPPED", app.tunnelEngine.getStats().state)
+    }
+
+    private fun awaitValidatedEmulatorNetwork(app: TailcatApplication) {
+        // Android boot completion does not imply network validation finished.
+        // Keep fixture readiness separate from the app's 15-second assertions.
+        val connectivity = app.getSystemService(ConnectivityManager::class.java)
+        val deadline = SystemClock.elapsedRealtime() + 60_000
+        var caps: NetworkCapabilities?
+        do {
+            caps = connectivity.activeNetwork?.let(connectivity::getNetworkCapabilities)
+            if (caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return
+            SystemClock.sleep(100)
+        } while (SystemClock.elapsedRealtime() < deadline)
+        fail("Emulator network fixture was not ready after 60s: " +
+            "active=${caps != null}, " +
+            "internet=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)}, " +
+            "validated=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}, " +
+            "notVpn=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)}")
     }
 
     private fun await(message: String, condition: () -> Boolean) {
