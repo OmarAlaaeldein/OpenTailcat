@@ -2,6 +2,7 @@ package com.tailcat.vpn
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -13,8 +14,19 @@ class PairGatewayInstrumentedTest {
     @Test
     fun pairTokenFromInstrumentationArgument() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val token = InstrumentationRegistry.getArguments().getString("token").orEmpty()
-        require(token.isNotBlank()) { "Pass the live token with -e token <tc...>" }
+        val arguments = InstrumentationRegistry.getArguments()
+        // Shell setup streams the credential into the app sandbox with run-as.
+        // Only the relative filename appears in instrumentation arguments.
+        val token = arguments.getString("tokenFile")?.let { name ->
+            require(name == "live-test-token") { "Unexpected credential filename" }
+            val file = File(instrumentation.targetContext.filesDir, name)
+            try {
+                file.readText().trim()
+            } finally {
+                check(file.delete()) { "Could not remove temporary test credential" }
+            }
+        }.orEmpty()
+        require(token.isNotBlank()) { "Provide a live gateway test credential" }
 
         val application = instrumentation.targetContext.applicationContext as TailcatApplication
         val result = application.profileRepository.addOrUpdateFromToken("Live test gateway", token)

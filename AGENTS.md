@@ -14,7 +14,7 @@ work; other docs link here.
   `com.tailcat.vpn`
 - Toolchain: Kotlin 2.4.21, Gradle 9.9.1, JDK 21, Go 1.27.4
 - Versions: `gradle/libs.versions.toml`, `core-engine/go.mod`
-- Current version: 1.5.9 (versionCode 48); notes in `docs/releases/`
+- Current version: 1.6.0 (versionCode 49); notes in `docs/releases/`
 
 ## Status
 

@@ -9,6 +9,14 @@ source "$(dirname "$0")/lib.sh"
 : "${OTC_LIVE_TOKEN:?set OTC_LIVE_TOKEN to the gateway token}"
 
 install_test_apk
-run_instrumented com.tailcat.vpn.PairGatewayInstrumentedTest -e token "$OTC_LIVE_TOKEN"
+# Stream into the debug app's private sandbox. The credential must never be a
+# process argument (including the remote am instrument command).
+cleanup_credential() {
+  adb shell run-as "$PKG" rm -f files/live-test-token >/dev/null 2>&1 || true
+}
+trap cleanup_credential EXIT
+printf '%s' "$OTC_LIVE_TOKEN" | adb shell run-as "$PKG" sh -c \
+  "'umask 077; mkdir -p files; cat > files/live-test-token'"
+run_instrumented com.tailcat.vpn.PairGatewayInstrumentedTest -e tokenFile live-test-token
 adb shell appops set "$PKG" ACTIVATE_VPN allow
 echo "paired; VPN consent granted"

@@ -66,6 +66,8 @@ Rest is eventually reached.** A deadlock check does not establish termination
 while another actor can keep taking steps. The full model's `Live3_*` through
 `Live6_*` remain defined but are not checked. Its `SpecQ` has no fairness;
 `Spec` has weak process fairness, but simulation is not a fairness proof.
+The untimed pump-failure simulation uses `NEXT NextQ`, so a completely stopped
+quiescent state can stutter; deadlock checking remains enabled outside `Rest`.
 
 The clock records `Unjustified(hAge)` after assigning the new health age. Using
 `NextH` again there would age health twice in the same PlusCal step.

@@ -6,7 +6,7 @@ signing.
 
 ## Current builds
 
-Development previews (1.5.8) are signed by `assembleGithubDevelopment` with the
+Development previews are signed by `assembleGithubDevelopment` with the
 build machine's Android debug key. The updater accepts only APKs whose signing
 certificate matches one of these SHA-256 digests:
 
