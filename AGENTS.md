@@ -430,6 +430,8 @@ engine (`TunnelEngineTest`); the gomobile implementation is `TunnelEngine`.
 way. CI runs the smoke suite on pull requests and the live suite on `main` and
 on the nightly schedule when the gateway token secret is set; the live job
 never runs on a PR.
+The live suite keeps the emulator's cellular network active for roaming;
+unavailable roaming exits 77 and fails the full suite instead of reporting PASS.
 
 `scripts/phase8/` holds host capture and analysis tooling (`e2e-analyze.sh` is
 a synthetic harness). It is not physical leak acceptance; that evidence is
@@ -470,5 +472,5 @@ with `../third_party/tailcat`; the AAR embeds that copy.
 - Confirm the service-lifecycle fixes from the TLA+ model on a device
   (`stopSelf(startId)` with a queued start, STOP after a failed start then a
   quick Connect; see `formal/README.md`). The new instrumented platform probe
-  covers start-id ordering, not these full VPN flows; local compilation alone
-  is not device evidence.
+  passed on API 35 ARM64 locally and x86_64 in CI. It covers start-id ordering,
+  not these full VPN flows.

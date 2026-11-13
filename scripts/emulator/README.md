@@ -25,6 +25,8 @@ once and the scripts reuse it. Build output and logs go to the git-ignored
 
 `emulator.yml` runs `ci-smoke.sh` on every push/PR; the `live` job runs
 `ci-live.sh` on `main`/nightly/dispatch when secret `OTC_LIVE_TOKEN` is set
-(`gh secret set OTC_LIVE_TOKEN < <token file>`). `roam-test.sh` SKIPs without
+(`gh secret set OTC_LIVE_TOKEN < <token file>`). `roam-test.sh` exits 77 without
 mobile data. Passes rely on routes/logs/counters (exit IP may equal host IP);
 they are emulator evidence, not physical-device acceptance (see AGENTS.md).
+The full live suite provisions the disposable emulator's mobile network and
+fails if it is unavailable, so a skipped roaming check cannot be labelled PASS.

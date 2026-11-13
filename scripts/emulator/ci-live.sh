@@ -48,6 +48,19 @@ reconnect() {
 }
 
 "$DIR/start.sh" || exit 1
+# Keep the emulator's cellular network provisioned while Wi-Fi is the default.
+# Otherwise Google APIs images can tear it down and the roaming check silently
+# exercises nothing. This fixture is confined to the disposable emulator.
+if [ "$(adb shell getprop ro.kernel.qemu | tr -d '\r')" = 1 ]; then
+  adb shell settings put global mobile_data_always_on 1
+  adb shell svc data enable
+  adb emu gsm data home >/dev/null
+  for _ in $(seq 1 30); do
+    has_mobile_data && break
+    sleep 2
+  done
+  has_mobile_data || { echo "FAIL: emulator cellular network did not become available"; exit 1; }
+fi
 if [ -n "${OTC_LIVE_TOKEN:-}" ]; then
   "$DIR/pair.sh" || { echo "FAIL pairing"; exit 1; }
 else

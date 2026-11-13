@@ -16,7 +16,7 @@ if [[ "$(route_dev)" != tun* ]]; then
 fi
 if ! has_mobile_data; then
   echo "SKIP: no mobile data network on this device, so there is nothing to roam to"
-  exit 0
+  exit 77
 fi
 echo "before: route $(route_dev), tcp: $(tcp_probe)"
 
