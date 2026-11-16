@@ -8,7 +8,12 @@ import android.os.Build
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,7 +23,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
@@ -27,13 +31,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,9 +51,9 @@ import com.tailcat.vpn.ui.screens.home.components.PowerToggleRing
 import com.tailcat.vpn.ui.screens.home.components.TelemetryCard
 import com.tailcat.vpn.ui.screens.home.components.TelemetryDisplay
 import com.tailcat.vpn.ui.theme.AccentCyan
-import com.tailcat.vpn.ui.theme.BgDark
 import com.tailcat.vpn.ui.theme.EmeraldConnected
 import com.tailcat.vpn.ui.theme.RedDegraded
+import com.tailcat.vpn.ui.theme.TailcatText
 import com.tailcat.vpn.ui.theme.SurfaceElevated
 import com.tailcat.vpn.ui.theme.TextMuted
 import com.tailcat.vpn.ui.theme.TextPrimary
@@ -62,13 +67,13 @@ fun HomeScreen(
     onNavigateToSpeedTest: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val tunnelState by viewModel.tunnelState.collectAsState()
-    val metrics by viewModel.networkMetrics.collectAsState()
-    val egressInfo by viewModel.egressInfo.collectAsState()
-    val activeProfile by viewModel.activeProfile.collectAsState()
-    val profiles by viewModel.profiles.collectAsState()
-    val networkType by viewModel.activeNetworkType.collectAsState()
-    val lastError by viewModel.lastError.collectAsState()
+    val tunnelState by viewModel.tunnelState.collectAsStateWithLifecycle()
+    val metrics by viewModel.networkMetrics.collectAsStateWithLifecycle()
+    val egressInfo by viewModel.egressInfo.collectAsStateWithLifecycle()
+    val activeProfile by viewModel.activeProfile.collectAsStateWithLifecycle()
+    val profiles by viewModel.profiles.collectAsStateWithLifecycle()
+    val networkType by viewModel.activeNetworkType.collectAsStateWithLifecycle()
+    val lastError by viewModel.lastError.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -147,7 +152,7 @@ fun HomeScreen(
     }
 
     Scaffold(
-        containerColor = BgDark,
+        containerColor = Color.Transparent,
         snackbarHost = {
             SnackbarHost(hostState = snackbarHostState) { data ->
                 Snackbar(
@@ -216,14 +221,15 @@ fun HomeScreen(
                 else -> TextMuted
             }
 
-            Text(
-                text = statusLabel,
-                style = MaterialTheme.typography.labelMedium.copy(
-                    color = statusColor,
-                    letterSpacing = 1.5.sp,
-                    fontSize = 13.sp
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(statusColor, CircleShape)
                 )
-            )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(text = statusLabel, color = statusColor, style = TailcatText.Status)
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 

@@ -5,9 +5,10 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SignalWifiOff
@@ -34,10 +34,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tailcat.vpn.service.EngineAvailability
+import com.tailcat.vpn.ui.theme.panel
+import com.tailcat.vpn.ui.theme.TailcatShapes
 import com.tailcat.vpn.ui.theme.AccentCyan
-import com.tailcat.vpn.ui.theme.BorderSubtle
 import com.tailcat.vpn.ui.theme.RedDegraded
-import com.tailcat.vpn.ui.theme.SurfaceDark
 import com.tailcat.vpn.ui.theme.TextSecondary
 import com.tailcat.vpn.ui.theme.YellowWarning
 
@@ -53,7 +53,9 @@ fun HomeTopBar(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 12.dp)
+            // Edge-to-edge: keep the title clear of the status bar / cutout.
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(top = 8.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -77,9 +79,8 @@ fun HomeTopBar(
                 IconButton(
                     onClick = onNavigateToSpeedTest,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(SurfaceDark)
-                        .border(1.dp, BorderSubtle, RoundedCornerShape(10.dp))
+                        .panel(TailcatShapes.Control)
+                        .clip(TailcatShapes.Control)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Speed,
@@ -91,9 +92,8 @@ fun HomeTopBar(
                 IconButton(
                     onClick = onNavigateToSettings,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(SurfaceDark)
-                        .border(1.dp, BorderSubtle, RoundedCornerShape(10.dp))
+                        .panel(TailcatShapes.Control)
+                        .clip(TailcatShapes.Control)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Settings,
@@ -114,9 +114,7 @@ fun HomeTopBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(RedDegraded.copy(alpha = 0.15f))
-                    .border(1.dp, RedDegraded.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                    .panel(TailcatShapes.Tile, fill = RedDegraded.copy(alpha = 0.15f), border = RedDegraded.copy(alpha = 0.5f))
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -174,9 +172,7 @@ private fun StatusBanner(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(color.copy(alpha = 0.14f))
-            .border(1.dp, color.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+            .panel(TailcatShapes.Tile, fill = color.copy(alpha = 0.14f), border = color.copy(alpha = 0.45f))
             .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
         Icon(

@@ -14,7 +14,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,7 +37,7 @@ import com.tailcat.vpn.ui.theme.TextSecondary
 internal fun ActiveProfileDnsCard(app: TailcatApplication) {
     val store = app.preferencesStore
     SettingsCard(icon = Icons.Default.Dns, title = "Active profile DNS") {
-        val activeProfile by app.profileRepository.activeProfile.collectAsState()
+        val activeProfile by app.profileRepository.activeProfile.collectAsStateWithLifecycle()
         var activeDnsText by remember(activeProfile?.id) {
             mutableStateOf(activeProfile?.customDns ?: store.defaultDns)
         }

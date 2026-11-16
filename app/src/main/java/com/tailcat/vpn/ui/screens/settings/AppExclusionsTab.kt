@@ -3,8 +3,6 @@ package com.tailcat.vpn.ui.screens.settings
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material3.Checkbox
@@ -27,8 +24,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,7 +36,8 @@ import com.tailcat.vpn.core.model.TunnelState
 import com.tailcat.vpn.service.SplitTunnelExclusions
 import com.tailcat.vpn.ui.theme.AccentCyan
 import com.tailcat.vpn.ui.theme.BorderSubtle
-import com.tailcat.vpn.ui.theme.SurfaceDark
+import com.tailcat.vpn.ui.theme.TailcatShapes
+import com.tailcat.vpn.ui.theme.panel
 import com.tailcat.vpn.ui.theme.TextMuted
 import com.tailcat.vpn.ui.theme.TextSecondary
 import com.tailcat.vpn.ui.theme.YellowWarning
@@ -89,10 +88,14 @@ internal fun AppExclusionsTab(
     excludedApps: Set<String>,
     onExcludedAppsChange: (Set<String>) -> Unit
 ) {
-    val visibleApps = installedApps.orEmpty().filter { item ->
-        appQuery.isBlank() ||
-            item.appName.contains(appQuery, ignoreCase = true) ||
-            item.packageName.contains(appQuery, ignoreCase = true)
+    // Re-filtered only when the list or the query changes, not on every
+    // recomposition (the list can hold hundreds of apps).
+    val visibleApps = remember(installedApps, appQuery) {
+        installedApps.orEmpty().filter { item ->
+            appQuery.isBlank() ||
+                item.appName.contains(appQuery, ignoreCase = true) ||
+                item.packageName.contains(appQuery, ignoreCase = true)
+        }
     }
 
     Column(
@@ -114,13 +117,13 @@ internal fun AppExclusionsTab(
                 .padding(horizontal = 16.dp, vertical = 0.dp)
         ) {
             item {
-                val appliedExclusions by app.tunnelController.appliedExclusions.collectAsState()
+                val appliedExclusions by app.tunnelController.appliedExclusions.collectAsStateWithLifecycle()
                 Text(
                     "Checked apps bypass the VPN and use the device network directly. Changes apply the next time the tunnel starts. The tunnel is not leak-free while any app is checked.",
                     style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary),
                     modifier = Modifier.padding(bottom = 12.dp, top = 6.dp)
                 )
-                val tunnelState by app.tunnelController.tunnelState.collectAsState()
+                val tunnelState by app.tunnelController.tunnelState.collectAsStateWithLifecycle()
                 if (tunnelState != TunnelState.DISCONNECTED &&
                     appliedExclusions != null && excludedApps != appliedExclusions
                 ) {
@@ -153,9 +156,8 @@ internal fun AppExclusionsTab(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 6.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(SurfaceDark)
-                        .border(1.dp, BorderSubtle, RoundedCornerShape(12.dp))
+                        .panel(TailcatShapes.Tile)
+                        .clip(TailcatShapes.Tile)
                         .clickable {
                             onExcludedAppsChange(
                                 if (isExcluded) {
@@ -203,7 +205,7 @@ internal fun AppExclusionsTab(
                         },
                         colors = CheckboxDefaults.colors(
                             checkedColor = AccentCyan,
-                            uncheckedColor = BorderSubtle
+                            uncheckedColor = TextMuted
                         )
                     )
                 }

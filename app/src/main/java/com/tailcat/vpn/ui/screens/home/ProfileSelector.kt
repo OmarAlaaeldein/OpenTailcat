@@ -38,6 +38,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tailcat.vpn.core.model.GatewayProfile
+import com.tailcat.vpn.ui.theme.panel
+import com.tailcat.vpn.ui.theme.TailcatShapes
 import com.tailcat.vpn.ui.theme.AccentCyan
 import com.tailcat.vpn.ui.theme.BorderSubtle
 import com.tailcat.vpn.ui.theme.RedDegraded
@@ -63,9 +65,8 @@ fun ProfileSelector(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .clip(RoundedCornerShape(20.dp))
-                .background(SurfaceDark)
-                .border(1.dp, BorderSubtle, RoundedCornerShape(20.dp))
+                .panel(TailcatShapes.Chip)
+                .clip(TailcatShapes.Chip)
                 .clickable { showProfileDropdown = true }
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {

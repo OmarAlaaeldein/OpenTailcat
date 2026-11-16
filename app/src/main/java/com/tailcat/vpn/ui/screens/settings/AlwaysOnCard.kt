@@ -11,7 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -26,7 +26,7 @@ internal fun AlwaysOnCard() {
     val context = LocalContext.current
     SettingsCard(icon = Icons.Default.Security, title = "Always-on & kill switch") {
         val alwaysOn by TailcatApplication.instance.tunnelController
-            .alwaysOnStatus.collectAsState()
+            .alwaysOnStatus.collectAsStateWithLifecycle()
         Text(
             LockdownProbe.statusText(Build.VERSION.SDK_INT, alwaysOn),
             style = MaterialTheme.typography.bodySmall.copy(

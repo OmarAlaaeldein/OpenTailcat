@@ -37,7 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -59,6 +59,8 @@ import com.tailcat.vpn.core.speedtest.SpeedTestStage
 import com.tailcat.vpn.ui.screens.speedtest.components.SpeedometerGauge
 import java.util.Locale
 import kotlinx.coroutines.launch
+import com.tailcat.vpn.ui.theme.panel
+import com.tailcat.vpn.ui.theme.TailcatShapes
 import com.tailcat.vpn.ui.theme.AccentCyan
 import com.tailcat.vpn.ui.theme.BgDark
 import com.tailcat.vpn.ui.theme.BorderSubtle
@@ -77,8 +79,8 @@ fun SpeedTestScreen(
     viewModel: SpeedTestViewModel = viewModel(),
     onNavigateBack: () -> Unit = {}
 ) {
-    val testState by viewModel.testState.collectAsState()
-    val tunnelState by viewModel.tunnelState.collectAsState()
+    val testState by viewModel.testState.collectAsStateWithLifecycle()
+    val tunnelState by viewModel.tunnelState.collectAsStateWithLifecycle()
     val isTesting = testState.stage in listOf(
         SpeedTestStage.MEASURING_PING,
         SpeedTestStage.TESTING_DOWNLOAD,
@@ -91,7 +93,7 @@ fun SpeedTestScreen(
     val context = LocalContext.current
 
     Scaffold(
-        containerColor = BgDark,
+        containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
@@ -137,7 +139,7 @@ fun SpeedTestScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = BgDark)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         }
     ) { innerPadding ->
@@ -154,10 +156,8 @@ fun SpeedTestScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(SurfaceElevated)
-                    .border(1.dp, BorderSubtle, RoundedCornerShape(10.dp))
-                    .padding(horizontal = 12.dp, vertical = 7.dp)
+                    .panel(TailcatShapes.Tile, fill = SurfaceElevated)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Text(
                     text = SpeedTestBanner.text(testState.stage, testState.viaGateway, tunnelState),
@@ -337,9 +337,7 @@ private fun MetricTile(
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(SurfaceDark)
-            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+            .panel(TailcatShapes.Tile, border = borderColor)
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         Column {

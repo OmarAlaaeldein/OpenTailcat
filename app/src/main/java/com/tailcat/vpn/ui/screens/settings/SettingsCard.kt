@@ -1,8 +1,5 @@
 package com.tailcat.vpn.ui.screens.settings
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -12,20 +9,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.tailcat.vpn.ui.theme.panel
 import com.tailcat.vpn.ui.theme.AccentCyan
-import com.tailcat.vpn.ui.theme.BorderSubtle
-import com.tailcat.vpn.ui.theme.SurfaceDark
-import com.tailcat.vpn.ui.theme.TextPrimary
 
 @Composable
 internal fun SettingsCard(
@@ -33,22 +26,18 @@ internal fun SettingsCard(
     title: String,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(SurfaceDark)
-            .border(1.dp, BorderSubtle, RoundedCornerShape(14.dp))
+            .panel()
             .padding(14.dp)
     ) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, null, tint = AccentCyan, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(10.dp))
-                Text(title, style = MaterialTheme.typography.titleMedium.copy(color = TextPrimary))
-            }
-            Spacer(Modifier.height(8.dp))
-            content()
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = AccentCyan, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(title, style = MaterialTheme.typography.titleMedium)
         }
+        Spacer(Modifier.height(8.dp))
+        content()
     }
 }

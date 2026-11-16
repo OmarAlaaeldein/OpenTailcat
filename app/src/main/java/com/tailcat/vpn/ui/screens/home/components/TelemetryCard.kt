@@ -1,7 +1,6 @@
 package com.tailcat.vpn.ui.screens.home.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -22,28 +20,29 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.tailcat.vpn.core.metrics.TrafficFormat
 import com.tailcat.vpn.core.model.EgressInfo
 import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.service.VpnInterfaceSpec
 import com.tailcat.vpn.ui.theme.AccentCyan
-import com.tailcat.vpn.ui.theme.BorderSubtle
 import com.tailcat.vpn.ui.theme.EmeraldConnected
-import com.tailcat.vpn.ui.theme.SurfaceDark
 import com.tailcat.vpn.ui.theme.SurfaceElevated
+import com.tailcat.vpn.ui.theme.TailcatShapes
+import com.tailcat.vpn.ui.theme.TailcatText
 import com.tailcat.vpn.ui.theme.TextMuted
 import com.tailcat.vpn.ui.theme.TextPrimary
 import com.tailcat.vpn.ui.theme.TextSecondary
 import com.tailcat.vpn.ui.theme.VioletDerp
 import com.tailcat.vpn.ui.theme.YellowWarning
+import com.tailcat.vpn.ui.theme.panel
 
 @Composable
 fun TelemetryCard(
@@ -61,234 +60,211 @@ fun TelemetryCard(
     val tunnelActive = metrics.isLiveRunning(nowSec)
     val egress = TelemetryDisplay.egress(metrics, egressInfo.ip, nowSec)
 
-    Box(
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(SurfaceDark)
-            .border(1.dp, BorderSubtle, RoundedCornerShape(16.dp))
+            .panel()
             .padding(14.dp)
     ) {
-        Column {
-            // IpAuditor follows whatever route the app's own sockets take, so
-            // connected-mode egress comes only from the native engine's
-            // through-WireGuard probe.
+        // IpAuditor follows whatever route the app's own sockets take, so
+        // connected-mode egress comes only from the native engine's
+        // through-WireGuard probe.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier
+                .fillMaxWidth()
+                .panel(TailcatShapes.Tile, fill = SurfaceElevated)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(SurfaceElevated)
-                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                modifier = Modifier.weight(1f)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Public,
-                        contentDescription = "Public IP",
-                        tint = AccentCyan,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "${egress.label}: ${egress.value}",
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    color = TextPrimary,
-                                    fontSize = 14.sp
-                                )
-                            )
-                        }
-                        if (tunnelActive) {
-                            Text(
-                                text = "VPN address: ${VpnInterfaceSpec.IPV4_ADDRESS} / ${VpnInterfaceSpec.IPV6_ADDRESS}",
-                                style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
-                            )
-                        } else if (egressInfo.city != null || egressInfo.country != null) {
-                            val location = listOfNotNull(egressInfo.city, egressInfo.country).joinToString(", ")
-                            Text(
-                                text = location,
-                                style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
-                            )
-                        }
-                    }
-                }
-
-                if (!tunnelActive && egressInfo.isChecking) {
-                    CircularProgressIndicator(
-                        strokeWidth = 2.dp,
-                        color = AccentCyan,
-                        modifier = Modifier.size(16.dp)
-                    )
-                } else if (!tunnelActive) {
-                    IconButton(
-                        onClick = onRefreshIp,
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Refresh IP",
-                            tint = TextSecondary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Transport header (Direct P2P vs DERP)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val transport = TelemetryDisplay.transport(metrics)
-                    val label = transport.text
-                    val badgeColor = when (transport.path) {
-                        TelemetryDisplay.Path.DIRECT -> EmeraldConnected
-                        TelemetryDisplay.Path.RELAY -> VioletDerp
-                        TelemetryDisplay.Path.NOT_RESPONDING -> YellowWarning
-                        TelemetryDisplay.Path.NONE -> TextMuted
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(badgeColor)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            color = badgeColor,
-                            fontSize = 13.sp
-                        )
-                    )
-                    // Measured UDP capability: when the engine latched TCP-only
-                    // (gateway UDP unreachable at handshake), non-DNS UDP is
-                    // dropped and DNS rides TCP. Speedtest is TCP-only and stays
-                    // green in this mode, so say so instead of looking healthy.
-                    if (tunnelActive && metrics.tcpOnly) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "TCP-only",
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                color = TextSecondary,
-                                fontSize = 12.sp
-                            )
-                        )
-                    }
-                    if (tunnelActive && !metrics.ipv6Egress) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "IPv4 egress",
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                color = TextSecondary,
-                                fontSize = 12.sp
-                            )
-                        )
-                    }
-                }
-
-                Text(
-                    text = TelemetryDisplay.rtt(metrics, nowSec),
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        color = TextSecondary,
-                        fontSize = 12.sp
-                    )
+                Icon(
+                    imageVector = Icons.Default.Public,
+                    contentDescription = "Public IP",
+                    tint = AccentCyan,
+                    modifier = Modifier.size(20.dp)
                 )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "${egress.label}: ${egress.value}",
+                        color = TextPrimary,
+                        style = TailcatText.Metric,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (tunnelActive) {
+                        Text(
+                            text = "VPN address: ${VpnInterfaceSpec.IPV4_ADDRESS} / ${VpnInterfaceSpec.IPV6_ADDRESS}",
+                            color = TextSecondary,
+                            style = TailcatText.Eyebrow
+                        )
+                    } else if (egressInfo.city != null || egressInfo.country != null) {
+                        val location = listOfNotNull(egressInfo.city, egressInfo.country).joinToString(", ")
+                        Text(text = location, color = TextSecondary, style = TailcatText.Eyebrow)
+                    }
+                }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            if (!tunnelActive && egressInfo.isChecking) {
+                CircularProgressIndicator(
+                    strokeWidth = 2.dp,
+                    color = AccentCyan,
+                    modifier = Modifier.size(16.dp)
+                )
+            } else if (!tunnelActive) {
+                IconButton(onClick = onRefreshIp, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Refresh IP",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
 
-            // Metrics grid (Download / Upload / MTU)
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Transport header (Direct P2P vs DERP)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            val transport = TelemetryDisplay.transport(metrics)
+            val badgeColor = when (transport.path) {
+                TelemetryDisplay.Path.DIRECT -> EmeraldConnected
+                TelemetryDisplay.Path.RELAY -> VioletDerp
+                TelemetryDisplay.Path.NOT_RESPONDING -> YellowWarning
+                TelemetryDisplay.Path.NONE -> TextMuted
+            }
             Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.weight(1f, fill = false)
             ) {
-                // Downloader
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowDownward,
-                        contentDescription = "Download",
-                        tint = EmeraldConnected,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Column {
-                        Text(
-                            text = TrafficFormat.formatBytes(metrics.tunRxBytes),
-                            style = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary)
-                        )
-                        Text(
-                            text = TrafficFormat.formatKbps(metrics.rxRateKbps),
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    }
-                }
-
-                // Uploader
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowUpward,
-                        contentDescription = "Upload",
-                        tint = VioletDerp,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Column {
-                        Text(
-                            text = TrafficFormat.formatBytes(metrics.tunTxBytes),
-                            style = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary)
-                        )
-                        Text(
-                            text = TrafficFormat.formatKbps(metrics.txRateKbps),
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    }
-                }
-
-                // Invariants Badge
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(SurfaceElevated)
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = "MTU $mtu",
-                        style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
-                    )
+                        .size(8.dp)
+                        .background(badgeColor, CircleShape)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = transport.text,
+                    color = badgeColor,
+                    style = TailcatText.Eyebrow,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                // Measured UDP capability: when the engine latched TCP-only
+                // (gateway UDP unreachable at handshake), non-DNS UDP is
+                // dropped and DNS rides TCP. Speedtest is TCP-only and stays
+                // green in this mode, so say so instead of looking healthy.
+                if (tunnelActive && metrics.tcpOnly) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = "TCP-only", color = TextSecondary, style = TailcatText.Eyebrow)
+                }
+                if (tunnelActive && !metrics.ipv6Egress) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = "IPv4 egress", color = TextSecondary, style = TailcatText.Eyebrow)
                 }
             }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = TelemetryDisplay.rtt(metrics, nowSec),
+                color = TextSecondary,
+                style = TailcatText.Eyebrow,
+                maxLines = 1
+            )
+        }
 
-            // Factual telemetry discriminators: only shown when the engine
-            // reported a non-zero counter.
-            if (metrics.dnsQueries > 0 || metrics.dropCounters.policyRejections > 0) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Column {
-                    if (metrics.dnsQueries > 0) {
-                        Text(
-                            // UDP/53 queries plus TCP/53 connections forwarded to
-                            // the gateway; encrypted DNS (Private DNS) is not counted.
-                            text = "Plain DNS queries: ${metrics.dnsQueries}",
-                            style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
-                        )
-                    }
-                    if (metrics.dropCounters.policyRejections > 0) {
-                        Text(
-                            text = "Policy rejections: ${metrics.dropCounters.policyRejections}",
-                            style = MaterialTheme.typography.labelMedium.copy(color = TextSecondary)
-                        )
-                    }
-                }
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Traffic and MTU tiles.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            StatTile(
+                icon = Icons.Default.ArrowDownward,
+                iconDescription = "Download",
+                tint = EmeraldConnected,
+                primary = TrafficFormat.formatBytes(metrics.tunRxBytes),
+                secondary = TrafficFormat.formatKbps(metrics.rxRateKbps),
+                modifier = Modifier.weight(1f)
+            )
+            StatTile(
+                icon = Icons.Default.ArrowUpward,
+                iconDescription = "Upload",
+                tint = VioletDerp,
+                primary = TrafficFormat.formatBytes(metrics.tunTxBytes),
+                secondary = TrafficFormat.formatKbps(metrics.txRateKbps),
+                modifier = Modifier.weight(1f)
+            )
+            Column(
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .panel(TailcatShapes.Tile, fill = SurfaceElevated)
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Text(text = "MTU", color = TextMuted, style = TailcatText.Eyebrow)
+                Text(text = "$mtu", color = TextPrimary, style = TailcatText.Metric)
+            }
+        }
+
+        // Factual telemetry discriminators: only shown when the engine
+        // reported a non-zero counter.
+        if (metrics.dnsQueries > 0 || metrics.dropCounters.policyRejections > 0) {
+            Spacer(modifier = Modifier.height(10.dp))
+            if (metrics.dnsQueries > 0) {
+                Text(
+                    // UDP/53 queries plus TCP/53 connections forwarded to
+                    // the gateway; encrypted DNS (Private DNS) is not counted.
+                    text = "Plain DNS queries: ${metrics.dnsQueries}",
+                    color = TextSecondary,
+                    style = TailcatText.Eyebrow
+                )
+            }
+            if (metrics.dropCounters.policyRejections > 0) {
+                Text(
+                    text = "Policy rejections: ${metrics.dropCounters.policyRejections}",
+                    color = TextSecondary,
+                    style = TailcatText.Eyebrow
+                )
             }
         }
     }
 }
 
+@Composable
+private fun StatTile(
+    icon: ImageVector,
+    iconDescription: String,
+    tint: Color,
+    primary: String,
+    secondary: String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .panel(TailcatShapes.Tile, fill = SurfaceElevated)
+            .padding(horizontal = 10.dp, vertical = 10.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = iconDescription,
+            tint = tint,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Column {
+            Text(text = primary, color = TextPrimary, style = TailcatText.Metric, maxLines = 1)
+            Text(text = secondary, color = TextMuted, style = TailcatText.Eyebrow, maxLines = 1)
+        }
+    }
+}
