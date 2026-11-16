@@ -15,11 +15,12 @@ release.
 | Report a vulnerability | [SECURITY.md](../SECURITY.md) |
 | Run emulator or live-gateway tests | [scripts/emulator/README.md](../scripts/emulator/README.md) |
 | Check the pinned upstream Tailcat commit | [third_party/PROVENANCE.md](../third_party/PROVENANCE.md) |
+| Review UI revamp skill candidates and visual direction | [design/ui-revamp-options.md](design/ui-revamp-options.md) |
 
 ## Release notes
 
 `releases/` is a historical record, one file per version, named after the
-version. The newest is [1.5.8](releases/1.5.8.md). Each note describes what
+version. The newest is [1.6.0](releases/1.6.0.md). Each note describes what
 changed, what was verified at the time, and the published artifact hashes.
 Verification lines are evidence for that release, not a promise about later
 builds.

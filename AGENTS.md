@@ -63,7 +63,8 @@ not exclude its own UID from the tunnel.
 | `core-engine/` | Go engine. Start at `main.go` (engine + capabilities), `lifecycle.go`, `netstack_proxy.go` (data plane), `tunnel_dns.go`, `token.go`; `bridge.go` holds gomobile exports |
 | `core-engine/testdata/` | Token and capability fixtures read by both test suites |
 | `core-engine/build-aar.sh` | Reproducible AAR build; writes `app/libs/libtailcat.aar` and `.sourcehash` |
-| `third_party/tailcat` | Upstream Tailcat submodule, pinned and unmodified |
+| `third_party/tailcat` | Upstream Tailcat base, pinned and unmodified |
+| `core-engine/integration/`, `core-engine/tailcat-integration/` | Explicit Android integration patch/generator and generated library module |
 | `app/src/test/`, `app/src/androidTest/` | JVM unit tests, instrumented tests |
 | `scripts/emulator/`, `scripts/phase8/` | adb emulator suites; dual-capture leak tooling |
 | `formal/` | TLA+ lifecycle model, focused exhaustive cleanup/liveness and network-callback models, and deterministic counterexample replays, checked with TLC by `formal/check.sh` |
@@ -96,14 +97,14 @@ not exclude its own UID from the tunnel.
 6. Close the TUN immediately after startup, pump, or health failure.
 7. Reject invalid or expired tokens in both Android and native code.
 8. Development preview releases use the existing development key for upgrade compatibility; production signing and migration remain future work.
-9. The app does not exclude its own UID. Only Tailcat transport sockets are
-   meant to be protected with `VpnService.protect`; gateway measurements use
-   `Client.DialTCP`/`DialUDP`. The service cannot tell transport sockets apart,
-   so before default routes it protects every open process socket
-   (`TransportSocketProtect`). App HTTP therefore never reuses connections:
-   open them only through `core/net/AppHttp` (`AppHttpSourceTest` enforces
-   it), so no app socket outlives its request into a tunnel session. An app
-   request still in flight during the sweep finishes off-tunnel.
+9. The app does not exclude its own UID. Only native transport sockets are
+   protected with `VpnService.protect`, at creation before bind/connect.
+   Tailcat's application-owned integration preserves Android netns hooks
+   during engine initialization and region selection; native metadata HTTP
+   and transport DNS also use explicit creation-time protection. Missing or
+   failed Android protection fails the socket operation. Never enumerate
+   process FDs or protect Kotlin app HTTP sockets. App HTTP continues to use
+   `core/net/AppHttp` with conservative no-reuse behavior across transitions.
 10. Keep secrets, live tokens, signing keys, and captures out of the repo and public logs.
 
 ## Build and verify
@@ -217,9 +218,10 @@ embed personal account names or tokens in tracked sources.
   `DialogProperties(securePolicy = SecureFlagPolicy.SecureOn)`; token fields
   use `KeyboardType.Password`. The QR dialog relies on the secure flag because
   the code itself contains the token.
-- No camera permission. QR display uses ZXing `core` to encode; scanning
-  launches a compatible external scanner intent and falls back to paste. The
-  scanner receives the token, so the UI says so.
+- No camera permission. QR display and image import use ZXing `core`.
+  Import uses the system image picker URI grant and decodes in memory, with
+  a 16 MiB encoded-size bound and 2048-pixel decoded dimension bound. No
+  external QR scanner receives the decoded token; paste remains available.
 
 **Tokens and storage**
 
@@ -275,8 +277,9 @@ Magicsock/DERP transport and the gateway's own egress.
 Notes: TCP buffers 128 KiB default / 1 MiB max. `GATEWAY_RESOLVER` is legacy
 for `PROFILE_RESOLVER`. Exit-IP audit runs through `Client.DialTCP`; the
 in-app public-IP card is a separate device-route request. `updateNetworkState`
-forwards LinkProperties to upstream netmon (via type-checked reflection in
-`netmon_hook.go`; a test fails if upstream layout changes). Telemetry is
+forwards LinkProperties through the typed `Client.NetworkMonitor()` integration
+API. Missing monitor support fails preparation; no reflection or unsafe
+private-field access is used. Telemetry is
 schema 2: RTT from `DiscoPing` ~5 s, jitter null until 3 samples, DERP region
 from `Client.DERPRegion()`; WireGuard counters stay 0 (no upstream API),
 `tunTxBytes`/`tunRxBytes` count TUN packets. Tokens are validated twice
@@ -416,7 +419,7 @@ engine (`TunnelEngineTest`); the gomobile implementation is `TunnelEngine`.
   to code and states the scope. Update the models with lifecycle changes. Full
   exploration can take hours; do not run concurrent checkers in one checkout.
 - **Instrumented tests** (`app/src/androidTest/`) cover VPN consent/startup,
-  pairing, preference storage, and Android's queued/newer-start
+  pairing, bounded QR image decoding, preference storage, and Android's queued/newer-start
   `stopSelf(startId)` contract using a debug-only ordinary Service probe.
   They need a device or emulator; the emulator smoke suite runs the probe.
 - **Emulator suites** (AVD `OpenTailcat_API35`; `start.sh` boots it headless
@@ -439,6 +442,13 @@ The live suite also checks real TCP forwarding with the UI backgrounded and
 the screen off at 15-second intervals, reading notification health without
 bringing the app forward and checking that the screen stays asleep.
 
+Offline native socket-protection regressions also run on Android with
+`ANDROID_NDK_HOME=<pinned-ndk> scripts/emulator/native-protect-test.sh` after
+booting the device. They use synthetic keys and loopback sockets only and
+check initial transport socket protection, ordinary-socket isolation, later
+socket creation, and failed-protection rejection. They are not packet-leak or
+live-gateway acceptance. The smoke suite includes QR image import tests.
+
 `scripts/phase8/` holds host capture and analysis tooling (`e2e-analyze.sh` is
 a synthetic harness). It is not physical leak acceptance; that evidence is
 still outstanding.
@@ -452,7 +462,13 @@ forwarding). Re-pin to the next signed tag; do not patch the submodule. See
 the AAR, so it lands with a rebuild + test output); Dependabot is disabled.
 
 The Go module is `com.tailcat.vpn/engine` and replaces `github.com/tailscale/tailcat`
-with `../third_party/tailcat`; the AAR embeds that copy.
+with the application-owned `./tailcat-integration` module. It is reproduced
+from the unmodified upstream base by `integration/sync_tailcat.py`, with the
+small patch in `integration/tailcat.patch`; tests and the AAR builder verify
+this correspondence. The added API is maintained by OpenTailcat, not yet
+supported upstream. See `core-engine/integration/README.md`. Remove this
+replacement when upstream supplies equivalent reviewed APIs. The AAR embeds
+this integration, and its sources are covered by the native source hash.
 
 ## Glossary
 

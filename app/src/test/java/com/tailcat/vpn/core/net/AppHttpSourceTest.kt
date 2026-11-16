@@ -6,9 +6,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Guards the invariant behind [AppHttp]: the VPN service protects every open
- * process socket before installing default routes, so app HTTP sockets must
- * never be pooled. All app code must open connections through [AppHttp].
+ * App HTTP uses one conservative connection policy across VPN transitions.
+ * All app code must open connections through [AppHttp].
  */
 class AppHttpSourceTest {
 

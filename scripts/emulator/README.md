@@ -18,7 +18,8 @@ once and the scripts reuse it. Build output and logs go to the git-ignored
 | `log-privacy-check.sh` | Reconnects with Debug failure reports off and fails if the engine's logcat lines hold an IP address other than the probed Cloudflare services or tunnel-internal ones. |
 | `probe.sh ARGS` | Builds `probe/` for the device and runs it from the shell uid: `burst N`, `stun SIZE...`, `halfclose HOST`, `http HOST`. |
 | `pair.sh` | Pairs the gateway from `OTC_LIVE_TOKEN` through `PairGatewayInstrumentedTest` (token never printed) and grants VPN consent. |
-| `ci-smoke.sh` | CI, no secrets: `VpnStartupInstrumentedTest` plus a home-screen check. |
+| `ci-smoke.sh` | CI, no secrets: VPN startup, service start-id ordering, QR image import and a home-screen check. |
+| `native-protect-test.sh` | Offline Android Go tests: initial transport protection, ordinary-socket isolation, and rejection on protection failure. Uses only synthetic keys and loopback; requires the pinned `ANDROID_NDK_HOME`. |
 | `ci-live.sh` | CI, live gateway: pair, connect, then every check above; fails if any check fails. |
 
 ## CI

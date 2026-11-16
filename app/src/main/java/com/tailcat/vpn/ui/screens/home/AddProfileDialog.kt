@@ -1,8 +1,6 @@
 package com.tailcat.vpn.ui.screens.home
 
-import android.app.Activity
 import android.content.ActivityNotFoundException
-import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -41,12 +39,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -62,6 +62,7 @@ import com.tailcat.vpn.core.dns.DnsValidationResult
 import com.tailcat.vpn.core.dns.DnsValidator
 import com.tailcat.vpn.core.model.DnsPolicy
 import com.tailcat.vpn.core.model.GatewayProfile
+import com.tailcat.vpn.core.qr.QrImageImporter
 import com.tailcat.vpn.core.token.TokenParser
 import com.tailcat.vpn.core.token.TokenValidationState
 import com.tailcat.vpn.ui.theme.AccentCyan
@@ -74,6 +75,8 @@ import com.tailcat.vpn.ui.theme.TextMuted
 import com.tailcat.vpn.ui.theme.TextPrimary
 import com.tailcat.vpn.ui.theme.TextSecondary
 import com.tailcat.vpn.ui.theme.YellowWarning
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 /** Token pairing dialog with live token and DNS validation. */
 @Composable
@@ -92,14 +95,25 @@ fun AddProfileDialog(
     }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showQr by remember { mutableStateOf(false) }
-    val scanner = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val scanned = result.data?.getStringExtra("SCAN_RESULT")
-            if (scanned != null) {
-                tokenInput = scanned
-                errorMessage = null
-            } else {
-                errorMessage = "Scanner returned no token"
+    var importingQr by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                importingQr = true
+                try {
+                    tokenInput = QrImageImporter.read(context, uri)
+                    errorMessage = null
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: IllegalArgumentException) {
+                    errorMessage = error.message ?: "Could not import the QR image."
+                } catch (_: Exception) {
+                    errorMessage = "Could not read the QR image. Try another image or paste the token."
+                } finally {
+                    importingQr = false
+                }
             }
         }
     }
@@ -160,6 +174,7 @@ fun AddProfileDialog(
 
                 OutlinedTextField(
                     value = tokenInput,
+                    enabled = !importingQr,
                     onValueChange = {
                         tokenInput = it
                         errorMessage = null
@@ -180,22 +195,20 @@ fun AddProfileDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = {
+                    TextButton(enabled = !importingQr, onClick = {
                         try {
-                            scanner.launch(Intent("com.google.zxing.client.android.SCAN").apply {
-                                putExtra("SCAN_MODE", "QR_CODE_MODE")
-                            })
+                            imagePicker.launch("image/*")
                         } catch (_: ActivityNotFoundException) {
-                            errorMessage = "No compatible QR scanner found. Paste the token instead."
+                            errorMessage = "No image picker is available. Paste the token instead."
                         }
-                    }) { Text("Scan QR") }
+                    }) { Text(if (importingQr) "Reading QR…" else "Import QR image") }
                     TextButton(
                         onClick = { showQr = true },
-                        enabled = validationState is TokenValidationState.Valid
+                        enabled = !importingQr && validationState is TokenValidationState.Valid
                     ) { Text("Show QR") }
                 }
                 Text(
-                    "Scanning uses an installed QR scanner, which receives the token.",
+                    "Choose a QR image. It is decoded on this device; no camera permission is needed.",
                     color = TextMuted,
                     fontSize = 11.sp
                 )
@@ -283,7 +296,7 @@ fun AddProfileDialog(
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = AccentCyan),
-                enabled = validationState is TokenValidationState.Valid && dnsValidation is DnsValidationResult.Valid
+                enabled = !importingQr && validationState is TokenValidationState.Valid && dnsValidation is DnsValidationResult.Valid
             ) {
                 Text("Save & Pair", color = BgDark)
             }

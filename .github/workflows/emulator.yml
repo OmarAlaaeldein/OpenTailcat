@@ -27,6 +27,15 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.4"
+          cache-dependency-path: core-engine/go.sum
+      - name: Install NDK for offline native protection tests
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" "ndk;29.0.14206865"
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -44,7 +53,9 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 900
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-save
-          script: scripts/emulator/ci-smoke.sh
+          script: |
+            scripts/emulator/ci-smoke.sh
+            ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865" scripts/emulator/native-protect-test.sh
 
   live:
     name: emulator live gateway

@@ -1,8 +1,11 @@
 # Upstream Provenance: third_party/tailcat
 
-OpenTailcat ships an unmodified copy of upstream Tailcat as a submodule. This
-file records exactly which commit it is, why that commit, and what it contains,
-so a re-pin can be reviewed without diffing the submodule by hand.
+OpenTailcat keeps an unmodified upstream Tailcat submodule as its provenance
+base. The runtime compiles the application-owned generated integration module
+in `core-engine/tailcat-integration`; its small patch and verification process
+are documented in `core-engine/integration/README.md`. This is local maintained
+integration code, not an upstream-supported API. This file records the base
+commit so a re-pin and the integration patch can be reviewed together.
 
 `third_party/tailcat` is a git submodule of the official repository
 https://github.com/tailscale/tailcat.

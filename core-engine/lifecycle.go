@@ -233,6 +233,16 @@ func Prepare(tokenStr string) (err error) {
 		return sess.ctx.Err()
 	}
 
+	var mon linkChangeNotifier
+	if src, ok := client.(netMonitorSource); ok {
+		mon = src.netMonitor()
+		if mon == nil {
+			_ = client.Close()
+			abandonPrepare(sess)
+			return errors.New("tailcat network monitor is unavailable")
+		}
+	}
+
 	globalCore.mu.Lock()
 	if globalCore.sess != sess || sess.ctx.Err() != nil {
 		globalCore.mu.Unlock()
@@ -249,18 +259,11 @@ func Prepare(tokenStr string) (err error) {
 	globalCore.state = StatePrepared
 	// Published under globalCore.mu so a concurrent Stop cannot clear the
 	// monitor and then have this stale one stored after it.
-	var mon linkChangeNotifier
-	if src, ok := client.(netMonitorSource); ok {
-		mon = src.netMonitor()
-	}
 	netStateMu.Lock()
 	activeMonitor = mon
 	netStateMu.Unlock()
 	globalCore.mu.Unlock()
 
-	// Magicsock/DERP sockets created during Ping saw netns disabled by Tailcat.
-	// Re-enable protect before Android installs default routes (AUDIT H2).
-	ensureTransportProtect()
 	return nil
 }
 
@@ -384,7 +387,6 @@ func AttachTun(tunFD int) (err error) {
 	globalCore.state = StateRunning
 	globalCore.healthUnix.Store(time.Now().Unix())
 	globalCore.mu.Unlock()
-	ensureTransportProtect()
 	return nil
 }
 

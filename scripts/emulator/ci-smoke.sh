@@ -11,6 +11,7 @@ source "$DIR/lib.sh"
 install_test_apk
 run_instrumented com.tailcat.vpn.VpnStartupInstrumentedTest
 run_instrumented com.tailcat.vpn.ServiceStartIdInstrumentedTest
+run_instrumented com.tailcat.vpn.QrImageImportInstrumentedTest
 
 adb shell am start -n "$PKG/.ui.MainActivity" >/dev/null
 for _ in $(seq 1 10); do

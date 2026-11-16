@@ -1,0 +1,92 @@
+--- upstream/tailcat.go
++++ integration/tailcat.go
+@@ -76,7 +76,6 @@
+ 	"tailscale.com/ipn/store/mem"
+ 	"tailscale.com/net/dns"
+ 	"tailscale.com/net/netmon"
+-	"tailscale.com/net/netns"
+ 	"tailscale.com/net/tsaddr"
+ 	"tailscale.com/net/tsdial"
+ 	"tailscale.com/tailcfg"
+@@ -1905,7 +1904,7 @@
+ 	// call-me-maybe messages that advertise our UDP endpoints (see
+ 	// locoBackend.advertiseEndpoints).
+ 	conf.ForceDiscoKey = discoPrivateForNode(lb.priv)
+-	netns.SetEnabled(false)
++	configureStandaloneNetNS()
+ 	e, err := wgengine.NewUserspaceEngine(logf, conf)
+ 	if err != nil {
+ 		logf("wgengine.NewUserspaceEngine(tun %q) error: %v", "userspace-networking", err)
+@@ -1959,6 +1958,25 @@
+ 	started bool
+ 
+ 	upDone atomic.Bool // whether the server has meowed us at least once
++}
++
++// NetworkMonitor returns the monitor owned by this initialized client.
++// This application-owned integration API deliberately uses ordinary typed
++// access. Call after Ping initialized the client; absence is an explicit error.
++func (c *Client) NetworkMonitor() (*netmon.Monitor, error) {
++	if c == nil {
++		return nil, errors.New("nil Tailcat client")
++	}
++	c.startMu.Lock()
++	defer c.startMu.Unlock()
++	if c.lb == nil {
++		return nil, errors.New("tailcat client is not initialized")
++	}
++	mon, ok := c.lb.sys.NetMon.GetOK()
++	if !ok || mon == nil {
++		return nil, errors.New("tailcat network monitor is unavailable")
++	}
++	return mon, nil
+ }
+ 
+ // nodeKeyLocked returns the client's effective node private key,
+--- upstream/pickregion.go
++++ integration/pickregion.go
+@@ -13,7 +13,6 @@
+ 
+ 	"tailscale.com/net/netcheck"
+ 	"tailscale.com/net/netmon"
+-	"tailscale.com/net/netns"
+ 	"tailscale.com/tailcfg"
+ 	"tailscale.com/types/logger"
+ )
+@@ -30,7 +29,7 @@
+ 	// the default interface) blackholes loopback UDP, making every
+ 	// netcheck against a loopback DERP map burn the full 3-second
+ 	// STUN timeout before falling back to HTTPS probes.
+-	netns.SetEnabled(false)
++	configureStandaloneNetNS()
+ 	nc := &netcheck.Client{
+ 		NetMon:  netmon.NewStatic(),
+ 		Verbose: Verbose,
+--- upstream/opentailcat_android.go
++++ integration/opentailcat_android.go
+@@ -0,0 +1,12 @@
++// Copyright (c) OpenTailcat contributors
++// SPDX-License-Identifier: BSD-3-Clause
++
++//go:build android
++
++package tailcat
++
++import "tailscale.com/net/netns"
++
++// Android transport sockets must always receive the registered protect hook,
++// including initial STUN, DERP and Magicsock sockets and all later redials.
++func configureStandaloneNetNS() { netns.SetEnabled(true) }
+--- upstream/opentailcat_other.go
++++ integration/opentailcat_other.go
+@@ -0,0 +1,10 @@
++// Copyright (c) OpenTailcat contributors
++// SPDX-License-Identifier: BSD-3-Clause
++
++//go:build !android
++
++package tailcat
++
++import "tailscale.com/net/netns"
++
++func configureStandaloneNetNS() { netns.SetEnabled(false) }

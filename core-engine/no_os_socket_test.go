@@ -52,7 +52,8 @@ var osSocketAllowlist = map[string]string{
 	// sockets passed through VpnService.protect to Android's own DNS servers.
 	"main.go:net.DefaultResolver": "transport hostname resolution on protected sockets",
 	"main.go:net.Resolver":        "transport hostname resolution on protected sockets",
-	"main.go:net.Dialer":          "transport hostname resolution on protected sockets",
+	"main.go:net.Dialer":          "transport hostname DNS and metadata HTTP on protected sockets",
+	"main.go:http.Transport":      "clone the transport-metadata HTTP dialer with creation-time protection",
 	// Wraps upstream's DERP map fetch to strip unsafe nodes; carries no
 	// application traffic.
 	"main.go:http.DefaultTransport":        "DERP map filter wraps upstream transport",

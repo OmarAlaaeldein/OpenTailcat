@@ -49,8 +49,8 @@ func recordDefaultRouteInterface(t *testing.T) func() []string {
 	}
 }
 
-// The monitor sits in unexported upstream fields; this fails if a Tailcat
-// update moves them, instead of roaming silently going back to timeouts.
+// The application-owned integration must expose the actual initialized
+// client's monitor through its compile-checked API.
 func TestClientNetMonReachesTheClientMonitor(t *testing.T) {
 	ci := tailcat.ConnInfo{
 		ServerPublic:      tailcat.NodePublic{NodePublic: key.NewNode().Public()},
@@ -84,7 +84,7 @@ func TestClientNetMonReachesTheClientMonitor(t *testing.T) {
 	_, _ = client.Ping(ctx) // no relay answers; this only starts the client
 
 	if clientNetMon(client) == nil {
-		t.Fatal("clientNetMon did not find the started client's netmon (upstream layout changed?)")
+		t.Fatal("typed integration API did not return the initialized client's monitor")
 	}
 	if (&engineClient{Client: client}).netMonitor() == nil {
 		t.Fatal("engineClient.netMonitor returned nil for a started client")
@@ -152,12 +152,30 @@ func TestPrepareWiresClientMonitorAndStopClearsIt(t *testing.T) {
 		t.Fatal("Stop left a monitor behind")
 	}
 
-	// A client with no monitor (test fakes, future upstream) leaves it nil.
+	// A test fake that does not declare monitor support leaves it nil.
 	installClient(t, &prepareTestClient{})
 	if err := Prepare(officialTestToken(t)); err != nil {
 		t.Fatalf("Prepare without monitor: %v", err)
 	}
 	if currentMonitor() != nil {
 		t.Fatal("a client without a monitor must leave activeMonitor nil")
+	}
+}
+
+func TestPrepareRejectsMissingDeclaredMonitor(t *testing.T) {
+	_ = Stop()
+	t.Cleanup(func() { _ = Stop() })
+	installClient(t, &monitoredTestClient{})
+	if err := Prepare(officialTestToken(t)); err == nil {
+		t.Fatal("Prepare accepted a client that declared an unavailable monitor")
+	}
+	if currentMonitor() != nil {
+		t.Fatal("failed preparation published a monitor")
+	}
+	globalCore.mu.Lock()
+	got := globalCore.state
+	globalCore.mu.Unlock()
+	if got != StateStopped {
+		t.Fatalf("state after missing monitor = %v, want STOPPED", got)
 	}
 }

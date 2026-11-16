@@ -18,7 +18,13 @@ import (
 
 func init() {
 	if _, ok := http.DefaultTransport.(*derpFilterTransport); !ok {
-		http.DefaultTransport = &derpFilterTransport{base: http.DefaultTransport}
+		base, ok := http.DefaultTransport.(*http.Transport)
+		if !ok {
+			panic("unexpected native transport HTTP implementation")
+		}
+		protected := base.Clone()
+		protected.DialContext = (&net.Dialer{Control: transportSocketControl}).DialContext
+		http.DefaultTransport = &derpFilterTransport{base: protected}
 	}
 
 	// On Android, /etc/resolv.conf does not exist, causing Go's pure Go resolver to query [::1]:53 or 127.0.0.1:53.
@@ -26,17 +32,7 @@ func init() {
 	net.DefaultResolver = &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			d := net.Dialer{
-				Control: func(_, _ string, c syscall.RawConn) error {
-					var pErr error
-					if err := c.Control(func(fd uintptr) {
-						pErr = protectFD(int(fd))
-					}); err != nil {
-						return err
-					}
-					return pErr
-				},
-			}
+			d := net.Dialer{Control: transportSocketControl}
 			netStateMu.RLock()
 			dnsList := append([]string(nil), customDNSList...)
 			netStateMu.RUnlock()
@@ -79,6 +75,16 @@ func init() {
 		}
 		return ret, nil
 	})
+}
+
+// Used only by native transport metadata HTTP and transport hostname DNS.
+// Application TCP/UDP flows continue to use the gateway's userspace stack.
+func transportSocketControl(_, _ string, c syscall.RawConn) error {
+	var protectErr error
+	if err := c.Control(func(fd uintptr) { protectErr = protectFD(int(fd)) }); err != nil {
+		return err
+	}
+	return protectErr
 }
 
 var (

@@ -25,7 +25,7 @@ Independent community project. Not affiliated with Tailscale Inc.
   and over IPv6 when the gateway has IPv6 connectivity.
 - Keeps several gateways as profiles, each with its own DNS resolver, DNS
   policy, and MTU.
-- Pairs by pasting a token, scanning a QR code with an installed scanner, or
+- Pairs by pasting a token, importing a QR image on-device, or
   showing a saved profile's QR for another device.
 - Excludes apps you choose from the tunnel (split tunneling).
 - Shows live tunnel state: RTT, jitter, relay region, tunnel counters, and the

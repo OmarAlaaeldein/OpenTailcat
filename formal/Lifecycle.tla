@@ -642,7 +642,7 @@ WarmAttachRet:
   if ret[self] = "err" then Throw("err"); goto Catch; end if;
 WarmSnap:                                              \* getStats(); check(shouldConnect)
   if ~LiveSnap(Snap) then Throw("err"); goto Catch; end if;
-Sweep1:                                                \* protect sweep; ensureActive; checkNotShuttingDown
+Sweep1:                                                \* ensureActive; checkNotShuttingDown (label kept for saved replays; the protect sweep is gone)
   if Cancelled(self) then Throw("cancel"); goto Catch; end if;
 Disarm:                                                \* tunnelEngine.disarmPumps()
   if eCur # 0 /\ sBr[eCur] # 0 then
@@ -714,7 +714,7 @@ RoutedSnap:
   else
     jSnapSess := [jSnapSess EXCEPT ![self] = eCur];
   end if;
-PostSweep:                                             \* ensureTransportProtect + protect sweep
+PostSweep:                                             \* no-op (label kept for saved replays; formerly ensureTransportProtect + sweep)
   skip;
 SetHandler:                                            \* synchronized(interfaceLock) { checkNotShuttingDown(epoch);
   if ~Mut("F5") /\ Stale(self) then                    \*   sessionFailureHandler = ...; onEngineConnected(metrics) }

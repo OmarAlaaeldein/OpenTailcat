@@ -17,7 +17,6 @@ import com.tailcat.vpn.core.model.DnsPolicy
 import com.tailcat.vpn.core.model.GatewayProfile
 import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TunnelState
-import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
@@ -386,11 +385,6 @@ class TailcatVpnService : VpnService() {
         // full-device route. A failed or cancelled prepare phase cannot affect device traffic.
         // Always-on / block-without-VPN is recommended but optional (does not gate Connect).
         app.tunnelEngine.prepare(profile.token)
-        // Tailcat createEngine disables netns; re-enable Android VpnService.protect hooks
-        // before any default route exists so Magicsock/DERP redials bypass the TUN (H2).
-        app.tunnelEngine.ensureTransportProtect()
-        // Magicsock/DERP sockets opened during prepare still lack Control; protect them now.
-        protectOpenTransportSockets()
         currentCoroutineContext().ensureActive()
         checkNotShuttingDown(epoch)
 
@@ -409,16 +403,12 @@ class TailcatVpnService : VpnService() {
             epoch
         )
         attachLive(app, warm, networkState, epoch)
-        // Warm attach may open more transport sockets; protect before default routes.
-        protectOpenTransportSockets(excludeTun = warm)
         currentCoroutineContext().ensureActive()
         checkNotShuttingDown(epoch)
         // Intentional two-phase rebind: disarm pump-failure so the planned
         // detach cannot race a FAILED mark before the routed TUN attaches.
         app.tunnelEngine.disarmPumps()
         app.tunnelEngine.detachTun()
-        app.tunnelEngine.ensureTransportProtect()
-        protectOpenTransportSockets()
 
         // Default routes are installed only while no shutdown is under way;
         // a shutdown that starts later finds and closes this TUN (F3).
@@ -430,9 +420,6 @@ class TailcatVpnService : VpnService() {
             runCatching { warm.close() }
         }
         val metrics = attachLive(app, routed, networkState, epoch)
-        // After default routes, re-sweep so any late Magicsock/DERP redial is protected.
-        app.tunnelEngine.ensureTransportProtect()
-        protectOpenTransportSockets(excludeTun = routed)
         // Publish CONNECTED atomically with respect to shutdown(), whose
         // check-and-set of shuttingDown also takes interfaceLock: either
         // shutdown already started and nothing is published, or it runs
@@ -633,21 +620,6 @@ class TailcatVpnService : VpnService() {
         serviceScope.launch { shutdown() }
     }
 
-
-    /**
-     * Protect already-open process sockets so Magicsock/DERP traffic bypasses the TUN.
-     * See [TransportSocketProtect]. Excludes the active VPN interface FD when known.
-     */
-    private fun protectOpenTransportSockets(excludeTun: ParcelFileDescriptor? = null) {
-        val exclude = linkedSetOf<Int>()
-        excludeTun?.fd?.takeIf { it >= 0 }?.let { exclude.add(it) }
-        synchronized(interfaceLock) {
-            vpnInterface?.fd?.takeIf { it >= 0 }?.let { exclude.add(it) }
-        }
-        val names = runCatching { File("/proc/self/fd").list() }.getOrNull()
-        val fds = TransportSocketProtect.listCandidateFds(names, exclude)
-        TransportSocketProtect.protectAll(fds) { fd -> protect(fd) }
-    }
 
     companion object {
         const val VPN_PERMISSION_REQUIRED =

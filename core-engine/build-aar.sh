@@ -6,6 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+python3 "${SCRIPT_DIR}/integration/sync_tailcat.py" --check
 OUTPUT_AAR="${ROOT_DIR}/app/libs/libtailcat.aar"
 CANONICAL_BUILD_DIR="/tmp/opentailcat-build"
 

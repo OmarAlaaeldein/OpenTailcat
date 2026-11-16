@@ -2,6 +2,7 @@ package engine
 
 import (
 	"errors"
+	"runtime"
 	"sync"
 )
 
@@ -27,6 +28,9 @@ func protectFD(fd int) error {
 	p := currentProtector
 	protectorMu.Unlock()
 	if p == nil {
+		if runtime.GOOS == "android" {
+			return errors.New("android transport socket protector is not installed")
+		}
 		return nil
 	}
 	if !p.Protect(fd) {
@@ -35,9 +39,8 @@ func protectFD(fd int) error {
 	return nil
 }
 
-// EnsureTransportProtect restores Android VpnService.protect for Tailcat
-// Magicsock/DERP sockets after upstream createEngine disables netns.
-// Safe no-op on non-Android builds. Call after prepare() and before routes.
+// EnsureTransportProtect is retained for bridge compatibility. Android's
+// creation-time hook now stays enabled throughout Tailcat initialization.
 func EnsureTransportProtect() {
 	defer recoverExported("EnsureTransportProtect", nil)
 	ensureTransportProtect()

@@ -32,7 +32,7 @@ class TailcatApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         // Before any HTTP request: app sockets must never outlive their request
-        // (see AppHttp and TailcatVpnService.protectOpenTransportSockets).
+        // across connect/reconnect transitions (see AppHttp).
         AppHttp.disableConnectionReuse()
         instance = this
 

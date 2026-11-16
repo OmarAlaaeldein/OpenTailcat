@@ -2,7 +2,7 @@ module com.tailcat.vpn/engine
 
 go 1.27.4
 
-replace github.com/tailscale/tailcat => ../third_party/tailcat
+replace github.com/tailscale/tailcat => ./tailcat-integration
 
 require (
 	github.com/fxamacker/cbor/v2 v2.10.0

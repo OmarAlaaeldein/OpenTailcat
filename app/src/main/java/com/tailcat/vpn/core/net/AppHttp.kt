@@ -7,15 +7,10 @@ import java.net.URL
  * The only way app code opens an HTTP(S) connection. Connections are never
  * reused.
  *
- * Why: before installing default routes, the VPN service protects every open
- * socket in the process ([com.tailcat.vpn.service.TransportSocketProtect]),
- * because Magicsock/DERP transport sockets opened during prepare cannot be
- * told apart from other sockets. A pooled keep-alive socket from an earlier
- * app request (public-IP card, speed test, updater) would be protected too,
- * and reusing it while CONNECTED would send that request outside the tunnel.
- * With no pool, an app socket lives only as long as its own request, so after
- * the sweep every new app request opens a new, unprotected socket that
- * follows the VPN routes.
+ * Transport protection is restricted to native transport sockets at creation.
+ * App HTTP sockets are never enumerated or exempted from VPN routing. Keep
+ * this conservative no-reuse policy across connect/reconnect transitions;
+ * it is no longer a prerequisite for a process-wide protection sweep.
  *
  * `AppHttpSourceTest` fails the build if anything else calls `openConnection`.
  */
