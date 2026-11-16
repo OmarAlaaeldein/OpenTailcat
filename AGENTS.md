@@ -282,7 +282,15 @@ API. Missing monitor support fails preparation; no reflection or unsafe
 private-field access is used. Telemetry is
 schema 2: RTT from `DiscoPing` ~5 s, jitter null until 3 samples, DERP region
 from `Client.DERPRegion()`; WireGuard counters stay 0 (no upstream API),
-`tunTxBytes`/`tunRxBytes` count TUN packets. Tokens are validated twice
+`tunTxBytes`/`tunRxBytes` are the IP bytes that cross the TUN: upload is every
+byte read from it, download every byte written to it, headers included, whether or
+not the engine forwards the packet (refused packets and local TCP ACKs / ICMP
+errors count too). That is the kernel's own tun interface count, so it can be
+checked against `/proc/net/dev`; it is not gateway payload. Rates are those bytes
+per second as decimal kilobits, rounded to the nearest. The UI shows decimal units
+throughout (`kB`/`MB`/`GB`, `kb/s`/`Mb/s`/`Gb/s`) so a rate and a total agree
+(100 Mb/s for 10 s = 125.0 MB). `counters_exact_test.go` checks the totals against
+independently counted bytes. Tokens are validated twice
 (Kotlin UX, Go authority, shared fixtures). GitHub flavor has the updater;
 F-Droid compiles it out.
 

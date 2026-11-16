@@ -324,7 +324,6 @@ func (p *netstackProxy) writeLoop(ready chan struct{}) error {
 			packet.DecRef()
 			continue
 		}
-		n := len(out)
 		err := p.bridge.writeTunPacket(out)
 		view.Release()
 		packet.DecRef()
@@ -334,7 +333,6 @@ func (p *netstackProxy) writeLoop(ready chan struct{}) error {
 			}
 			return err
 		}
-		p.bridge.rxBytes.Add(int64(n))
 	}
 }
 

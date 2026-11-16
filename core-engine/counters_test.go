@@ -109,8 +109,9 @@ func TestLinkQueueDropsAreCounted(t *testing.T) {
 }
 
 // TestTunByteCountersCountEachPacketOnce checks that TUN bytes are counted
-// once, where packets cross the TUN, and that a locally generated ICMP error
-// is not counted as received traffic.
+// once, where packets cross the TUN. A locally generated ICMP error is written
+// to the TUN like any other packet, so it counts as received (see
+// writeTunPacket for the single definition of the counters).
 func TestTunByteCountersCountEachPacketOnce(t *testing.T) {
 	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_DGRAM, 0)
 	if err != nil {
@@ -195,7 +196,8 @@ func TestTunByteCountersCountEachPacketOnce(t *testing.T) {
 	if got := b.txBytes.Load(); got != int64(len(out)+len(big)) {
 		t.Fatalf("txBytes = %d, want %d", got, len(out)+len(big))
 	}
-	if got := b.rxBytes.Load(); got != int64(reply) {
-		t.Fatalf("rxBytes = %d after a local ICMP error, want %d", got, reply)
+	waitAtomic(t, &b.rxBytes, int64(reply+n), 2*time.Second, "rxBytes including the ICMP error")
+	if got := b.rxBytes.Load(); got != int64(reply+n) {
+		t.Fatalf("rxBytes = %d after a local ICMP error, want %d (reply %d + ICMP %d)", got, reply+n, reply, n)
 	}
 }

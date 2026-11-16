@@ -193,7 +193,7 @@ fun TelemetryCard(
                 iconDescription = "Download",
                 tint = EmeraldConnected,
                 primary = TrafficFormat.formatBytes(metrics.tunRxBytes),
-                secondary = TrafficFormat.formatKbps(metrics.rxRateKbps),
+                secondary = TrafficFormat.formatRate(metrics.rxRateKbps),
                 modifier = Modifier.weight(1f)
             )
             StatTile(
@@ -201,7 +201,7 @@ fun TelemetryCard(
                 iconDescription = "Upload",
                 tint = VioletDerp,
                 primary = TrafficFormat.formatBytes(metrics.tunTxBytes),
-                secondary = TrafficFormat.formatKbps(metrics.txRateKbps),
+                secondary = TrafficFormat.formatRate(metrics.txRateKbps),
                 modifier = Modifier.weight(1f)
             )
             Column(

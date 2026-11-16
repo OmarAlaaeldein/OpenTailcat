@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net"
 	"net/netip"
 	"os"
@@ -755,13 +756,33 @@ func (b *TunBridge) writeIPv4FragNeeded(pkt []byte, mtu int) {
 	_ = b.writeTunPacket(reply)
 }
 
-// writeTunPacket writes pkt to the TUN. It does not count rxBytes: those
-// count only gateway traffic (writeLoop), not locally generated ICMP errors.
+// writeTunPacket writes pkt to the TUN and counts the bytes written.
+//
+// The two telemetry byte counters have one definition: txBytes is every byte
+// read from the TUN (readLoop) and rxBytes is every byte written to it (here),
+// IP headers included, whether or not the engine forwards the packet. That is
+// exactly what the kernel's own counters for the TUN interface report, so the
+// numbers can be checked against /proc/net/dev. They are not gateway payload
+// or WireGuard bytes: packets the engine refuses (oversize, ICMP echo, policy)
+// and its locally generated replies (TCP ACKs, ICMP errors) cross the TUN too.
 func (b *TunBridge) writeTunPacket(pkt []byte) error {
 	b.tunWriteMu.Lock()
 	defer b.tunWriteMu.Unlock()
-	_, err := b.tunFile.Write(pkt)
+	n, err := b.tunFile.Write(pkt)
+	if n > 0 {
+		b.rxBytes.Add(int64(n))
+	}
 	return err
+}
+
+// rateKbps converts a byte count moved over elapsed into kilobits per second
+// (1 kb = 1000 bits), rounded to the nearest integer. A non-positive interval
+// or byte count (including a counter reset) gives 0.
+func rateKbps(deltaBytes int64, elapsed time.Duration) int64 {
+	if deltaBytes <= 0 || elapsed <= 0 {
+		return 0
+	}
+	return int64(math.Round(float64(deltaBytes) * 8 / (elapsed.Seconds() * 1000)))
 }
 
 const (
@@ -808,13 +829,9 @@ func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 			currentTx := b.txBytes.Load()
 			currentRx := b.rxBytes.Load()
 
-			deltaSec := t.Sub(b.lastTime).Seconds()
-			if deltaSec > 0 {
-				txRate := float64(currentTx-b.lastTx) * 8 / (deltaSec * 1000)
-				rxRate := float64(currentRx-b.lastRx) * 8 / (deltaSec * 1000)
-				b.txRateKbps.Store(int64(txRate))
-				b.rxRateKbps.Store(int64(rxRate))
-			}
+			elapsed := t.Sub(b.lastTime)
+			b.txRateKbps.Store(rateKbps(currentTx-b.lastTx, elapsed))
+			b.rxRateKbps.Store(rateKbps(currentRx-b.lastRx, elapsed))
 
 			b.lastTx = currentTx
 			b.lastRx = currentRx
