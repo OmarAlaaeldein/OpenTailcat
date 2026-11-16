@@ -14,7 +14,7 @@ work; other docs link here.
   `com.tailcat.vpn`
 - Toolchain: Kotlin 2.4.21, Gradle 9.9.1, JDK 21, Go 1.27.4
 - Versions: `gradle/libs.versions.toml`, `core-engine/go.mod`
-- Current version: 1.6.0 (versionCode 49); notes in `docs/releases/`
+- Current version: 1.6.5; notes in `docs/releases/`
 
 ## Status
 
@@ -167,9 +167,14 @@ keystore (`~/.android/debug.keystore`), whose certificate is pinned as
 a machine whose debug key matches that pin; otherwise Android rejects the
 upgrade as a different signer.
 
-1. Bump `versionCode` and `versionName` in `app/build.gradle.kts`.
+1. Bump `versionName` in `app/build.gradle.kts`, and `versionCode` with it (Android
+   needs a rising integer inside the APK). Releases are identified by the version
+   name only: never put the version code in a release title, notes, or docs.
 2. Add `docs/releases/<version>.md` and
-   `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`.
+   `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` (F-Droid
+   names changelogs by version code). Release notes list changes, verification
+   and hashes only; the development-preview caveat lives in `README.md`, not
+   in every release.
 3. Build the publishable APKs with the real repository slug. The slug is
    deployment configuration; the tracked default is a neutral placeholder.
 
@@ -181,7 +186,7 @@ upgrade as a different signer.
 
    ```bash
    BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
-   "$ANDROID_HOME/build-tools/$BT/aapt2" dump badging <apk> | head -1   # versionCode/Name
+   "$ANDROID_HOME/build-tools/$BT/aapt2" dump badging <apk> | head -1   # version name
    "$ANDROID_HOME/build-tools/$BT/apksigner" verify --print-certs <apk>  # dd7670... pin
    unzip -p <apk> 'classes*.dex' | strings | rg -o '[A-Za-z0-9_.-]+/OpenTailcat'
    ```
@@ -196,7 +201,7 @@ upgrade as a different signer.
    the release:
 
    ```bash
-   gh release create v<version> --title "OpenTailcat <version> (versionCode NN)" \
+   gh release create v<version> --title "OpenTailcat <version>" \
      --notes-file docs/releases/<version>.md <apks> <sums>
    ```
 

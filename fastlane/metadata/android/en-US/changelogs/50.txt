@@ -1,0 +1,1 @@
+Redesigned interface with a cleaner look and better contrast. Upload and download counters now match the VPN interface exactly, with consistent units (kB/MB/GB and kb/s, Mb/s). Import a QR image instead of launching a scanner app; no camera permission. Transport sockets are protected when created.
