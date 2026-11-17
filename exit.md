@@ -254,16 +254,15 @@ lifecycle and its own tests.
 
 ## Known gaps before this can ship
 
-- **The engine resolver has no DNS failover (client path too).** Found on the
-  emulator: Android's primary DNS (10.0.2.3) never answers, the secondary mostly
-  does, and the engine's resolver always dials the first server, so every retry
-  hits the dead one and a node start timed out fetching the DERP map. A
-  try-the-next-server-on-timeout patch exists in `git stash` (answer-learning
-  preference in `main.go`, with tests) but is incomplete: with a flaky good
-  server one timeout flips the preference back to the dead one. It changes the
-  client's resolver and needs an AAR rebuild, so it is a separate decision. The
-  complete fix is hedged queries to all servers. On a healthy network none of
-  this applies; the emulator must be started with `-dns-server 8.8.8.8` to test.
+- **DNS failover in the engine resolver is partial (client path too).** Found on
+  the emulator: Android's primary DNS (10.0.2.3) never answers, and the engine's
+  resolver used to dial only the first server, so a node start timed out
+  fetching the DERP map. `main.go` now prefers the server that last answered and
+  moves on after a read timeout (`dnsServerConn`, `dns_rotation_test.go`). It is
+  not complete: with a flaky good server one timeout moves the preference back
+  to a dead one, costing one more timeout. The complete fix is hedged queries to
+  all servers. Boot the emulator with `-dns-server 8.8.8.8,8.8.4.4` to test
+  without depending on it.
 - **Wake lock is a guess until measured.** The service holds a `PARTIAL_WAKE_LOCK`
   for the session (timeout = TTL + 60 s). Whether it is needed, and what it
   costs in battery and heat, is the 30-minute power test, still to do.

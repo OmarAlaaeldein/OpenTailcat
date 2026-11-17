@@ -3,12 +3,14 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/tailscale/tailcat"
@@ -37,17 +39,31 @@ func init() {
 			dnsList := append([]string(nil), customDNSList...)
 			netStateMu.RUnlock()
 
-			for _, s := range dnsList {
-				target := s
+			// A UDP dial succeeds whether or not the server answers, so the
+			// dial alone cannot tell a dead server from a live one. Start from
+			// the server that last answered, and let a timed-out read move the
+			// preference on (dnsServerConn), so Go's retry reaches the next
+			// server instead of the dead one again.
+			n := len(dnsList)
+			if n == 0 {
+				return nil, fmt.Errorf("no Android DNS servers available")
+			}
+			start := int(dnsPreferred.Load() % uint32(n))
+			for i := 0; i < n; i++ {
+				idx := (start + i) % n
+				target := dnsList[idx]
 				if _, _, err := net.SplitHostPort(target); err != nil {
 					target = net.JoinHostPort(target, "53")
 				}
 				c, err := d.DialContext(ctx, "udp", target)
-				if err == nil {
-					return c, nil
+				if err != nil {
+					continue
 				}
+				if uc, ok := c.(*net.UDPConn); ok {
+					return &dnsServerConn{UDPConn: uc, idx: uint32(idx), n: uint32(n)}, nil
+				}
+				return c, nil
 			}
-
 			return nil, fmt.Errorf("no Android DNS servers available")
 		},
 	}
@@ -85,6 +101,37 @@ func transportSocketControl(_, _ string, c syscall.RawConn) error {
 		return err
 	}
 	return protectErr
+}
+
+// dnsPreferred is the index, in the current Android DNS list, of the server the
+// resolver should try first: the last one that answered.
+var dnsPreferred atomic.Uint32
+
+// dnsServerConn is a UDP conn to one Android DNS server that reports how the
+// exchange went. An answer makes this server the preferred one; a read that
+// times out moves the preference to the next. It embeds *net.UDPConn so it
+// stays a net.PacketConn, which is how Go's resolver recognises datagram DNS.
+type dnsServerConn struct {
+	*net.UDPConn
+	idx, n uint32
+}
+
+func (c *dnsServerConn) Read(b []byte) (int, error) {
+	n, err := c.UDPConn.Read(b)
+	switch {
+	case err == nil:
+		dnsPreferred.Store(c.idx)
+	case isTimeout(err):
+		// Only the first timeout for this server moves the preference, so
+		// parallel A and AAAA queries that stall together advance it once.
+		dnsPreferred.CompareAndSwap(c.idx, (c.idx+1)%c.n)
+	}
+	return n, err
+}
+
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 var (
