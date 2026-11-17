@@ -1,11 +1,17 @@
 # Exit-node mode: plan
 
-Status: M1 (Go `exitnode` package), M2 (native bridge, rebuilt AAR, Kotlin
-facade) and M3 (foreground service, notifications) are written and unit-tested.
-Verified on an API 35 arm64 emulator: start, foreground service (`specialUse`),
-ongoing notification, the VPN interlock, notification-to-screen routing, and
-Stop (wake lock, service and notification all released). Not verified: a real
-guest connecting, approval, forwarding, and power; that is the remaining gate.
+Status: shipped in 1.7.0. M1 (Go `exitnode` package), M2 (native bridge,
+rebuilt AAR, Kotlin facade), M3 (foreground service, notifications) and M5
+(docs, release) are done and unit-tested. Verified on an API 35 arm64
+emulator: start, foreground service (`specialUse`), ongoing notification, the
+VPN interlock, notification-to-screen routing, and Stop (wake lock, service and
+notification all released). Verified by hand: a real guest phone, on mobile
+data, connecting through an emulator host with approval and real browsing
+traffic (one capture: about 170 open flows and 11 MB). Not verified, and still
+the gate for calling this production-ready: battery and thermal behaviour over
+30-minute and longer sessions (especially no-limit shares), and a physical
+phone as the host. M4 (stable per-profile client key, TCP idle timeout,
+per-peer caps) is not done.
 
 Two decisions changed from the first draft; see "What changed" at the end.
 
@@ -190,9 +196,9 @@ feature does not inherit the client's leak surface.
 | --- | --- | --- |
 | M1 | `exitnode` package: server, forwarders, minting, limits, expiry; in-process tests. **Done** (incl. real client-to-node test over a local DERP) | 5–7 d |
 | M2 | Bridge exports, panic recovery, AAR rebuild, Kotlin facade (`TunnelExitNode`). **Done**; native mutual exclusion with the client engine added | 2–3 d |
-| M3 | `ExitNodeService`, share screen, interlock. **Done** (foreground service of type `specialUse`, ongoing + request-alert + ended notifications, session-scoped wake lock); not yet measured on a device | 5–7 d |
-| M4 | Stable per-profile client key, per-peer caps, TCP idle timeout, battery measurement | 3–5 d |
-| M5 | Docs (`AGENTS.md`, `README.md`, Fastlane text), release 1.7.0, F-Droid metadata bump | 2 d |
+| M3 | `ExitNodeService`, share screen, interlock. **Done** (foreground service of type `specialUse`, ongoing + request-alert + ended notifications, session-scoped wake lock); guest flow verified by hand, power not yet measured | 5–7 d |
+| M4 | Stable per-profile client key, per-peer caps, TCP idle timeout, battery measurement. **Not done** | 3–5 d |
+| M5 | Docs (`AGENTS.md`, `README.md`, privacy policy, Fastlane text), release 1.7.0. **Done**; the F-Droid metadata bump follows through `AutoUpdateMode` | 2 d |
 
 Roughly four focused weeks. M1 is the only part with real unknowns, and it is
 testable without Android.
@@ -231,8 +237,10 @@ testable without Android.
    Fastlane tree until that MR is resolved.
 2. M1 on the desktop. If minting, admission, and forwarding do not behave, stop
    before spending Android effort.
-3. M2–M3 to prove battery and UX on a device.
-4. M4 hardening, then 1.7.0.
+3. M2–M3 to prove battery and UX on a device. UX and the guest flow are proven;
+   battery is not.
+4. 1.7.0 shipped with M4 outstanding. M4 hardening and the power measurement
+   are the next work, tracked in `AGENTS.md` "Remaining work".
 
 ## Open decisions
 
@@ -258,6 +266,16 @@ lifecycle and its own tests.
    alone is not enough), no token-contract change, no key exchange.
 2. **A destination policy was added.** The first draft protected the host's data
    plan but not the host's own network.
+3. **"Until I stop" was added**, with approval admission as a hard requirement,
+   because the 24 h cap was too short for the real use. The UI, the bridge and
+   the node each refuse the unsafe combination.
+
+Observed while testing 1.7.0: two devices asked to connect although the code
+had gone to one person. The guest confirmed it was their own retry: a guest
+gets a fresh key on every connect attempt, so a retry looks like a second
+device, and the host cannot tell the two apart (the known gap). That is the
+cost of not having the stable per-profile key (M4); the "more than one device
+is asking" warning is still right to be loud.
 
 ## Known gaps before this can ship
 

@@ -8,6 +8,7 @@
 <li>Live tunnel telemetry: latency, jitter, relay region, counters, and the public egress IP</li>
 <li>On-demand speed test through the tunnel when connected, labelled when it uses device routes instead</li>
 <li>Works with Android Always-on VPN and "Block connections without VPN"; disconnecting from the lock screen requires unlocking</li>
+<li>Share this phone: let someone you trust use your connection through a one-session code, with per-device approval, a time limit or none, and a one-tap stop</li>
 <li>No ads, analytics, accounts, or crash reporting; saved tokens are encrypted with Android Keystore</li>
 </ul>
-<p>OpenTailcat is an independent community project and is not affiliated with Tailscale Inc. It is under active development: physical leak testing is not finished and the GitHub builds are development-signed, so do not rely on it as a hardened privacy VPN yet. Your gateway operator can see traffic that leaves through it, and apps you exclude bypass the tunnel.</p>
+<p>OpenTailcat is an independent community project and is not affiliated with Tailscale Inc. It is under active development: physical leak testing is not finished and the GitHub builds are development-signed, so do not rely on it as a hardened privacy VPN yet. Your gateway operator can see traffic that leaves through it, and apps you exclude bypass the tunnel. If you share your phone, sites see your IP address and the traffic uses your data plan, so share only with people you trust.</p>

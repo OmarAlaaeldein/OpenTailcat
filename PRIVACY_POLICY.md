@@ -1,6 +1,6 @@
 # Privacy policy for OpenTailcat
 
-**Last updated:** November 10, 2026
+**Last updated:** November 17, 2026
 
 OpenTailcat has no accounts, advertising, analytics SDKs, remote crash
 reporting, or coordination service. This policy covers the current source
@@ -21,9 +21,10 @@ encrypted preferences with a key held by Android Keystore. Plaintext
 preferences from earlier builds are migrated and cleared. Android backup and
 device-to-device transfer are disabled for app data.
 
-The pairing screen can display a token as a QR code. Scanning uses a compatible
-external scanner app if installed; that app receives the token and controls its
-own camera access. OpenTailcat does not request camera permission.
+The app can display a saved profile's token as a QR code, and can import a QR
+code from an image you choose with the system picker. The image is decoded in
+memory on the device and is not sent anywhere. OpenTailcat does not request
+camera permission and does not hand tokens to an external scanner.
 
 Gateway tokens are secrets. Anyone who obtains one may learn connection
 metadata or attempt to reach its gateway. Protect device access, screenshots,
@@ -45,6 +46,9 @@ logs, and exported diagnostics.
 - **Check for updates** requests the GitHub Releases API; **Download** fetches
   the APK from GitHub and its release-asset hosts. The F-Droid flavor has no
   updater.
+- **Share this phone** (see below) fetches the relay map
+  (`https://tailcat.dev/derpmap.json`) and connects to a relay, and the phone
+  opens a connection to every destination a guest asks for.
 - After TUN attachment, the engine performs an exit-IP audit through Tailcat
   (authenticated TLS `GET /cdn-cgi/trace` to `1.1.1.1` via `Client.DialTCP`).
   Intercepted DNS is proxied through Tailcat under the profile or forced
@@ -65,13 +69,48 @@ Apps selected in split-tunnel settings bypass the VPN. OpenTailcat does not
 exclude itself: Tailcat transport sockets are protected with
 `VpnService.protect`, while its other requests follow device routes.
 
+## Sharing this phone
+
+Share this phone is optional and off until you start it. While it runs, you are
+the gateway operator for the person you shared with.
+
+- **What the phone handles.** A guest's traffic is WireGuard-encrypted to your
+  phone, which forwards it to the Internet over your own Wi-Fi or mobile
+  network. Like any gateway, your phone handles that traffic unencrypted, and
+  the sites it reaches see your IP address. Your network provider may also see
+  it and may count it against your plan.
+- **What the app keeps.** Only live counters in memory: connected devices,
+  bytes in each direction, and open flows. It does not record the destinations
+  or contents of a guest's traffic, and logs none of it. Devices appear as a
+  short fingerprint of their session key, not a name or account.
+- **Keys and the code.** Each session creates new keys and a new code in
+  memory. Nothing is written to storage. Stopping, expiry, or Android closing
+  the app discards the keys, so the code stops working. The code is shown in a
+  window Android will not screenshot, and is copied to the clipboard only when
+  you press Copy.
+- **Who can connect.** By default each new device waits until you approve it.
+  You can instead allow anyone holding the code (always time-limited). Anyone
+  you approve, or who holds the code in that mode, can use your connection
+  until sharing ends.
+- **What is refused.** Guests cannot reach your phone itself or the networks it
+  is on (loopback, private, carrier-internal, link-local, multicast).
+- **A notification** shows while sharing, with the device count and data moved.
+
+Responsibility for what a guest does through your connection, including your
+carrier's or network's terms, rests with you. Share only with people you trust.
+
 ## Android permissions
 
 - `INTERNET` — Tailcat transport, public-IP checks, benchmarks, exit audit.
 - `ACCESS_NETWORK_STATE` — connectivity and network-change detection.
 - `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SYSTEM_EXEMPTED` — active VPN
   service.
-- `POST_NOTIFICATIONS` — optional VPN status notification on Android 13+.
+- `FOREGROUND_SERVICE_SPECIAL_USE` — the foreground service that forwards a
+  guest's traffic while you share this phone.
+- `WAKE_LOCK` — keeps the CPU awake only while sharing, so forwarding does not
+  stall when the screen turns off. It is released when sharing stops.
+- `POST_NOTIFICATIONS` — optional VPN and sharing status notifications on
+  Android 13+.
 - `BIND_VPN_SERVICE` — required by Android for the VPN service.
 - `QUERY_ALL_PACKAGES` — lists installed apps for the split-tunnel picker. The
   list stays on the device.

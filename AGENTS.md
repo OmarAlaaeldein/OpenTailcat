@@ -3,7 +3,9 @@
 OpenTailcat is an Android client for **self-hosted Tailcat exit gateways**.
 Paste a `tc...` token and the phone sends IPv4/IPv6 TCP, UDP, and DNS through
 that gateway. There is no account, control plane, or server component in this
-repo: the user runs the gateway.
+repo: the user runs the gateway. Since 1.7 the app can also *be* the gateway:
+"Share this phone" (exit-node mode) mints a one-session code and forwards a
+guest's traffic out through the phone's own connection.
 
 This file is the working contract for anyone, human or LLM, changing the
 project: how the pieces fit, which invariants must hold, and how to build,
@@ -14,13 +16,17 @@ work; other docs link here.
   `com.tailcat.vpn`
 - Toolchain: Kotlin 2.4.21, Gradle 9.9.1, JDK 21, Go 1.27.4
 - Versions: `gradle/libs.versions.toml`, `core-engine/go.mod`
-- Current version: 1.6.5; notes in `docs/releases/`
+- Current version: 1.7.0; notes in `docs/releases/`
 
 ## Status
 
 Dual-stack test-routing development preview (`testRouting: true` in the
 capability payload). It connects with a live token but is not a
 release-accepted data plane. Do not rely on it for privacy-sensitive traffic.
+
+Share this phone (exit node) shipped in 1.7.0 as a second role of the same app.
+It is separate from the client data plane and has its own status under "Exit
+node" below; nothing about the client's maturity changed with it.
 
 ## Architecture
 
@@ -52,15 +58,32 @@ A packet's path: app → TUN fd → engine reader → gVisor TCP/IP stack →
 traffic reverses. Application flows never use an OS socket, and the app does
 not exclude its own UID from the tunnel.
 
+The exit-node role is the inverse, and runs only while the client tunnel is
+off:
+
+```text
+ ShareScreen / ShareViewModel
+        │
+ ExitNodeController ─── ExitNodeService (foreground service, specialUse)
+        │ NativeExitNode (TunnelExitNode → Engine.*ExitNode*)
+        ▼
+ Go exitnode package: tailcat.Server, admission, destination policy, forwarders
+        ▲                                   │ OS sockets (dial.go only)
+ guest ─┘ WireGuard/Magicsock/DERP          ▼ device routes
+                                         Internet
+```
+
+There is no VpnService, consent dialog, or TUN in this role.
+
 ## Repository map
 
 | Path | Contents |
 | --- | --- |
-| `app/src/main/java/com/tailcat/vpn/ui/` | Compose UI: `MainActivity`, home (connect ring, profiles, telemetry), settings, speed test, theme |
-| `app/src/main/java/com/tailcat/vpn/service/` | `TailcatVpnService` (VpnService, TUN, notifications), `TunnelController` (UI-facing state machine and reconnect), `TunnelEngine` (gomobile impl of `NativeEngine`), health and split-tunnel helpers |
-| `app/src/main/java/com/tailcat/vpn/core/` | Token parsing, DNS validation, egress-IP audit, speed test, updater, TLS/SPKI pins |
+| `app/src/main/java/com/tailcat/vpn/ui/` | Compose UI: `MainActivity`, home (connect ring, profiles, telemetry), settings, speed test, share (`screens/share/`: setup, code, devices, traffic), theme |
+| `app/src/main/java/com/tailcat/vpn/service/` | `TailcatVpnService` (VpnService, TUN, notifications), `TunnelController` (UI-facing state machine and reconnect), `TunnelEngine` (gomobile impl of `NativeEngine`), health and split-tunnel helpers; sharing: `ExitNodeService` (foreground service), `ExitNodeController` (UI-facing state, polling, expiry), `NativeExitNode`/`TunnelExitNode` (interface and gomobile impl), `ExitNodeNotifications` |
+| `app/src/main/java/com/tailcat/vpn/core/` | Token parsing, DNS validation, egress-IP audit, speed test, updater, TLS/SPKI pins; `exitnode/` is the stats model parsed from the node's JSON |
 | `app/src/main/java/com/tailcat/vpn/data/` | AES-256-GCM sealed preferences (Android Keystore) and profile repository |
-| `core-engine/` | Go engine. Start at `main.go` (engine + capabilities), `lifecycle.go`, `netstack_proxy.go` (data plane), `tunnel_dns.go`, `token.go`; `bridge.go` holds gomobile exports |
+| `core-engine/` | Go engine. Start at `main.go` (engine + capabilities), `lifecycle.go`, `netstack_proxy.go` (data plane), `tunnel_dns.go`, `token.go`; `bridge.go` holds gomobile exports, `exitnode_bridge.go` the exit-node ones |
 | `core-engine/exitnode/` | Exit-node (sharing) package: admission, destination policy, TCP/UDP forwarding, stats. The only Go code allowed to dial out over device routes; see "Exit node" |
 | `core-engine/testdata/` | Token, capability and exit-node stats fixtures read by both test suites |
 | `core-engine/build-aar.sh` | Reproducible AAR build; writes `app/libs/libtailcat.aar` and `.sourcehash` |
@@ -71,6 +94,7 @@ not exclude its own UID from the tunnel.
 | `formal/` | TLA+ lifecycle model, focused exhaustive cleanup/liveness and network-callback models, and deterministic counterexample replays, checked with TLC by `formal/check.sh` |
 | `.github/workflows/` | `ci.yml` gates; `emulator.yml` smoke and live-gateway suites; `formal.yml` TLC model check |
 | `docs/` | Documentation index, release notes, signing notes, screenshots |
+| `exit.md` | Design and threat model of Share this phone (exit-node mode), decisions, known gaps |
 
 ### Start here by task
 
@@ -181,7 +205,10 @@ upgrade as a different signer.
    `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` (F-Droid
    names changelogs by version code). Release notes list changes, verification
    and hashes only; the development-preview caveat lives in `README.md`, not
-   in every release.
+   in every release. Also move the "newest" link in `docs/README.md`, and
+   check that `PRIVACY_POLICY.md` (permissions, network requests, "Last
+   updated") and the Fastlane `full_description.txt` still match what the
+   release does; both drift unless checked every time.
 3. Build the publishable APKs with the real repository slug. The slug is
    deployment configuration; the tracked default is a neutral placeholder.
 
@@ -226,6 +253,12 @@ embed personal account names or tokens in tracked sources.
 - Compose + Material3 with the dark theme tokens in `ui/theme` (`AccentCyan`,
   `BgDark`, `SurfaceElevated`, ...). One package per screen under
   `ui/screens/`, with a `ViewModel` where state outlives composition.
+- **Filled buttons use `TailcatButtons.filled()`**: light text (`TextPrimary`)
+  on the deeper teal `AccentFill`. Never put dark text on a bright fill in this
+  dark app. Material3 container roles (chips, dialogs, menus, snackbars) are
+  mapped to the app's own surfaces in `Theme.kt`; add a role there before
+  relying on a default, which is the stock purple/gray.
+  `ThemeContrastTest` pins WCAG AA text contrast and that fills stand out.
 - Dialogs that show or accept credentials must set
   `DialogProperties(securePolicy = SecureFlagPolicy.SecureOn)`; token fields
   use `KeyboardType.Password`. The QR dialog relies on the secure flag because
@@ -267,6 +300,12 @@ embed personal account names or tokens in tracked sources.
 - This file is the source of truth. When status, commands, versions, or
   remaining work change, update it here; keep `README.md` product-facing,
   `docs/README.md` the reader-facing index, and `docs/releases/` historical.
+- Screenshots live in `docs/screenshots/` and must never show a live token or
+  code. Android blanks `adb screencap` for the sharing screen (it sets
+  `FLAG_SECURE`), so capture it with the emulator's own screenshot
+  (`adb emu screenrecord screenshot <dir>`), then blur the QR beyond recovery
+  and crop or paint out the emulator's camera cutout before committing. Stop
+  the share afterwards: that discards the keys.
 
 ## Data plane
 
@@ -418,6 +457,14 @@ engine (`TunnelEngineTest`); the gomobile implementation is `TunnelEngine`.
   update policy, telemetry formatting, and QR round-trip.
 - **Shared fixtures**: the `test` source set reads `core-engine/testdata/`, so
   a fixture change is a contract change exercised by both languages.
+- **Exit node tests.** Go: `core-engine/exitnode/*_test.go` (policy, admission,
+  caps, expiry including `NoExpiry`, `TestOSSocketsConfinedToDial`, and an
+  end-to-end client-to-node test over an in-process DERP relay in
+  `e2e_test.go`), `exitnode_bridge_test.go` (config parsing, mutual exclusion,
+  panic recovery), `dns_rotation_test.go` (resolver failover). Kotlin:
+  `ExitNodeControllerTest`, `ExitNodeNotificationTextTest`,
+  `ExitNodeStatsTest`, `TunnelExitNodeTest`. The stats JSON fixture is read by
+  both suites.
 - **Fuzzing** (`core-engine/fuzz_test.go`): property-checking targets for the
   token parser, strict CBOR, DNS parsing/truncation, the DERP map filter,
   IPv6 extension headers, and the outbound packet path. `go test ./...` runs
@@ -528,18 +575,41 @@ Plan and open items: `exit.md`. Rules that must hold:
   `ExitNodeStatsTest`); regenerate with `OTC_UPDATE_FIXTURES=1 go test -run
   TestStatsContract ./exitnode`.
 
-Status: native engine, bridge, UI and `ExitNodeService` (foreground service,
-type `specialUse`, not sticky, session-scoped wake lock) exist. Sharing is not
-resumed if Android kills the process: the keys die with it. Verified on an
-emulator for start, foreground service, notification, interlock and stop; a
-guest phone connecting through an emulator host (approval, forwarding over
-cellular) has been verified by hand.
+- **Approval is the host's decision.** Product code never approves a device on
+  the host's behalf, and the guest app shows no device id, so the host cannot
+  verify who is asking. The UI warns when more than one device asks at once.
+  Test automation may tap Approve on an emulator it owns; never ship that.
+- **Android surface.** `ExitNodeService` is a foreground service of type
+  `specialUse` (with the `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` explanation),
+  `stopWithTask=false`, not sticky. It holds a `PARTIAL_WAKE_LOCK` for the
+  session: timeout TTL + 60 s for timed shares, one-hour chunks renewed by the
+  poll loop for no-limit shares. `FOREGROUND_SERVICE_SPECIAL_USE` and
+  `WAKE_LOCK` are in the manifest; keep the permission list in
+  `PRIVACY_POLICY.md` in step with it.
+- **The code is never exposed.** The share screen sets `FLAG_SECURE` while it
+  shows the code (screenshots and recents are blank), the notification shows
+  device count and bytes only, and Copy is the only clipboard write.
+
+Status: shipped in 1.7.0. Native engine, bridge, UI and `ExitNodeService`
+exist. Sharing is not resumed if Android kills the process: the keys die with
+it. The share screen offers 15 min, 1 h, 4 h, 24 h or "Until I stop" (approval
+only), and approval or open admission. The engine resolver now fails over
+between Android DNS servers (needed to fetch the relay map on networks whose
+first DNS server never answers; partial, see `exit.md`). Verified: on an
+emulator, start, foreground service, notification, interlock and stop; by
+hand, a real guest phone connecting through an emulator host over mobile data
+with approval and real traffic (about 170 flows, 11 MB in one capture). Not
+verified: a physical phone as the host, battery and doze over long sessions
+(especially no-limit shares), and the interlock in the TLA+ model.
 
 ## Glossary
 
 - **Exit gateway** — a `tailcat serve exit-node` host that owns the public egress.
 - **Token** (`tc...`) — self-contained credential with node/disco keys, optional PSK, DERP region, and expiry; no account or API key.
 - **Profile** — saved gateway: token, name, DNS resolver and policy, MTU.
+- **Exit node / Share this phone** — the app acting as the gateway: it mints a session code and forwards guests' traffic through the phone's own network.
+- **Host / guest** — the phone that shares, and a device using its code (any OpenTailcat client).
+- **Approval** — the host tapping Approve for a pending device key; the default admission mode.
 - **TUN** — Android virtual interface handed to the engine; the only source of tunneled packets.
 - **gVisor** — userspace TCP/IP stack inside the engine that terminates those packets.
 - **DERP / Magicsock / WireGuard** — Tailcat transport: encrypted links, NAT traversal, and relay fallback.
@@ -556,8 +626,11 @@ cellular) has been verified by hand.
 - Production signing, lineage migration, and artifact verification.
 - Upstream status API for WireGuard counters (they stay 0 until then).
 - Reconnect TUN gap: recommend Always-on lockdown.
-- Exit node: stable per-profile client key, battery/doze measurement, TLA+
-  coverage of the interlock, a physical phone as the host (see `exit.md`).
+- Exit node: battery/doze measurement (a long no-limit session first), a
+  physical phone as the host, a stable per-profile client key (each guest
+  reconnect needs a new approval today), TLA+ coverage of the interlock, a TCP
+  idle timeout, per-peer caps, and hedged DNS queries in the engine resolver
+  (see `exit.md`).
 - Confirm the service-lifecycle fixes from the TLA+ model on a device
   (`stopSelf(startId)` with a queued start, STOP after a failed start then a
   quick Connect; see `formal/README.md`). The new instrumented platform probe

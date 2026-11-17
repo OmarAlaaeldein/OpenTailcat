@@ -9,6 +9,7 @@ release.
 | --- | --- |
 | Understand the product, install it, or check its limits | [README.md](../README.md) |
 | Change the app, engine, or build | [AGENTS.md](../AGENTS.md) |
+| Understand or change Share this phone (exit node) | [exit.md](../exit.md), [AGENTS.md](../AGENTS.md#exit-node) |
 | Know what changed between versions | [releases/](releases/) |
 | Cut or sign a release | [signing.md](signing.md), [AGENTS.md](../AGENTS.md#release-process) |
 | Understand what data is stored or sent | [PRIVACY_POLICY.md](../PRIVACY_POLICY.md) |
@@ -20,7 +21,7 @@ release.
 ## Release notes
 
 `releases/` is a historical record, one file per version, named after the
-version. The newest is [1.6.0](releases/1.6.0.md). Each note describes what
+version. The newest is [1.7.0](releases/1.7.0.md). Each note describes what
 changed, what was verified at the time, and the published artifact hashes.
 Verification lines are evidence for that release, not a promise about later
 builds.

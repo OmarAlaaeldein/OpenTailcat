@@ -5,6 +5,10 @@
 gateway, paste its `tc…` token, and your traffic leaves through it. No account,
 no subscription, and no control plane in the middle.
 
+Since 1.7 the same app can also be the gateway: **Share this phone** turns your
+phone into an exit gateway and gives someone else a code to use its connection.
+See [Share this phone](#share-this-phone).
+
 Independent community project. Not affiliated with Tailscale Inc.
 
 <p align="center">
@@ -16,7 +20,8 @@ Independent community project. Not affiliated with Tailscale Inc.
 ## What you need
 
 - A Tailcat-compatible **exit gateway you control** (for example
-  `tailcat serve exit-node`) and the `tc…` token it prints.
+  `tailcat serve exit-node`) and the `tc…` token it prints. Or, to use someone's
+  phone as the gateway, the code that phone's **Share this phone** screen shows.
 - An Android 8.0+ phone (arm64). Emulator builds use x86_64.
 
 ## What it does
@@ -34,6 +39,9 @@ Independent community project. Not affiliated with Tailscale Inc.
   device routes otherwise, labelling which path ran.
 - Works with Android **Always-on VPN** and **Block connections without VPN**;
   disconnecting from the lock screen requires unlocking the phone.
+- Can **share this phone's connection** as an exit gateway for someone you
+  trust, with per-device approval, a time limit or none, and a one-tap stop
+  (see below).
 - Has no accounts, ads, analytics, crash reporting, or camera permission. The
   GitHub build can update itself after checking the APK digest and signing
   certificate.
@@ -55,6 +63,58 @@ phone apps ─► Android VPN (TUN) ─► OpenTailcat engine ─► WireGuard/M
 
 There is no directory, account service, or OpenTailcat server anywhere in the
 path.
+
+## Share this phone
+
+Tap the share icon on the home screen to let someone else use this phone's
+connection. The phone becomes the exit gateway: it mints a one-session `tc…`
+code, shows it as a QR and a Copy button, and forwards the guest's TCP and UDP
+traffic out over its own Wi-Fi or mobile data. Typical uses: a trusted friend
+abroad, or your own second device.
+
+<p align="center">
+  <img src="docs/screenshots/share-setup.png" alt="Share setup: how long and who can connect" width="240" />
+  &nbsp;
+  <img src="docs/screenshots/share-no-limit.png" alt="Share setup with Until I stop selected" width="240" />
+  &nbsp;
+  <img src="docs/screenshots/share-active.png" alt="Sharing with one connected device and live traffic counters" width="240" />
+</p>
+
+*Setup, the no-time-limit choice, and an active share with a guest connected.
+The QR in the last image is blurred; a real one encodes the live code.*
+
+1. Pick how long to share: 15 minutes, 1, 4 or 24 hours, or **Until I stop**.
+2. Pick who can connect. **Approve each device** (recommended) parks every new
+   device until you tap Approve, so a leaked code is not enough. **Anyone with
+   the code** skips approval and always has a time limit. "Until I stop" is
+   only available with approval.
+3. Tap **Start sharing**, then show the QR or copy the code. The guest pastes it
+   into **Pair another gateway** in their OpenTailcat and connects. Their
+   device appears under *Devices*; tap Approve.
+4. Watch connected devices, open flows and traffic, remove a device, or tap
+   **Stop sharing**. Stopping discards the session's keys, so every code you
+   issued stops working at once.
+
+What to know before you share:
+
+- **It is your connection.** Sites see your IP address, the traffic counts
+  against your data plan, and it uses battery. Share only with people you trust.
+- **Guests cannot reach your own network.** Loopback, private (home and
+  office), carrier-internal, link-local and multicast addresses are refused.
+- **A foreground notification shows while sharing**, with the device count and
+  data moved. Keep the phone charging or the screen on for the best results.
+- **Sharing and the VPN cannot run together.** Disconnect the VPN first;
+  starting either while the other runs is refused.
+- **Sharing ends when Android closes the app,** and the code then stops working.
+  A new share always gets new keys and a new code.
+- **Always-on VPN with "Block connections without VPN"** stops this phone's own
+  connection while the VPN is off, so turn it off while sharing.
+- A guest's device gets a new identity each time it connects, so a reconnect
+  needs a new approval.
+
+Not measured yet: battery drain and heat over long sessions, and a physical
+phone as the host for a long run (the 1.7 checks used an emulator host with a
+real phone as the guest over mobile data). See [exit.md](exit.md).
 
 ## Install
 
@@ -85,6 +145,13 @@ The app contacts only what it needs: your gateway and its relays, Cloudflare
 for updates. The F-Droid flavor has no updater. Apps you exclude from the
 tunnel bypass it.
 
+When you share this phone, a guest's traffic leaves through your connection, so
+the sites they visit see your IP address. The app keeps only live counters in
+memory (devices, bytes, open flows); it stores no guest traffic, destinations,
+or keys, and a session's keys are discarded when sharing stops. The sharing
+code is shown on screen in a window Android will not screenshot, and it is
+copied only if you press Copy.
+
 Full detail: [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
 
 ## Project status
@@ -100,6 +167,11 @@ privacy-sensitive traffic**:
   matters.
 - Split-tunnel apps bypass the tunnel, and the gateway operator can see the
   traffic that exits through it.
+- **Share this phone** is new in 1.7. A guest phone connecting through an
+  emulator host, with approval, forwarding over mobile data, has been verified
+  by hand. Not yet measured: battery and heat over long sessions, and a
+  physical phone as the host for a long run. The host cannot verify who is
+  asking to connect, so approve only a device you watched connect.
 
 The engineering contract, invariants, and remaining work live in
 [AGENTS.md](AGENTS.md).
@@ -110,6 +182,7 @@ The engineering contract, invariants, and remaining work live in
 | --- | --- | --- |
 | [AGENTS.md](AGENTS.md) | contributors, LLMs | architecture, safety invariants, build, test, release |
 | [docs/README.md](docs/README.md) | everyone | which document to read |
+| [exit.md](exit.md) | contributors | the Share this phone design: threat model, decisions, known gaps |
 | [docs/releases/](docs/releases/) | users, maintainers | what changed in each version (historical record) |
 | [docs/signing.md](docs/signing.md) | release managers | keys, certificate pins, migration |
 | [PRIVACY_POLICY.md](PRIVACY_POLICY.md) | users | what is stored, sent, and visible |
