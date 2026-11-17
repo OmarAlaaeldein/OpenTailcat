@@ -8,7 +8,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 python3 "${SCRIPT_DIR}/integration/sync_tailcat.py" --check
 OUTPUT_AAR="${ROOT_DIR}/app/libs/libtailcat.aar"
-CANONICAL_BUILD_DIR="/tmp/opentailcat-build"
+# Staging area. Defaults to the canonical /tmp path; set OPENTAILCAT_BUILD_DIR to
+# stage elsewhere (for example inside the checkout's ignored build/ directory).
+CANONICAL_BUILD_DIR="${OPENTAILCAT_BUILD_DIR:-/tmp/opentailcat-build}"
 
 echo "==> Resolving Android NDK..."
 PIN_NDK="29.0.14206865"
@@ -167,6 +169,12 @@ REQUIRED_METHODS=(
     "stop"
     "updateNetworkState"
     "setSocketProtector"
+    "startExitNode"
+    "stopExitNode"
+    "exitNodeStatsJSON"
+    "exitNodeApprove"
+    "exitNodeDeny"
+    "exitNodeRevoke"
 )
 
 for method in "${REQUIRED_METHODS[@]}"; do

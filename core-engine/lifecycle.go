@@ -172,6 +172,12 @@ func Prepare(tokenStr string) (err error) {
 		}
 		globalCore.mu.Lock()
 	}
+	if exitNodeClaim.Load() {
+		// The phone is serving as an exit node. A client tunnel would capture
+		// the node's own outbound dials; see exitnode_bridge.go.
+		globalCore.mu.Unlock()
+		return errors.New("exit node is active; stop sharing before connecting")
+	}
 	prev := globalCore.sess
 	globalCore.sess = nil
 	netStateMu.Lock()

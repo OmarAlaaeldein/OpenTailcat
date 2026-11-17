@@ -61,7 +61,8 @@ not exclude its own UID from the tunnel.
 | `app/src/main/java/com/tailcat/vpn/core/` | Token parsing, DNS validation, egress-IP audit, speed test, updater, TLS/SPKI pins |
 | `app/src/main/java/com/tailcat/vpn/data/` | AES-256-GCM sealed preferences (Android Keystore) and profile repository |
 | `core-engine/` | Go engine. Start at `main.go` (engine + capabilities), `lifecycle.go`, `netstack_proxy.go` (data plane), `tunnel_dns.go`, `token.go`; `bridge.go` holds gomobile exports |
-| `core-engine/testdata/` | Token and capability fixtures read by both test suites |
+| `core-engine/exitnode/` | Exit-node (sharing) package: admission, destination policy, TCP/UDP forwarding, stats. The only Go code allowed to dial out over device routes; see "Exit node" |
+| `core-engine/testdata/` | Token, capability and exit-node stats fixtures read by both test suites |
 | `core-engine/build-aar.sh` | Reproducible AAR build; writes `app/libs/libtailcat.aar` and `.sourcehash` |
 | `third_party/tailcat` | Upstream Tailcat base, pinned and unmodified |
 | `core-engine/integration/`, `core-engine/tailcat-integration/` | Explicit Android integration patch/generator and generated library module |
@@ -84,6 +85,7 @@ not exclude its own UID from the tunnel.
 | Telemetry, stats, speed test | `core-engine/speedtest.go`, `core/speedtest/`, `ui/screens/home/components/TelemetryCard.kt` |
 | In-app updater | `core/update/`, `UpdatePolicy.kt`, `docs/signing.md` |
 | Settings surfaces | `ui/screens/settings/`, `data/PreferencesStore.kt` |
+| Sharing this phone (exit node) | "Exit node" below, `exit.md`, `core-engine/exitnode/`, `core-engine/exitnode_bridge.go`, `service/ExitNodeController.kt`, `ui/screens/share/` |
 | Release | "Release process" below, `app/build.gradle.kts`, `docs/releases/` |
 
 ## Safety invariants
@@ -401,7 +403,9 @@ v6, fail-closed without WAN), `tcp`, `udp` (QUIC, bounds, MTU), `dns`
 `stop()`, `updateNetworkState(json)`, `parseToken(token)`,
 `measureTunnelPingMS()`, `measureTunnelDownloadMbps(SpeedProgress)`,
 `measureTunnelUploadMbps(SpeedProgress)`, `setSocketProtector(SocketProtector)`,
-`ensureTransportProtect()`. Every exported function recovers panics as
+`ensureTransportProtect()`, and the exit-node set `startExitNode(configJSON)`,
+`exitNodeStatsJSON()`, `exitNodeApprove(key)`, `exitNodeDeny(key)`,
+`exitNodeRevoke(key)`, `stopExitNode()`. Every exported function recovers panics as
 errors. Go duplicates the TUN fd (non-blocking); Android owns the original.
 
 Kotlin talks to it through the `NativeEngine` interface so tests can fake the
@@ -488,6 +492,44 @@ supported upstream. See `core-engine/integration/README.md`. Remove this
 replacement when upstream supplies equivalent reviewed APIs. The AAR embeds
 this integration, and its sources are covered by the native source hash.
 
+## Exit node
+
+The phone can be the gateway instead of the client: it mints a `tc...` code,
+shows it as a QR or copy, and forwards guests' TCP/UDP through its own network.
+Plan and open items: `exit.md`. Rules that must hold:
+
+- **Separate package.** `core-engine/exitnode/` may open OS sockets because
+  forwarding to the Internet is its job; `package engine` still may not
+  (invariant 2). `exitnode`'s own sockets live only in `dial.go`
+  (`TestOSSocketsConfinedToDial`). Never move forwarding code into `engine`.
+- **Never alongside the client tunnel.** With the VPN's default route up, the
+  node's dials would be captured and loop. Enforced three ways: native
+  `Prepare` refuses while the node runs and `StartExitNode` refuses unless the
+  engine is STOPPED/FAILED (both decided under `globalCore.mu`,
+  `exitnode_bridge.go`); `TunnelController.startBlocker` makes every Android
+  start path (including Always-on) refuse; `ExitNodeController.refresh` ends a
+  session if both ever overlap.
+- **A code is a bearer credential.** Default admission is host approval: an
+  unknown device key is parked as pending and refused until approved. Open
+  admission is an explicit, labelled mode. Sessions use fresh keys, discarded
+  at stop, so stopping revokes every code. The node enforces expiry itself.
+- **Guests never reach the host's network.** Loopback, private, CGNAT,
+  link-local, multicast and reserved destinations are refused
+  (`exitnode/policy.go`). `AllowLocalDestinations` is test-only and is not
+  reachable from the bridge config (`TestBridgeConfigCannotAllowLocalDestinations`).
+- **Transport protection while sharing.** No VPN of ours exists, so the bridge
+  installs a permissive socket protector for the node's lifetime and restores
+  the previous one at the end. Sockets are still created through the protect
+  hook; they are just never refused.
+- Keys, codes and device keys stay out of logs. Stats JSON is a pinned
+  contract (`testdata/exitnode_stats.json`, `TestStatsContract`,
+  `ExitNodeStatsTest`); regenerate with `OTC_UPDATE_FIXTURES=1 go test -run
+  TestStatsContract ./exitnode`.
+
+Status: native engine, bridge and UI exist; the foreground service that keeps
+the process alive in the background does not. Sharing stops if Android kills
+the app.
+
 ## Glossary
 
 - **Exit gateway** — a `tailcat serve exit-node` host that owns the public egress.
@@ -509,6 +551,8 @@ this integration, and its sources are covered by the native source hash.
 - Production signing, lineage migration, and artifact verification.
 - Upstream status API for WireGuard counters (they stay 0 until then).
 - Reconnect TUN gap: recommend Always-on lockdown.
+- Exit node: foreground service, stable per-profile client key, battery/doze
+  measurement, TLA+ coverage of the interlock, on-device pair test (see `exit.md`).
 - Confirm the service-lifecycle fixes from the TLA+ model on a device
   (`stopSelf(startId)` with a queued start, STOP after a failed start then a
   quick Connect; see `formal/README.md`). The new instrumented platform probe
