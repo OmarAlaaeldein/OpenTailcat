@@ -229,6 +229,22 @@ class ExitNodeControllerTest {
     }
 
     @Test
+    fun aRefusalMadeBeforeStartIsShownAsAnEndedSession() {
+        controller.fail("Disconnect the VPN first.")
+        val ended = controller.state.value as ExitNodeUiState.Ended
+        assertEquals(ExitNodeEnd.FAILED, ended.reason)
+        assertEquals("Disconnect the VPN first.", ended.message)
+        assertFalse("a refusal must not look like a live session", controller.isActive)
+    }
+
+    @Test
+    fun failNeverOverwritesALiveSession() {
+        assertNull(controller.start(config))
+        controller.fail("late refusal")
+        assertTrue(controller.state.value is ExitNodeUiState.Sharing)
+    }
+
+    @Test
     fun configRejectsOutOfRangeDurations() {
         for (bad in listOf(0L, -1L, ExitNodeConfig.MAX_TTL_SECONDS + 1)) {
             val threw = runCatching { ExitNodeConfig(bad) }.isFailure

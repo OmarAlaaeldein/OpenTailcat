@@ -1,8 +1,11 @@
 # Exit-node mode: plan
 
-Status: M1 (Go `exitnode` package) and M2 (native bridge, rebuilt AAR, Kotlin
-facade) are done, with the controller and share screen. The foreground service
-(M3) is not: sharing stops if Android kills the app. Uncommitted.
+Status: M1 (Go `exitnode` package), M2 (native bridge, rebuilt AAR, Kotlin
+facade) and M3 (foreground service, notifications) are written and unit-tested.
+Verified on an API 35 arm64 emulator: start, foreground service (`specialUse`),
+ongoing notification, the VPN interlock, notification-to-screen routing, and
+Stop (wake lock, service and notification all released). Not verified: a real
+guest connecting, approval, forwarding, and power; that is the remaining gate.
 
 Two decisions changed from the first draft; see "What changed" at the end.
 
@@ -180,7 +183,7 @@ feature does not inherit the client's leak surface.
 | --- | --- | --- |
 | M1 | `exitnode` package: server, forwarders, minting, limits, expiry; in-process tests. **Done** (incl. real client-to-node test over a local DERP) | 5–7 d |
 | M2 | Bridge exports, panic recovery, AAR rebuild, Kotlin facade (`TunnelExitNode`). **Done**; native mutual exclusion with the client engine added | 2–3 d |
-| M3 | `ExitNodeService`, share screen, interlock. **Screen, controller and interlock done; the foreground service is not** | 5–7 d |
+| M3 | `ExitNodeService`, share screen, interlock. **Done** (foreground service of type `specialUse`, ongoing + request-alert + ended notifications, session-scoped wake lock); not yet measured on a device | 5–7 d |
 | M4 | Stable per-profile client key, per-peer caps, TCP idle timeout, battery measurement | 3–5 d |
 | M5 | Docs (`AGENTS.md`, `README.md`, Fastlane text), release 1.7.0, F-Droid metadata bump | 2 d |
 
@@ -251,13 +254,24 @@ lifecycle and its own tests.
 
 ## Known gaps before this can ship
 
-- **No foreground service yet (M3).** Nothing keeps the process alive in the
-  background or shows the ongoing notification. The native expiry timer still
-  bounds a session, but the feature must not be enabled (`UnavailableExitNode`
-  replaced) until the service exists.
+- **The engine resolver has no DNS failover (client path too).** Found on the
+  emulator: Android's primary DNS (10.0.2.3) never answers, the secondary mostly
+  does, and the engine's resolver always dials the first server, so every retry
+  hits the dead one and a node start timed out fetching the DERP map. A
+  try-the-next-server-on-timeout patch exists in `git stash` (answer-learning
+  preference in `main.go`, with tests) but is incomplete: with a flaky good
+  server one timeout flips the preference back to the dead one. It changes the
+  client's resolver and needs an AAR rebuild, so it is a separate decision. The
+  complete fix is hedged queries to all servers. On a healthy network none of
+  this applies; the emulator must be started with `-dns-server 8.8.8.8` to test.
+- **Wake lock is a guess until measured.** The service holds a `PARTIAL_WAKE_LOCK`
+  for the session (timeout = TTL + 60 s). Whether it is needed, and what it
+  costs in battery and heat, is the 30-minute power test, still to do.
 - **Always-on VPN with "Block connections without VPN"** blocks this app's own
-  sockets while the VPN is off, which would stop the node dialing out. Detect it
-  with `LockdownProbe` and say so before Start.
+  sockets while the VPN is off, which would stop the node dialing out. It cannot
+  be detected beforehand (Android only reports it to a running VpnService), so
+  the setup screen says so. A guest whose flows all fail with zero bytes moved
+  is the symptom; `dialFailures` in the stats shows it.
 - **The interlock is a refusal on both sides plus a one-poll backstop**, not a
   proof. Add it to the TLA+ model in `formal/` with the lifecycle change.
 - **TCP flows have no idle timeout**, only the cap and the session expiry.

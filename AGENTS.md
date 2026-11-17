@@ -526,9 +526,11 @@ Plan and open items: `exit.md`. Rules that must hold:
   `ExitNodeStatsTest`); regenerate with `OTC_UPDATE_FIXTURES=1 go test -run
   TestStatsContract ./exitnode`.
 
-Status: native engine, bridge and UI exist; the foreground service that keeps
-the process alive in the background does not. Sharing stops if Android kills
-the app.
+Status: native engine, bridge, UI and `ExitNodeService` (foreground service,
+type `specialUse`, not sticky, session-scoped wake lock) exist. Sharing is not
+resumed if Android kills the process: the keys die with it. Verified on an
+emulator for start, foreground service, notification, interlock and stop; a
+guest connecting through it is not yet verified.
 
 ## Glossary
 
@@ -551,8 +553,8 @@ the app.
 - Production signing, lineage migration, and artifact verification.
 - Upstream status API for WireGuard counters (they stay 0 until then).
 - Reconnect TUN gap: recommend Always-on lockdown.
-- Exit node: foreground service, stable per-profile client key, battery/doze
-  measurement, TLA+ coverage of the interlock, on-device pair test (see `exit.md`).
+- Exit node: stable per-profile client key, battery/doze measurement, TLA+
+  coverage of the interlock, on-device pair test (see `exit.md`).
 - Confirm the service-lifecycle fixes from the TLA+ model on a device
   (`stopSelf(startId)` with a queued start, STOP after a failed start then a
   quick Connect; see `formal/README.md`). The new instrumented platform probe

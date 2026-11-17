@@ -7,6 +7,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Held only while this phone is sharing its connection, with a timeout. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Full package enumeration for split-tunnel exclusions; a VPN app is a
          permitted use of this normal-level permission. -->
@@ -71,6 +74,18 @@
             <meta-data
                 android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
                 android:value="true" />
+        </service>
+
+        <!-- Sharing this phone's connection (exit node). An ordinary foreground
+             service: no VPN, no TUN. Not sticky: a killed share is not resumed. -->
+        <service
+            android:name=".service.ExitNodeService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Forwards a trusted guest's traffic through this device's network connection while the user is sharing it" />
         </service>
 
     </application>

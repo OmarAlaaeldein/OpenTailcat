@@ -220,6 +220,14 @@ private fun SetupContent(
         )
     }
 
+    Text(
+        "Keep the screen on or the phone charging for the best results. If you use Always-on VPN " +
+            "with \u2018Block connections without VPN\u2019, turn that off while sharing: Android would " +
+            "block this app's own connection.",
+        style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
+        modifier = Modifier.padding(horizontal = 4.dp)
+    )
+
     if (blockedReason != null) Notice(blockedReason, YellowWarning)
 
     Button(

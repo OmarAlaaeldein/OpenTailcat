@@ -6,19 +6,15 @@ import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.core.model.TunnelState
 import com.tailcat.vpn.service.ExitNodeAdmission
 import com.tailcat.vpn.service.ExitNodeConfig
+import com.tailcat.vpn.service.ExitNodeService
 import com.tailcat.vpn.service.ExitNodeUiState
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** How long a share lasts. The cap is the native MaxTTL; the default is deliberately short. */
@@ -46,32 +42,20 @@ class ShareViewModel : ViewModel() {
     private val _events = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val events: SharedFlow<String> = _events.asSharedFlow()
 
-    init {
-        // Poll only while a session is live. Keyed on "is sharing", not on the
-        // state itself, because every poll publishes a new Sharing value and
-        // would otherwise restart the loop each second.
-        viewModelScope.launch(Dispatchers.IO) {
-            state.map { it is ExitNodeUiState.Sharing }.distinctUntilChanged().collectLatest { sharing ->
-                while (sharing && isActive) {
-                    delay(POLL_MS)
-                    controller.refresh()
-                }
-            }
-        }
-    }
-
     fun selectDuration(value: ShareDuration) { _duration.value = value }
     fun selectAdmission(value: ExitNodeAdmission) { _admission.value = value }
 
+    /**
+     * Hands the session to the foreground service, which owns the poll loop,
+     * the notification and the wake lock. Refusals (the VPN is up) are
+     * recorded by the service as an ended session, which this screen shows.
+     */
     fun start() {
-        val config = ExitNodeConfig(_duration.value.seconds, _admission.value)
-        viewModelScope.launch(Dispatchers.IO) {
-            controller.start(config)?.let { _events.emit(it) }
-        }
+        ExitNodeService.start(app, ExitNodeConfig(_duration.value.seconds, _admission.value))
     }
 
     fun stop() {
-        viewModelScope.launch(Dispatchers.IO) { controller.stop() }
+        ExitNodeService.stop(app)
     }
 
     fun approve(key: String) = deviceAction { controller.approve(key) }
@@ -82,9 +66,5 @@ class ShareViewModel : ViewModel() {
 
     private fun deviceAction(block: () -> String?) {
         viewModelScope.launch(Dispatchers.IO) { block()?.let { _events.emit(it) } }
-    }
-
-    private companion object {
-        const val POLL_MS = 1_000L
     }
 }

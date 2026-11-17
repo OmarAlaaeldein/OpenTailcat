@@ -144,6 +144,19 @@ class ExitNodeController(
         runCatching { engine.stop() }
     }
 
+    /**
+     * Records a start that was refused before it began (the service uses this
+     * so the user sees why) as an ended session. Does nothing if a session is
+     * already in progress.
+     */
+    fun fail(message: String) {
+        synchronized(lock) {
+            if (_state.value is ExitNodeUiState.Idle || _state.value is ExitNodeUiState.Ended) {
+                _state.value = ExitNodeUiState.Ended(ExitNodeEnd.FAILED, message)
+            }
+        }
+    }
+
     /** Leaves the Ended screen. */
     fun acknowledgeEnded() {
         synchronized(lock) {

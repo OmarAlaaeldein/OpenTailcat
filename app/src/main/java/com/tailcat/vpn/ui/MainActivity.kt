@@ -1,5 +1,6 @@
 package com.tailcat.vpn.ui
 
+import android.content.Intent
 import android.graphics.Color as AndroidColor
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -17,6 +18,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -37,8 +39,12 @@ import com.tailcat.vpn.ui.theme.rememberReducedMotion
 private val Backdrop = Brush.verticalGradient(listOf(BgTop, BgBottom))
 
 class MainActivity : ComponentActivity() {
+    /** A screen a notification asked for; consumed by the composition. */
+    private val requestedScreen = mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedScreen.value = intent?.getStringExtra(EXTRA_SCREEN)
         TailcatApplication.instance.tunnelController.onUiResumed()
         // The UI is always dark: force light system-bar icons. The default
         // auto style would pick dark icons on a device set to light mode.
@@ -51,6 +57,13 @@ class MainActivity : ComponentActivity() {
             TailcatTheme {
                 var currentScreen by rememberSaveable { mutableStateOf("home") }
                 val reducedMotion = rememberReducedMotion()
+
+                LaunchedEffect(requestedScreen.value) {
+                    requestedScreen.value?.let { wanted ->
+                        if (wanted == SCREEN_SHARE) currentScreen = wanted
+                        requestedScreen.value = null
+                    }
+                }
 
                 BackHandler(enabled = currentScreen != "home") {
                     currentScreen = "home"
@@ -90,8 +103,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        requestedScreen.value = intent.getStringExtra(EXTRA_SCREEN)
+    }
+
     override fun onResume() {
         super.onResume()
         TailcatApplication.instance.tunnelController.onUiResumed()
+    }
+
+    companion object {
+        /** Intent extra naming the screen to open. Only known screens are honoured. */
+        const val EXTRA_SCREEN = "screen"
+        const val SCREEN_SHARE = "share"
     }
 }

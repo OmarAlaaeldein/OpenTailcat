@@ -6,6 +6,7 @@ import com.tailcat.vpn.core.net.AppHttp
 import com.tailcat.vpn.data.PreferencesStore
 import com.tailcat.vpn.data.ProfileRepository
 import com.tailcat.vpn.service.ExitNodeController
+import com.tailcat.vpn.service.ExitNodeNotifications
 import com.tailcat.vpn.service.TunnelController
 import com.tailcat.vpn.service.TunnelEngine
 import com.tailcat.vpn.service.TunnelExitNode
@@ -61,6 +62,7 @@ class TailcatApplication : Application() {
         tunnelController.startBlocker = exitNodeController::startBlockReason
 
         notificationManager.createNotificationChannels()
+        ExitNodeNotifications(this).createChannels()
         tunnelController.restoreIfWanted()
     }
 

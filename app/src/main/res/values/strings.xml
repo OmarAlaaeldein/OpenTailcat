@@ -3,4 +3,8 @@
     <string name="vpn_service_desc">OpenTailcat gateway tunnel</string>
     <string name="vpn_channel_name">OpenTailcat VPN Status</string>
     <string name="vpn_channel_desc">Active connection telemetry and tunnel status</string>
+    <string name="share_channel_name">OpenTailcat sharing</string>
+    <string name="share_channel_desc">Shows while this phone is sharing its connection</string>
+    <string name="share_alert_channel_name">Sharing requests</string>
+    <string name="share_alert_channel_desc">Alerts when a device asks to use this phone\'s connection</string>
 </resources>
