@@ -3,6 +3,8 @@ package com.tailcat.vpn.service
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TunnelExitNodeTest {
@@ -16,6 +18,21 @@ class TunnelExitNodeTest {
 
         val open = JSONObject(TunnelExitNode.configJson(ExitNodeConfig(60, ExitNodeAdmission.OPEN)))
         assertEquals("open", open.getString("admission"))
+    }
+
+    @Test
+    fun aShareWithoutATimeLimitSendsNoExpiryAndNoTtl() {
+        val json = JSONObject(TunnelExitNode.configJson(ExitNodeConfig(null, ExitNodeAdmission.APPROVAL)))
+        assertTrue(json.getBoolean("noExpiry"))
+        assertEquals("approval", json.getString("admission"))
+        assertEquals(setOf("noExpiry", "admission"), json.keys().asSequence().toSet())
+    }
+
+    @Test
+    fun aShareWithoutATimeLimitMustUseApproval() {
+        assertThrows(IllegalArgumentException::class.java) { ExitNodeConfig(null, ExitNodeAdmission.OPEN) }
+        assertFalse(ExitNodeConfig(null).hasTimeLimit)
+        assertTrue(ExitNodeConfig(60).hasTimeLimit)
     }
 
     @Test

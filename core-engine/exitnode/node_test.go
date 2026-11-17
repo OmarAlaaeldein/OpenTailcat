@@ -205,8 +205,43 @@ func TestExpiryIsEnforcedByTheNode(t *testing.T) {
 	if n.onUDPForward(netip.MustParseAddrPort("8.8.8.8:53")) != nil {
 		t.Fatal("UDP forward handler offered after expiry")
 	}
-	if got := n.TimeRemaining(); got != 0 {
+	if got, ok := n.TimeRemaining(); !ok || got != 0 {
 		t.Fatalf("TimeRemaining = %v after expiry", got)
+	}
+}
+
+func TestASessionWithoutATimeLimitRunsUntilClosed(t *testing.T) {
+	dev := k()
+	n, clk := testNode(t, func(c *Config) { c.TTL = 0; c.NoExpiry = true; c.Approved = []key.NodePublic{dev} })
+	n.arm()
+	if n.timer != nil {
+		t.Fatal("a session without a time limit armed an expiry timer")
+	}
+	clk.advance(30 * 24 * time.Hour)
+	if !n.admit(dev) {
+		t.Fatal("an approved device was refused a month in")
+	}
+	if n.onTCPForward(netip.MustParseAddrPort("127.0.0.1:443")) == nil {
+		t.Fatal("forwarding stopped without an expiry")
+	}
+	if _, ok := n.TimeRemaining(); ok {
+		t.Fatal("TimeRemaining reported a limit")
+	}
+	if !n.ExpiresAt().IsZero() {
+		t.Fatalf("ExpiresAt = %v, want the zero time", n.ExpiresAt())
+	}
+	if s := n.Stats(); s.ExpiresUnixSec != 0 || s.State != StateRunning {
+		t.Fatalf("stats = %s expires %d, want RUNNING with expiresUnixSec 0", s.State, s.ExpiresUnixSec)
+	}
+	// Approval still applies: a new device waits.
+	if n.admit(k()) {
+		t.Fatal("an unknown device was admitted without approval")
+	}
+	if err := n.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if n.admit(dev) {
+		t.Fatal("admitted after Close")
 	}
 }
 
@@ -278,6 +313,10 @@ func TestStartValidatesConfig(t *testing.T) {
 		"negative":   {TTL: -time.Second},
 		"too long":   {TTL: MaxTTL + time.Second},
 		"bad policy": {TTL: time.Hour, Admission: 7},
+		// A session without a time limit names no TTL and never admits openly.
+		"no limit with ttl":   {NoExpiry: true, TTL: time.Hour},
+		"no limit open":       {NoExpiry: true, Admission: AdmitOpen},
+		"no limit open + ttl": {NoExpiry: true, TTL: time.Hour, Admission: AdmitOpen},
 	} {
 		if n, err := Start(context.Background(), cfg); err == nil {
 			n.Close()

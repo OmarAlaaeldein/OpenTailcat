@@ -16,7 +16,7 @@ class ExitNodeNotificationTextTest {
         pending: Int = 0,
         activeGuests: Int = 0,
         bytes: Long = 0,
-        expiresIn: Long = 3600
+        expiresIn: Long? = 3600
     ): ExitNodeStats {
         val guests = JSONArray()
         repeat(activeGuests) { i ->
@@ -33,7 +33,7 @@ class ExitNodeNotificationTextTest {
         }
         return ExitNodeStats.parse(
             JSONObject().put("schema", 1).put("state", "RUNNING").put("admission", "approval")
-                .put("startedUnixSec", now).put("expiresUnixSec", now + expiresIn)
+                .put("startedUnixSec", now).put("expiresUnixSec", expiresIn?.let { now + it } ?: 0L)
                 .put("activeTcp", activeGuests).put("activeUdp", 0).put("totalTcp", 0).put("totalUdp", 0)
                 .put("bytesFromGuests", bytes).put("bytesToGuests", 0)
                 .put("policyRejections", 0).put("capRejections", 0).put("dialFailures", 0)
@@ -66,6 +66,12 @@ class ExitNodeNotificationTextTest {
         assertFalse(text.contains("nodekey"))
         assertFalse(text.contains("ab".repeat(8)))
         assertFalse(ExitNodeNotificationText.PENDING_TEXT.contains("nodekey"))
+    }
+
+    @Test
+    fun aShareWithoutATimeLimitSaysSoInsteadOfACountdown() {
+        assertEquals("1 device · 0 B · until you stop",
+            ExitNodeNotificationText.sharingText(stats(activeGuests = 1, expiresIn = null), now))
     }
 
     @Test

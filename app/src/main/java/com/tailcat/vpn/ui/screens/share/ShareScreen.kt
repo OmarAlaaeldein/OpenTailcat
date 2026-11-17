@@ -71,7 +71,7 @@ import com.tailcat.vpn.service.ExitNodeUiState
 import com.tailcat.vpn.ui.screens.home.QrMatrixCanvas
 import com.tailcat.vpn.ui.screens.home.encodeTokenQr
 import com.tailcat.vpn.ui.theme.AccentCyan
-import com.tailcat.vpn.ui.theme.BgDark
+import com.tailcat.vpn.ui.theme.TailcatButtons
 import com.tailcat.vpn.ui.theme.BorderSubtle
 import com.tailcat.vpn.ui.theme.EmeraldConnected
 import com.tailcat.vpn.ui.theme.RedDegraded
@@ -185,18 +185,27 @@ private fun SetupContent(
     Card {
         Eyebrow("HOW LONG")
         Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ShareDuration.entries.forEach { option ->
-                FilterChip(
-                    selected = option == duration,
-                    onClick = { onDuration(option) },
-                    label = { Text(option.label) }
-                )
+        // Four timed choices fill a phone's width, so "no limit" gets its own row.
+        val (timed, untimed) = ShareDuration.entries.partition { it.isTimed }
+        for (options in listOf(timed, untimed)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                options.forEach { option ->
+                    FilterChip(
+                        selected = option == duration,
+                        onClick = { onDuration(option) },
+                        label = { Text(option.label) }
+                    )
+                }
             }
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            "The code stops working when time runs out, and sharing ends by itself.",
+            if (duration.isTimed) {
+                "The code stops working when time runs out, and sharing ends by itself."
+            } else {
+                "Sharing lasts until you tap Stop sharing. It also ends if Android closes the app, " +
+                    "and the code then stops working. Each new device still needs your approval."
+            },
             style = MaterialTheme.typography.bodySmall.copy(color = TextMuted)
         )
     }
@@ -214,8 +223,13 @@ private fun SetupContent(
         AdmissionOption(
             selected = admission == ExitNodeAdmission.OPEN,
             title = "Anyone with the code",
-            body = "No approval step. Anyone who sees the code can connect until it expires.",
+            body = if (duration.isTimed) {
+                "No approval step. Anyone who sees the code can connect until it expires."
+            } else {
+                "Needs a time limit, so a leaked code cannot be used forever. Pick a duration above."
+            },
             recommended = false,
+            enabled = duration.isTimed,
             onClick = { onAdmission(ExitNodeAdmission.OPEN) }
         )
     }
@@ -233,7 +247,7 @@ private fun SetupContent(
     Button(
         onClick = onStart,
         enabled = blockedReason == null,
-        colors = ButtonDefaults.buttonColors(containerColor = AccentCyan, contentColor = BgDark),
+        colors = TailcatButtons.filled(),
         modifier = Modifier.fillMaxWidth().height(52.dp)
     ) {
         Text("Start sharing")
@@ -246,19 +260,28 @@ private fun AdmissionOption(
     title: String,
     body: String,
     recommended: Boolean,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     Row(
         verticalAlignment = Alignment.Top,
         modifier = Modifier
             .fillMaxWidth()
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .padding(vertical = 6.dp)
     ) {
-        RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(top = 2.dp, end = 12.dp))
+        RadioButton(
+            selected = selected,
+            onClick = null,
+            enabled = enabled,
+            modifier = Modifier.padding(top = 2.dp, end = 12.dp)
+        )
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyLarge.copy(color = if (enabled) TextPrimary else TextMuted)
+                )
                 if (recommended) {
                     Spacer(Modifier.width(8.dp))
                     Text("RECOMMENDED", style = TailcatText.Eyebrow.copy(color = EmeraldConnected))
@@ -292,14 +315,17 @@ private fun SharingContent(
     onStop: () -> Unit
 ) {
     val now by rememberNowSec()
-    val remaining = (stats.expiresUnixSec - now).coerceAtLeast(0)
+    val expires = stats.expiresUnixSec
 
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp)) {
         Box(Modifier.size(8.dp).background(EmeraldConnected, CircleShape))
         Spacer(Modifier.width(10.dp))
         Text("SHARING", style = TailcatText.Status.copy(color = EmeraldConnected))
         Spacer(Modifier.weight(1f))
-        Text("${formatRemaining(remaining)} left", style = TailcatText.Metric.copy(color = TextSecondary))
+        Text(
+            if (expires == null) "no time limit" else "${formatRemaining((expires - now).coerceAtLeast(0))} left",
+            style = TailcatText.Metric.copy(color = TextSecondary)
+        )
     }
 
     CodeCard(token, openAdmission = stats.openAdmission)
@@ -407,7 +433,7 @@ private fun PendingRow(device: PendingDevice, onApprove: (String) -> Unit, onDen
         TextButton(onClick = { onDeny(device.key) }) { Text("Deny", color = TextSecondary) }
         Button(
             onClick = { onApprove(device.key) },
-            colors = ButtonDefaults.buttonColors(containerColor = AccentCyan, contentColor = BgDark)
+            colors = TailcatButtons.filled()
         ) { Text("Approve") }
     }
 }
@@ -453,7 +479,7 @@ private fun EndedContent(message: String, onDone: () -> Unit) {
     }
     Button(
         onClick = onDone,
-        colors = ButtonDefaults.buttonColors(containerColor = AccentCyan, contentColor = BgDark),
+        colors = TailcatButtons.filled(),
         modifier = Modifier.fillMaxWidth().height(52.dp)
     ) { Text("Done") }
 }

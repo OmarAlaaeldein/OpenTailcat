@@ -18,7 +18,7 @@ type Stats struct {
 	State           State  `json:"state"`
 	Admission       string `json:"admission"`
 	StartedUnixSec  int64  `json:"startedUnixSec"`
-	ExpiresUnixSec  int64  `json:"expiresUnixSec"`
+	ExpiresUnixSec  int64  `json:"expiresUnixSec"` // 0: no time limit
 	ActiveTCP       int64  `json:"activeTcp"`
 	ActiveUDP       int64  `json:"activeUdp"`
 	TotalTCP        uint64 `json:"totalTcp"`
@@ -74,7 +74,7 @@ func (n *Node) Stats() Stats {
 		State:            n.state,
 		Admission:        adm,
 		StartedUnixSec:   n.started.Unix(),
-		ExpiresUnixSec:   n.expires.Unix(),
+		ExpiresUnixSec:   unixOrZero(n.expires),
 		ActiveTCP:        n.activeTCP.Load(),
 		ActiveUDP:        n.activeUDP.Load(),
 		TotalTCP:         n.totalTCP.Load(),
@@ -137,11 +137,22 @@ func (n *Node) StatsJSON() (string, error) {
 	return string(b), nil
 }
 
-// TimeRemaining is how long until expiry, never negative.
-func (n *Node) TimeRemaining() time.Duration {
-	d := n.expires.Sub(n.now())
-	if d < 0 {
+func unixOrZero(t time.Time) int64 {
+	if t.IsZero() {
 		return 0
 	}
-	return d
+	return t.Unix()
+}
+
+// TimeRemaining is how long until expiry, never negative. ok is false when
+// the session has no time limit.
+func (n *Node) TimeRemaining() (d time.Duration, ok bool) {
+	if n.expires.IsZero() {
+		return 0, false
+	}
+	d = n.expires.Sub(n.now())
+	if d < 0 {
+		return 0, true
+	}
+	return d, true
 }

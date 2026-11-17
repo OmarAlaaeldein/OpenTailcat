@@ -83,6 +83,15 @@ func TestParseExitNodeConfig(t *testing.T) {
 	if err != nil || open.Admission != exitnode.AdmitOpen {
 		t.Fatalf("open config: %+v, %v", open, err)
 	}
+	for _, raw := range []string{
+		`{"noExpiry":true,"admission":"approval"}`,
+		`{"noExpiry":true,"ttlSeconds":0,"admission":"approval"}`,
+	} {
+		unlimited, err := parseExitNodeConfig(raw)
+		if err != nil || !unlimited.NoExpiry || unlimited.TTL != 0 || unlimited.Admission != exitnode.AdmitApproval {
+			t.Fatalf("no-limit config %s: %+v, %v", raw, unlimited, err)
+		}
+	}
 	for name, raw := range map[string]string{
 		"empty":           ``,
 		"not json":        `ttl=3600`,
@@ -95,6 +104,11 @@ func TestParseExitNodeConfig(t *testing.T) {
 		"trailing object": approvalConfig + `{}`,
 		"oversized":       `{"ttlSeconds":3600,"admission":"approval","x":"` + strings.Repeat("a", 2000) + `"}`,
 		"overflowing ttl": `{"ttlSeconds":9223372036854775807,"admission":"approval"}`,
+		// No time limit: never with a TTL, never with open admission.
+		"no limit + ttl":   `{"noExpiry":true,"ttlSeconds":3600,"admission":"approval"}`,
+		"no limit + open":  `{"noExpiry":true,"admission":"open"}`,
+		"no limit is bool": `{"noExpiry":"yes","admission":"approval"}`,
+		"explicit false":   `{"noExpiry":false,"admission":"approval"}`,
 	} {
 		if _, err := parseExitNodeConfig(raw); err == nil {
 			t.Errorf("%s: accepted %q", name, raw)

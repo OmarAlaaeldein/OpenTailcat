@@ -60,7 +60,10 @@ class TunnelExitNode : NativeExitNode {
     companion object {
         /** The JSON the native `startExitNode` expects; unknown fields are rejected there. */
         fun configJson(config: ExitNodeConfig): String = JSONObject()
-            .put("ttlSeconds", config.ttlSeconds)
+            .apply {
+                val ttl = config.ttlSeconds
+                if (ttl == null) put("noExpiry", true) else put("ttlSeconds", ttl)
+            }
             .put(
                 "admission",
                 when (config.admission) {

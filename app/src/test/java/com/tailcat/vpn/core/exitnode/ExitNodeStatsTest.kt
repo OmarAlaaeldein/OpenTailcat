@@ -18,6 +18,12 @@ class ExitNodeStatsTest {
     }
 
     @Test
+    fun zeroExpiryMeansNoTimeLimit() {
+        val noLimit = JSONObject(fixture()).put("expiresUnixSec", 0).toString()
+        assertEquals(null, ExitNodeStats.parse(noLimit).expiresUnixSec)
+    }
+
+    @Test
     fun parsesTheNativeFixture() {
         val s = ExitNodeStats.parse(fixture())
         assertTrue(s.isRunning)

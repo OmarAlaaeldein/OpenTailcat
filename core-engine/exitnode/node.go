@@ -20,7 +20,8 @@
 //   - Every session uses a fresh node key and preshared key, discarded on
 //     Close. Stopping the node therefore revokes every token it ever issued.
 //   - The node enforces its own expiry. A client-side expiry check is not
-//     enforcement.
+//     enforcement. A session may instead have no time limit (NoExpiry); it
+//     then lasts until Close, and only with AdmitApproval.
 //   - Destinations on the host's own machine and networks are refused (see
 //     policy.go) unless a test opts in.
 //   - Nothing here logs keys, tokens, or destinations.
@@ -49,13 +50,14 @@ const (
 	// AdmitApproval parks an unknown device as pending until the host approves
 	// its key. This is the zero value, so an unconfigured node is the safe one.
 	AdmitApproval Admission = iota
-	// AdmitOpen admits any device that holds the token, until it expires.
+	// AdmitOpen admits any device that holds the token, until it expires. It
+	// always has a time limit: Start refuses AdmitOpen with NoExpiry.
 	AdmitOpen
 )
 
 const (
-	// MaxTTL bounds a session. A longer share is a standing exit node; this
-	// feature is for temporary sharing.
+	// MaxTTL bounds a timed session. A share meant to outlast it uses NoExpiry,
+	// which requires approval admission.
 	MaxTTL = 24 * time.Hour
 
 	DefaultMaxTCP = 256
@@ -90,8 +92,13 @@ type Dialer interface {
 
 // Config describes one sharing session.
 type Config struct {
-	// TTL is how long the session lasts. Required, at most MaxTTL.
+	// TTL is how long the session lasts: more than zero and at most MaxTTL,
+	// unless NoExpiry is set, in which case it must be zero.
 	TTL time.Duration
+
+	// NoExpiry makes the session last until Close. Allowed only with
+	// AdmitApproval, so a leaked token alone never grants standing access.
+	NoExpiry bool
 
 	// Admission defaults to AdmitApproval.
 	Admission Admission
@@ -130,6 +137,7 @@ type Node struct {
 	dialer  Dialer
 	now     func() time.Time
 	started time.Time
+	// expires is zero when the session has no time limit.
 	expires time.Time
 
 	// peerKey resolves a forwarded flow's remote address to the device key.
@@ -179,14 +187,8 @@ type peerStats struct {
 // reachable. ctx bounds startup (DERP selection and connection) only;
 // cancelling it afterwards does not stop the node, Close does.
 func Start(ctx context.Context, cfg Config) (*Node, error) {
-	if cfg.TTL <= 0 {
-		return nil, errors.New("exitnode: TTL is required")
-	}
-	if cfg.TTL > MaxTTL {
-		return nil, fmt.Errorf("exitnode: TTL exceeds %v", MaxTTL)
-	}
-	if cfg.Admission != AdmitApproval && cfg.Admission != AdmitOpen {
-		return nil, errors.New("exitnode: unknown admission mode")
+	if err := cfg.validate(); err != nil {
+		return nil, err
 	}
 	n := newNode(cfg)
 
@@ -213,6 +215,28 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	n.peerKey = srv.PeerKey
 	n.arm()
 	return n, nil
+}
+
+func (cfg Config) validate() error {
+	if cfg.Admission != AdmitApproval && cfg.Admission != AdmitOpen {
+		return errors.New("exitnode: unknown admission mode")
+	}
+	if cfg.NoExpiry {
+		if cfg.TTL != 0 {
+			return errors.New("exitnode: a session without a time limit takes no TTL")
+		}
+		if cfg.Admission != AdmitApproval {
+			return errors.New("exitnode: a session without a time limit requires approval admission")
+		}
+		return nil
+	}
+	if cfg.TTL <= 0 {
+		return errors.New("exitnode: TTL is required")
+	}
+	if cfg.TTL > MaxTTL {
+		return fmt.Errorf("exitnode: TTL exceeds %v", MaxTTL)
+	}
+	return nil
 }
 
 // newNode builds the node without a network server. Tests drive the handlers
@@ -252,7 +276,9 @@ func newNode(cfg Config) *Node {
 		n.allowed[k] = struct{}{}
 	}
 	n.started = now()
-	n.expires = n.started.Add(cfg.TTL)
+	if !cfg.NoExpiry {
+		n.expires = n.started.Add(cfg.TTL)
+	}
 	n.peerKey = func(net.Addr) (key.NodePublic, bool) { return key.NodePublic{}, false }
 	return n
 }
@@ -262,7 +288,7 @@ func newNode(cfg Config) *Node {
 func (n *Node) arm() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if n.state != StateRunning {
+	if n.state != StateRunning || n.expires.IsZero() {
 		return
 	}
 	n.timer = time.AfterFunc(n.expires.Sub(n.now()), func() { n.shutdown(StateExpired) })
@@ -293,7 +319,8 @@ func (n *Node) State() State {
 	return n.state
 }
 
-// ExpiresAt is when the node stops itself.
+// ExpiresAt is when the node stops itself; the zero time when it has no
+// time limit.
 func (n *Node) ExpiresAt() time.Time { return n.expires }
 
 // Done is closed once the node has stopped, for any reason.
@@ -333,7 +360,9 @@ func (n *Node) shutdown(final State) {
 	})
 }
 
-func (n *Node) expired() bool { return !n.now().Before(n.expires) }
+func (n *Node) expired() bool {
+	return !n.expires.IsZero() && !n.now().Before(n.expires)
+}
 
 func (n *Node) running() bool {
 	n.mu.Lock()

@@ -69,6 +69,13 @@ in. No key exchange, and no token-format change: option 1's `c` field is not
 needed. Open admission remains as an explicit, labelled mode, and the node
 enforces its own expiry either way.
 
+**No time limit** ("Until I stop") was added on request. Such a session has no
+expiry (`Config.NoExpiry`, bridge `{"noExpiry":true}`, stats
+`expiresUnixSec: 0`) and lasts until Stop or until Android kills the process,
+which discards its keys. It is allowed only with approval admission, refused
+natively and in Kotlin otherwise, so a leaked code never grants standing access
+by itself. Timed sessions keep the 24 h cap.
+
 ## Design
 
 ### Keys and revocation
@@ -264,8 +271,10 @@ lifecycle and its own tests.
   all servers. Boot the emulator with `-dns-server 8.8.8.8,8.8.4.4` to test
   without depending on it.
 - **Wake lock is a guess until measured.** The service holds a `PARTIAL_WAKE_LOCK`
-  for the session (timeout = TTL + 60 s). Whether it is needed, and what it
-  costs in battery and heat, is the 30-minute power test, still to do.
+  for the session (timeout = TTL + 60 s; without a time limit, one-hour chunks
+  renewed by the poll loop, so a hung loop lets it lapse). Whether it is needed,
+  and what it costs in battery and heat, is the 30-minute power test, still to
+  do. A share without a limit makes this matter more.
 - **Always-on VPN with "Block connections without VPN"** blocks this app's own
   sockets while the VPN is off, which would stop the node dialing out. It cannot
   be detected beforehand (Android only reports it to a running VpnService), so

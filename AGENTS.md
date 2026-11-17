@@ -513,6 +513,8 @@ Plan and open items: `exit.md`. Rules that must hold:
   unknown device key is parked as pending and refused until approved. Open
   admission is an explicit, labelled mode. Sessions use fresh keys, discarded
   at stop, so stopping revokes every code. The node enforces expiry itself.
+  A share may have no time limit (`NoExpiry`) only with approval admission;
+  open admission is always timed (24 h cap), enforced natively and in Kotlin.
 - **Guests never reach the host's network.** Loopback, private, CGNAT,
   link-local, multicast and reserved destinations are refused
   (`exitnode/policy.go`). `AllowLocalDestinations` is test-only and is not
@@ -530,7 +532,8 @@ Status: native engine, bridge, UI and `ExitNodeService` (foreground service,
 type `specialUse`, not sticky, session-scoped wake lock) exist. Sharing is not
 resumed if Android kills the process: the keys die with it. Verified on an
 emulator for start, foreground service, notification, interlock and stop; a
-guest connecting through it is not yet verified.
+guest phone connecting through an emulator host (approval, forwarding over
+cellular) has been verified by hand.
 
 ## Glossary
 
@@ -554,7 +557,7 @@ guest connecting through it is not yet verified.
 - Upstream status API for WireGuard counters (they stay 0 until then).
 - Reconnect TUN gap: recommend Always-on lockdown.
 - Exit node: stable per-profile client key, battery/doze measurement, TLA+
-  coverage of the interlock, on-device pair test (see `exit.md`).
+  coverage of the interlock, a physical phone as the host (see `exit.md`).
 - Confirm the service-lifecycle fixes from the TLA+ model on a device
   (`stopSelf(startId)` with a queued start, STOP after a failed start then a
   quick Connect; see `formal/README.md`). The new instrumented platform probe

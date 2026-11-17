@@ -17,12 +17,19 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** How long a share lasts. The cap is the native MaxTTL; the default is deliberately short. */
-enum class ShareDuration(val label: String, val seconds: Long) {
+/**
+ * How long a share lasts. Timed shares are capped at the native MaxTTL; the
+ * default is deliberately short. [NO_LIMIT] (seconds null) runs until the host
+ * stops it and is allowed only with approval admission.
+ */
+enum class ShareDuration(val label: String, val seconds: Long?) {
     QUARTER_HOUR("15 min", 15 * 60L),
     HOUR("1 hour", 60 * 60L),
     FOUR_HOURS("4 hours", 4 * 60 * 60L),
-    DAY("24 hours", ExitNodeConfig.MAX_TTL_SECONDS)
+    DAY("24 hours", ExitNodeConfig.MAX_TTL_SECONDS),
+    NO_LIMIT("Until I stop", null);
+
+    val isTimed: Boolean get() = seconds != null
 }
 
 class ShareViewModel : ViewModel() {
@@ -42,8 +49,16 @@ class ShareViewModel : ViewModel() {
     private val _events = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val events: SharedFlow<String> = _events.asSharedFlow()
 
-    fun selectDuration(value: ShareDuration) { _duration.value = value }
-    fun selectAdmission(value: ExitNodeAdmission) { _admission.value = value }
+    /** Choosing no time limit also switches to approval: an open share must expire. */
+    fun selectDuration(value: ShareDuration) {
+        _duration.value = value
+        if (!value.isTimed) _admission.value = ExitNodeAdmission.APPROVAL
+    }
+
+    fun selectAdmission(value: ExitNodeAdmission) {
+        if (value == ExitNodeAdmission.OPEN && !_duration.value.isTimed) return
+        _admission.value = value
+    }
 
     /**
      * Hands the session to the foreground service, which owns the poll loop,

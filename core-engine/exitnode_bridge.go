@@ -51,8 +51,12 @@ var exitHost struct {
 	ours     SocketProtector
 }
 
+// exitNodeConfigJSON is what Kotlin sends: {"ttlSeconds":3600,"admission":
+// "approval"}, or {"noExpiry":true,"admission":"approval"} for a share that
+// lasts until stopped (approval only; ttlSeconds then absent or 0).
 type exitNodeConfigJSON struct {
 	TTLSeconds int64  `json:"ttlSeconds"`
+	NoExpiry   bool   `json:"noExpiry"`
 	Admission  string `json:"admission"`
 }
 
@@ -76,13 +80,21 @@ func parseExitNodeConfig(raw string) (exitnode.Config, error) {
 	if dec.More() {
 		return exitnode.Config{}, errors.New("exit node config has trailing data")
 	}
-	// Range-check the integer first: converting an enormous value to a
-	// Duration would overflow and wrap past the bound below.
-	maxSec := int64(exitnode.MaxTTL / time.Second)
-	if in.TTLSeconds <= 0 || in.TTLSeconds > maxSec {
-		return exitnode.Config{}, fmt.Errorf("exit node ttlSeconds must be between 1 and %d", maxSec)
+	var cfg exitnode.Config
+	if in.NoExpiry {
+		if in.TTLSeconds != 0 {
+			return exitnode.Config{}, errors.New("exit node noExpiry takes no ttlSeconds")
+		}
+		cfg.NoExpiry = true
+	} else {
+		// Range-check the integer first: converting an enormous value to a
+		// Duration would overflow and wrap past the bound below.
+		maxSec := int64(exitnode.MaxTTL / time.Second)
+		if in.TTLSeconds <= 0 || in.TTLSeconds > maxSec {
+			return exitnode.Config{}, fmt.Errorf("exit node ttlSeconds must be between 1 and %d", maxSec)
+		}
+		cfg.TTL = time.Duration(in.TTLSeconds) * time.Second
 	}
-	cfg := exitnode.Config{TTL: time.Duration(in.TTLSeconds) * time.Second}
 	switch in.Admission {
 	case "approval":
 		cfg.Admission = exitnode.AdmitApproval
@@ -90,6 +102,9 @@ func parseExitNodeConfig(raw string) (exitnode.Config, error) {
 		cfg.Admission = exitnode.AdmitOpen
 	default:
 		return exitnode.Config{}, errors.New("exit node admission must be \"approval\" or \"open\"")
+	}
+	if cfg.NoExpiry && cfg.Admission != exitnode.AdmitApproval {
+		return exitnode.Config{}, errors.New("a share without a time limit requires approval")
 	}
 	return cfg, nil
 }

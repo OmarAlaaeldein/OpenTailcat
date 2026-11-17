@@ -7,6 +7,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import com.tailcat.vpn.TailcatApplication
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +36,7 @@ class ExitNodeService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var runJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    @Volatile private var renewWakeLockAtMs = Long.MAX_VALUE
     @Volatile private var userStopped = false
     private lateinit var notifications: ExitNodeNotifications
 
@@ -68,7 +70,8 @@ class ExitNodeService : Service() {
         if (runJob?.isActive == true) return
         userStopped = false
 
-        val ttl = intent.getLongExtra(EXTRA_TTL_SECONDS, 0L)
+        val ttl: Long? = if (intent.getBooleanExtra(EXTRA_NO_LIMIT, false)) null
+        else intent.getLongExtra(EXTRA_TTL_SECONDS, 0L)
         val admission = when (intent.getStringExtra(EXTRA_ADMISSION)) {
             ADMISSION_OPEN -> ExitNodeAdmission.OPEN
             else -> ExitNodeAdmission.APPROVAL
@@ -105,6 +108,7 @@ class ExitNodeService : Service() {
         var lastText = ""
         while (scope.isActive && controller.isActive) {
             delay(POLL_MS)
+            renewWakeLockIfDue()
             controller.refresh()
             val sharing = controller.state.value as? ExitNodeUiState.Sharing ?: break
             val text = ExitNodeNotificationText.sharingText(sharing.stats, System.currentTimeMillis() / 1000)
@@ -162,15 +166,28 @@ class ExitNodeService : Service() {
         stopSelf()
     }
 
-    private fun acquireWakeLock(ttlSeconds: Long) {
+    private fun acquireWakeLock(ttlSeconds: Long?) {
         if (wakeLock?.isHeld == true) return
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         // The timeout bounds the lock even if this class never reaches
-        // finish(): it cannot outlive the session by more than a minute.
+        // finish(): a timed session's lock cannot outlive it by more than a
+        // minute. A session without a limit holds it in renewed chunks, so a
+        // poll loop that stops renewing (a hung process) lets it lapse.
+        val timeoutMs = if (ttlSeconds != null) (ttlSeconds + WAKE_LOCK_SLACK_SECONDS) * 1000 else WAKE_LOCK_CHUNK_MS
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG).apply {
             setReferenceCounted(false)
-            acquire((ttlSeconds + WAKE_LOCK_SLACK_SECONDS) * 1000)
+            acquire(timeoutMs)
         }
+        renewWakeLockAtMs = if (ttlSeconds == null) SystemClock.elapsedRealtime() + WAKE_LOCK_CHUNK_MS / 2 else Long.MAX_VALUE
+    }
+
+    private fun renewWakeLockIfDue() {
+        val lock = wakeLock ?: return
+        if (SystemClock.elapsedRealtime() < renewWakeLockAtMs) return
+        // Not reference counted, so this replaces the timeout rather than
+        // stacking a second hold.
+        lock.acquire(WAKE_LOCK_CHUNK_MS)
+        renewWakeLockAtMs = SystemClock.elapsedRealtime() + WAKE_LOCK_CHUNK_MS / 2
     }
 
     private fun releaseWakeLock() {
@@ -192,6 +209,7 @@ class ExitNodeService : Service() {
         const val ACTION_START = "com.tailcat.vpn.ACTION_SHARE_START"
         const val ACTION_STOP = "com.tailcat.vpn.ACTION_SHARE_STOP"
         const val EXTRA_TTL_SECONDS = "ttlSeconds"
+        const val EXTRA_NO_LIMIT = "noTimeLimit"
         const val EXTRA_ADMISSION = "admission"
         const val ADMISSION_OPEN = "open"
         const val ADMISSION_APPROVAL = "approval"
@@ -199,11 +217,15 @@ class ExitNodeService : Service() {
         private const val POLL_MS = 1_000L
         private const val WAKE_LOCK_TAG = "OpenTailcat:ExitNode"
         private const val WAKE_LOCK_SLACK_SECONDS = 60L
+        private const val WAKE_LOCK_CHUNK_MS = 60 * 60 * 1000L
 
         fun start(context: Context, config: ExitNodeConfig) {
             val intent = Intent(context, ExitNodeService::class.java)
                 .setAction(ACTION_START)
-                .putExtra(EXTRA_TTL_SECONDS, config.ttlSeconds)
+                .apply {
+                    val ttl = config.ttlSeconds
+                    if (ttl == null) putExtra(EXTRA_NO_LIMIT, true) else putExtra(EXTRA_TTL_SECONDS, ttl)
+                }
                 .putExtra(
                     EXTRA_ADMISSION,
                     if (config.admission == ExitNodeAdmission.OPEN) ADMISSION_OPEN else ADMISSION_APPROVAL

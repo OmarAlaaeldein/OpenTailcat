@@ -35,7 +35,8 @@ data class ExitNodeStats(
     val state: String,
     val openAdmission: Boolean,
     val startedUnixSec: Long,
-    val expiresUnixSec: Long,
+    /** Null when the session has no time limit (the engine sends 0). */
+    val expiresUnixSec: Long?,
     val activeTcp: Long,
     val activeUdp: Long,
     val totalTcp: Long,
@@ -86,7 +87,7 @@ data class ExitNodeStats(
                         else -> throw IllegalArgumentException("unknown admission mode")
                     },
                     startedUnixSec = o.getLong("startedUnixSec"),
-                    expiresUnixSec = o.getLong("expiresUnixSec"),
+                    expiresUnixSec = o.getLong("expiresUnixSec").takeIf { it != 0L },
                     activeTcp = o.getLong("activeTcp"),
                     activeUdp = o.getLong("activeUdp"),
                     totalTcp = o.getLong("totalTcp"),

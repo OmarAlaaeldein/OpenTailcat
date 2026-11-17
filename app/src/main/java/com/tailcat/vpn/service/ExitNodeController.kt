@@ -120,7 +120,7 @@ class ExitNodeController(
         when {
             tunnelState() != TunnelState.DISCONNECTED ->
                 end(current, ExitNodeEnd.STOPPED, "The VPN connected, so sharing was stopped.")
-            stats.isExpired || nowSec() >= stats.expiresUnixSec ->
+            stats.isExpired || stats.expiresUnixSec?.let { nowSec() >= it } == true ->
                 end(current, ExitNodeEnd.EXPIRED, "Sharing time is up. The code no longer works.")
             !stats.isRunning ->
                 end(current, ExitNodeEnd.STOPPED, "Sharing stopped.")

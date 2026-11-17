@@ -17,6 +17,7 @@ class ExitNodeControllerTest {
         override var availability: EngineAvailability = EngineAvailability(true, "ok")
     ) : NativeExitNode {
         var state = "RUNNING"
+        /** 0 is how the engine reports a session with no time limit. */
         var expires = NOW + 3600
         var startError: String? = null
         var statsError = false
@@ -141,6 +142,20 @@ class ExitNodeControllerTest {
         val ended = controller.state.value as ExitNodeUiState.Ended
         assertEquals(ExitNodeEnd.EXPIRED, ended.reason)
         assertEquals(1, engine.stops)
+    }
+
+    @Test
+    fun aShareWithoutATimeLimitIsNeverExpiredByTheClock() {
+        engine.expires = 0
+        assertNull(controller.start(ExitNodeConfig(null)))
+        assertNull(sharing().stats.expiresUnixSec)
+        now += 365L * 24 * 3600
+        controller.refresh()
+        assertTrue("a year later it is still sharing", controller.isActive)
+        assertEquals(0, engine.stops)
+        // The engine can still end it, and Stop still does.
+        controller.stop()
+        assertEquals(ExitNodeEnd.STOPPED, (controller.state.value as ExitNodeUiState.Ended).reason)
     }
 
     @Test

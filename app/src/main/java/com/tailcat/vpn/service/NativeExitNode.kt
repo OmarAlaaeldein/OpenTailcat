@@ -4,17 +4,31 @@ enum class ExitNodeAdmission {
     /** Unknown devices wait for the host's approval. The safe default. */
     APPROVAL,
 
-    /** Any holder of the code connects until it expires. */
+    /** Any holder of the code connects until it expires. Always time-limited. */
     OPEN
 }
 
+/**
+ * One sharing session. [ttlSeconds] null means no time limit: the session
+ * lasts until the host stops it (or Android kills the app). That is allowed
+ * only with [ExitNodeAdmission.APPROVAL], here and natively, so a leaked code
+ * never grants standing access on its own.
+ */
 data class ExitNodeConfig(
-    val ttlSeconds: Long,
+    val ttlSeconds: Long?,
     val admission: ExitNodeAdmission = ExitNodeAdmission.APPROVAL
 ) {
     init {
-        require(ttlSeconds in 1..MAX_TTL_SECONDS) { "Sharing time must be between 1 second and 24 hours" }
+        if (ttlSeconds == null) {
+            require(admission == ExitNodeAdmission.APPROVAL) {
+                "Sharing without a time limit needs approval for each device"
+            }
+        } else {
+            require(ttlSeconds in 1..MAX_TTL_SECONDS) { "Sharing time must be between 1 second and 24 hours" }
+        }
     }
+
+    val hasTimeLimit: Boolean get() = ttlSeconds != null
 
     companion object {
         const val MAX_TTL_SECONDS = 24 * 60 * 60L

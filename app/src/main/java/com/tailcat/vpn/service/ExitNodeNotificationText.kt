@@ -13,10 +13,12 @@ object ExitNodeNotificationText {
     const val STARTING = "Starting…"
     const val PENDING_TITLE = "A device wants to connect"
     const val PENDING_TEXT = "Open OpenTailcat to approve or deny it."
+    const val NO_LIMIT = "until you stop"
 
     /** Body of the ongoing notification while a session is live. */
     fun sharingText(stats: ExitNodeStats, nowSec: Long): String {
-        val left = formatLeft(stats.expiresUnixSec - nowSec)
+        val expires = stats.expiresUnixSec
+        val left = if (expires == null) NO_LIMIT else formatLeft(expires - nowSec) + " left"
         val devices = stats.guests.count { it.activeFlows > 0 }
         val who = when {
             stats.pending.isNotEmpty() -> "${stats.pending.size} waiting for approval"
@@ -24,7 +26,7 @@ object ExitNodeNotificationText {
             devices > 1 -> "$devices devices"
             else -> "no devices yet"
         }
-        return "$who · ${TrafficFormat.formatBytes(stats.totalBytes)} · $left left"
+        return "$who · ${TrafficFormat.formatBytes(stats.totalBytes)} · $left"
     }
 
     /** Body of the notification left behind when a session ends. */
