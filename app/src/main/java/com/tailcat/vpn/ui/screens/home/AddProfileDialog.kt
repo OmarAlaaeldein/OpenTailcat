@@ -56,6 +56,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
+import com.google.zxing.common.BitMatrix
 import com.google.zxing.qrcode.QRCodeWriter
 import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.core.dns.DnsValidationResult
@@ -458,19 +459,25 @@ internal fun TokenQrDialog(
                 if (matrix == null) {
                     Text("This token is too large to display as a QR code.")
                 } else {
-                    Canvas(Modifier.fillMaxWidth().height(280.dp).background(Color.White)) {
-                        val scale = minOf(size.width / matrix.width, size.height / matrix.height)
-                        val left = (size.width - matrix.width * scale) / 2
-                        val top = (size.height - matrix.height * scale) / 2
-                        for (y in 0 until matrix.height) for (x in 0 until matrix.width) {
-                            if (matrix[x, y]) drawRect(Color.Black, Offset(left + x * scale, top + y * scale), Size(scale, scale))
-                        }
-                    }
+                    QrMatrixCanvas(matrix, Modifier.fillMaxWidth().height(280.dp))
                 }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
     )
+}
+
+/** Draws a QR matrix black-on-white. Shared by the pairing dialog and the sharing screen. */
+@Composable
+internal fun QrMatrixCanvas(matrix: BitMatrix, modifier: Modifier = Modifier) {
+    Canvas(modifier.background(Color.White)) {
+        val scale = minOf(size.width / matrix.width, size.height / matrix.height)
+        val left = (size.width - matrix.width * scale) / 2
+        val top = (size.height - matrix.height * scale) / 2
+        for (y in 0 until matrix.height) for (x in 0 until matrix.width) {
+            if (matrix[x, y]) drawRect(Color.Black, Offset(left + x * scale, top + y * scale), Size(scale, scale))
+        }
+    }
 }
 
 internal fun encodeTokenQr(token: String) =

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SignalWifiOff
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.WarningAmber
@@ -37,6 +38,7 @@ import com.tailcat.vpn.service.EngineAvailability
 import com.tailcat.vpn.ui.theme.panel
 import com.tailcat.vpn.ui.theme.TailcatShapes
 import com.tailcat.vpn.ui.theme.AccentCyan
+import com.tailcat.vpn.ui.theme.EmeraldConnected
 import com.tailcat.vpn.ui.theme.RedDegraded
 import com.tailcat.vpn.ui.theme.TextSecondary
 import com.tailcat.vpn.ui.theme.YellowWarning
@@ -47,6 +49,8 @@ fun HomeTopBar(
     isDeviceOffline: Boolean,
     engineAvailability: EngineAvailability,
     lastError: String?,
+    isSharing: Boolean,
+    onNavigateToShare: () -> Unit,
     onNavigateToSpeedTest: () -> Unit,
     onNavigateToSettings: () -> Unit
 ) {
@@ -76,6 +80,19 @@ fun HomeTopBar(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = onNavigateToShare,
+                    modifier = Modifier
+                        .panel(TailcatShapes.Control)
+                        .clip(TailcatShapes.Control)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = if (isSharing) "Sharing this phone. Manage" else "Share this phone",
+                        tint = if (isSharing) EmeraldConnected else TextSecondary
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
                 IconButton(
                     onClick = onNavigateToSpeedTest,
                     modifier = Modifier

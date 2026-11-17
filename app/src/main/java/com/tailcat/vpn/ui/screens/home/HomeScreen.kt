@@ -64,7 +64,8 @@ import kotlinx.coroutines.flow.collectLatest
 fun HomeScreen(
     viewModel: HomeViewModel = viewModel(),
     onNavigateToSettings: () -> Unit = {},
-    onNavigateToSpeedTest: () -> Unit = {}
+    onNavigateToSpeedTest: () -> Unit = {},
+    onNavigateToShare: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val tunnelState by viewModel.tunnelState.collectAsStateWithLifecycle()
@@ -74,6 +75,7 @@ fun HomeScreen(
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val networkType by viewModel.activeNetworkType.collectAsStateWithLifecycle()
     val lastError by viewModel.lastError.collectAsStateWithLifecycle()
+    val isSharing by viewModel.isSharing.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -170,6 +172,8 @@ fun HomeScreen(
                 isDeviceOffline = isDeviceOffline,
                 engineAvailability = viewModel.engineAvailability,
                 lastError = lastError,
+                isSharing = isSharing,
+                onNavigateToShare = onNavigateToShare,
                 onNavigateToSpeedTest = onNavigateToSpeedTest,
                 onNavigateToSettings = onNavigateToSettings
             )

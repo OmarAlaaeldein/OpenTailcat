@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "state": "RUNNING",
+  "admission": "approval",
+  "startedUnixSec": 1800000000,
+  "expiresUnixSec": 1800003600,
+  "activeTcp": 2,
+  "activeUdp": 1,
+  "totalTcp": 41,
+  "totalUdp": 9,
+  "bytesFromGuests": 120345,
+  "bytesToGuests": 9876543,
+  "policyRejections": 3,
+  "capRejections": 0,
+  "dialFailures": 5,
+  "udpOversizeDrops": 1,
+  "pending": [
+    {
+      "key": "nodekey:00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+      "firstSeenUnixSec": 1800000100,
+      "lastSeenUnixSec": 1800000160
+    }
+  ],
+  "guests": [
+    {
+      "key": "nodekey:ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
+      "approved": true,
+      "firstSeenUnixSec": 1800000020,
+      "lastActiveUnixSec": 1800000170,
+      "activeTcp": 2,
+      "activeUdp": 1,
+      "flows": 50,
+      "bytesFrom": 120345,
+      "bytesTo": 9876543
+    }
+  ]
+}

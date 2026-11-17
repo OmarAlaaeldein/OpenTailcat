@@ -164,7 +164,16 @@ class TunnelController(
      * portals, restores) must not need a validated network, because the
      * service retries the handshake until the network is usable.
      */
+    /**
+     * Set by the exit-node controller: returns why the VPN must not start
+     * (the phone is sharing), or null. It sits in [validateStartRequest], which
+     * every start path runs, including the service's Always-on start.
+     */
+    @Volatile
+    var startBlocker: (() -> String?)? = null
+
     fun validateStartRequest(requireOnline: Boolean = true): String? {
+        startBlocker?.invoke()?.let { return it }
         val profile = profileRepository.activeProfile.value
             ?: return "Pair a gateway token before connecting"
         if (requireOnline && !networkMonitor.isOnline) {

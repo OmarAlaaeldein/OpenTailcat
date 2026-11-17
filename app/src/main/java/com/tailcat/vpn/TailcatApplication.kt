@@ -5,8 +5,10 @@ import com.tailcat.vpn.core.NetworkMonitor
 import com.tailcat.vpn.core.net.AppHttp
 import com.tailcat.vpn.data.PreferencesStore
 import com.tailcat.vpn.data.ProfileRepository
+import com.tailcat.vpn.service.ExitNodeController
 import com.tailcat.vpn.service.TunnelController
 import com.tailcat.vpn.service.TunnelEngine
+import com.tailcat.vpn.service.UnavailableExitNode
 import com.tailcat.vpn.service.VpnNotificationManager
 
 class TailcatApplication : Application() {
@@ -21,6 +23,9 @@ class TailcatApplication : Application() {
         private set
 
     lateinit var tunnelEngine: TunnelEngine
+        private set
+
+    lateinit var exitNodeController: ExitNodeController
         private set
 
     lateinit var networkMonitor: NetworkMonitor
@@ -48,6 +53,12 @@ class TailcatApplication : Application() {
             tunnelEngine,
             preferencesStore
         )
+
+        exitNodeController = ExitNodeController(
+            engine = UnavailableExitNode, // replaced by the gomobile facade with the native exports
+            tunnelState = { tunnelController.tunnelState.value }
+        )
+        tunnelController.startBlocker = exitNodeController::startBlockReason
 
         notificationManager.createNotificationChannels()
         tunnelController.restoreIfWanted()

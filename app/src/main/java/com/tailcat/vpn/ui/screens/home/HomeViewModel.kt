@@ -8,10 +8,14 @@ import com.tailcat.vpn.core.model.DnsPolicy
 import com.tailcat.vpn.core.model.GatewayProfile
 import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TunnelState
+import com.tailcat.vpn.service.ExitNodeUiState
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class HomeViewModel : ViewModel() {
@@ -29,6 +33,11 @@ class HomeViewModel : ViewModel() {
     val activeNetworkType: StateFlow<NetworkType> = networkMonitor.activeNetworkType
     val lastError = tunnelController.lastError
     val engineAvailability = tunnelController.engineAvailability
+
+    /** True while this phone is serving as an exit gateway (the opposite role). */
+    val isSharing: StateFlow<Boolean> = app.exitNodeController.state
+        .map { it is ExitNodeUiState.Starting || it is ExitNodeUiState.Sharing }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), app.exitNodeController.isActive)
 
     private val _uiEvent = MutableSharedFlow<String>()
     val uiEvent: SharedFlow<String> = _uiEvent.asSharedFlow()

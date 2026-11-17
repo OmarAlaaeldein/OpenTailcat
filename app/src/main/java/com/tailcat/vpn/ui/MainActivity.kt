@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Brush
 import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.ui.screens.home.HomeScreen
 import com.tailcat.vpn.ui.screens.settings.SettingsScreen
+import com.tailcat.vpn.ui.screens.share.ShareScreen
 import com.tailcat.vpn.ui.screens.speedtest.SpeedTestScreen
 import com.tailcat.vpn.ui.theme.BgBottom
 import com.tailcat.vpn.ui.theme.BgTop
@@ -70,12 +71,16 @@ class MainActivity : ComponentActivity() {
                         when (screen) {
                             "home" -> HomeScreen(
                                 onNavigateToSettings = { currentScreen = "settings" },
-                                onNavigateToSpeedTest = { currentScreen = "speedtest" }
+                                onNavigateToSpeedTest = { currentScreen = "speedtest" },
+                                onNavigateToShare = { currentScreen = "share" }
                             )
                             "settings" -> SettingsScreen(
                                 onNavigateBack = { currentScreen = "home" }
                             )
                             "speedtest" -> SpeedTestScreen(
+                                onNavigateBack = { currentScreen = "home" }
+                            )
+                            "share" -> ShareScreen(
                                 onNavigateBack = { currentScreen = "home" }
                             )
                         }
