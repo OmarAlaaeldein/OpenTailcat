@@ -145,6 +145,11 @@ Rules that trip people up:
   and commit `app/libs/libtailcat.aar` with
   `app/libs/libtailcat.aar.sourcehash`; CI fails when the hash does not match
   the source tree.
+- Do not add a Gradle toolchain auto-provisioning plugin (e.g.
+  `org.gradle.toolchains.foojay-resolver-convention`): F-Droid's source
+  scanner rejects it because it downloads JDK binaries from a third party.
+  JDK 21 is a documented prerequisite, and
+  `gradle/gradle-daemon-jvm.properties` pins the daemon JVM.
 
 ```bash
 env GOTOOLCHAIN=go1.27.4 core-engine/build-aar.sh && unzip -l app/libs/libtailcat.aar
