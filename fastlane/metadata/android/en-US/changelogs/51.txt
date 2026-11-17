@@ -1,0 +1,1 @@
+New: Share this phone. Turn your phone into an exit gateway for someone you trust, with a QR code, per-device approval, and a time limit or none. Buttons now use light text on a deeper teal. The engine's DNS resolver fails over between Android DNS servers.
