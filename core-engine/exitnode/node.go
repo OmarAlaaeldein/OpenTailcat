@@ -164,7 +164,7 @@ type Node struct {
 	activeTCP, activeUDP        atomic.Int64
 	totalTCP, totalUDP          atomic.Uint64
 	rejPolicy, rejCap, rejDial  atomic.Uint64
-	rejBadFlow, udpOversizeDrop atomic.Uint64
+	udpOversizeDrop             atomic.Uint64
 	bytesFromPeers, bytesToPeer atomic.Uint64
 }
 
