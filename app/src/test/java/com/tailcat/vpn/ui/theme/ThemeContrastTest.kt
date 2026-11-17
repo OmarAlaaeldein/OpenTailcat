@@ -53,10 +53,21 @@ class ThemeContrastTest {
     }
 
     @Test
-    fun onAccentContentIsReadable() {
-        // Filled buttons draw BgDark on the accent.
-        val ratio = contrast(BgDark, AccentCyan)
-        assertTrue("BgDark on AccentCyan = %.2f".format(ratio), ratio >= 4.5)
+    fun filledButtonTextIsLightAndReadable() {
+        // Filled buttons draw TextPrimary on AccentFill (TailcatButtons.filled).
+        val ratio = contrast(TextPrimary, AccentFill)
+        assertTrue("TextPrimary on AccentFill = %.2f".format(ratio), ratio >= 4.5)
+        assertTrue("button text must be the light one", luminance(TextPrimary) > luminance(AccentFill))
+        // Disabled: TextMuted on SurfaceElevated, covered by the surface check above.
+    }
+
+    @Test
+    fun filledButtonsStandOutFromTheBackground() {
+        // WCAG 1.4.11: a control's boundary needs 3:1 against what is behind it.
+        for ((name, bg) in backgrounds) {
+            val ratio = contrast(AccentFill, bg)
+            assertTrue("AccentFill on %s = %.2f".format(name, ratio), ratio >= 3.0)
+        }
     }
 
     @Test

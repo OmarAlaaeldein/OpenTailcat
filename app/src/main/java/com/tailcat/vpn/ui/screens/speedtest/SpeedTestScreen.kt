@@ -24,7 +24,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,9 +59,9 @@ import com.tailcat.vpn.ui.screens.speedtest.components.SpeedometerGauge
 import java.util.Locale
 import kotlinx.coroutines.launch
 import com.tailcat.vpn.ui.theme.panel
+import com.tailcat.vpn.ui.theme.TailcatButtons
 import com.tailcat.vpn.ui.theme.TailcatShapes
 import com.tailcat.vpn.ui.theme.AccentCyan
-import com.tailcat.vpn.ui.theme.BgDark
 import com.tailcat.vpn.ui.theme.BorderSubtle
 import com.tailcat.vpn.ui.theme.EmeraldConnected
 import com.tailcat.vpn.ui.theme.RedDegraded
@@ -290,10 +289,7 @@ fun SpeedTestScreen(
             Button(
                 onClick = { viewModel.startSpeedTest() },
                 enabled = !isTesting,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = AccentCyan,
-                    disabledContainerColor = SurfaceElevated
-                ),
+                colors = TailcatButtons.filled(),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -301,8 +297,7 @@ fun SpeedTestScreen(
             ) {
                 Icon(
                     imageVector = if (testState.stage == SpeedTestStage.COMPLETED) Icons.Default.Refresh else Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    tint = BgDark
+                    contentDescription = null
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
@@ -312,10 +307,7 @@ fun SpeedTestScreen(
                         SpeedTestStage.FAILED -> "RETRY TEST"
                         else -> "BENCHMARKING..."
                     },
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        color = BgDark,
-                        fontSize = 15.sp
-                    )
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp)
                 )
             }
 

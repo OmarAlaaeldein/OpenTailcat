@@ -20,6 +20,13 @@ val GlassHighlight = Color(0x14FFFFFF)
 
 val AccentCyan = Color(0xFF2DE0F2)
 
+/**
+ * Fill for filled buttons. AccentCyan is too bright to carry light text, and
+ * dark text on a bright fill reads as a light-theme control in a dark app, so
+ * filled controls use this deeper cyan with TextPrimary on top.
+ */
+val AccentFill = Color(0xFF007A90)
+
 val EmeraldConnected = Color(0xFF2FE38A)
 val EmeraldGlow = Color(0x4D2FE38A)
 

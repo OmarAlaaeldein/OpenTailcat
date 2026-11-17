@@ -27,7 +27,6 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -67,7 +66,7 @@ import com.tailcat.vpn.core.qr.QrImageImporter
 import com.tailcat.vpn.core.token.TokenParser
 import com.tailcat.vpn.core.token.TokenValidationState
 import com.tailcat.vpn.ui.theme.AccentCyan
-import com.tailcat.vpn.ui.theme.BgDark
+import com.tailcat.vpn.ui.theme.TailcatButtons
 import com.tailcat.vpn.ui.theme.BorderSubtle
 import com.tailcat.vpn.ui.theme.EmeraldConnected
 import com.tailcat.vpn.ui.theme.RedDegraded
@@ -296,10 +295,10 @@ fun AddProfileDialog(
                         errorMessage = result.exceptionOrNull()?.message ?: "Invalid profile"
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = AccentCyan),
+                colors = TailcatButtons.filled(),
                 enabled = !importingQr && validationState is TokenValidationState.Valid && dnsValidation is DnsValidationResult.Valid
             ) {
-                Text("Save & Pair", color = BgDark)
+                Text("Save & Pair")
             }
         },
         dismissButton = {

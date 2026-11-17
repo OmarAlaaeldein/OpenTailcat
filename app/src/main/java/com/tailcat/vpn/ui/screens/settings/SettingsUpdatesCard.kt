@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tailcat.vpn.BuildConfig
 import com.tailcat.vpn.ui.theme.AccentCyan
+import com.tailcat.vpn.ui.theme.TailcatButtons
 import com.tailcat.vpn.ui.theme.BorderSubtle
 import com.tailcat.vpn.ui.theme.TextMuted
 import com.tailcat.vpn.ui.theme.TextPrimary
@@ -51,7 +51,7 @@ internal fun SettingsUpdatesCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { viewModel.checkForUpdate() },
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentCyan)
+                        colors = TailcatButtons.filled()
                     ) { Text("Check for update") }
                     OutlinedButton(onClick = { viewModel.openReleasePage(context) }) {
                         Text("Release page")
@@ -103,7 +103,7 @@ internal fun SettingsUpdatesCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { viewModel.downloadUpdate(context) },
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentCyan)
+                        colors = TailcatButtons.filled()
                     ) { Text("Download") }
                     OutlinedButton(onClick = { viewModel.openReleasePage(context) }) {
                         Text("Open on GitHub")
@@ -138,7 +138,7 @@ internal fun SettingsUpdatesCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { viewModel.openInstall(context) },
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentCyan)
+                        colors = TailcatButtons.filled()
                     ) { Text("Install") }
                     OutlinedButton(onClick = { viewModel.resetUpdate() }) { Text("Cancel") }
                 }
