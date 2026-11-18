@@ -1,6 +1,7 @@
 package exitnode
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tailscale/tailcat"
 	"tailscale.com/types/key"
 )
 
@@ -159,6 +161,56 @@ func TestOpenAdmissionAdmitsAnyone(t *testing.T) {
 	n, _ := testNode(t, func(c *Config) { c.Admission = AdmitOpen })
 	if !n.admit(k()) {
 		t.Fatal("open node refused a device")
+	}
+}
+
+// Every reconnect mints a new key, so open admission must not remember an
+// unbounded number of them. Idle keys are forgotten; active ones are not.
+func TestOpenAdmissionIsBounded(t *testing.T) {
+	n, clk := testNode(t, func(c *Config) { c.Admission = AdmitOpen })
+	active := k()
+	if !n.admit(active) {
+		t.Fatal("active device refused")
+	}
+	p := n.peer(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1})
+	n.mu.Lock()
+	n.peers[active] = p
+	n.mu.Unlock()
+	p.activeTCP.Store(1)
+	t.Cleanup(func() { p.activeTCP.Store(0) })
+
+	for range maxOpenAdmitted + 10 {
+		clk.advance(time.Second)
+		if !n.admit(k()) {
+			t.Fatal("open node refused a new device")
+		}
+	}
+	n.mu.Lock()
+	openKeys, allowed := len(n.openAdmitted), len(n.allowed)
+	_, activeStillAllowed := n.allowed[active]
+	n.mu.Unlock()
+	if openKeys != maxOpenAdmitted || allowed != maxOpenAdmitted {
+		t.Fatalf("open bookkeeping = %d keys, %d allowed; want %d", openKeys, allowed, maxOpenAdmitted)
+	}
+	if !activeStillAllowed {
+		t.Fatal("an active device was evicted from open admission")
+	}
+}
+
+func TestPeerRecordsAreBounded(t *testing.T) {
+	n, _ := testNode(t, nil)
+	n.mu.Lock()
+	for range maxPeerRecords {
+		n.peers[k()] = &peerStats{}
+	}
+	n.mu.Unlock()
+
+	n.peer(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1})
+	n.mu.Lock()
+	got := len(n.peers)
+	n.mu.Unlock()
+	if got > maxPeerRecords {
+		t.Fatalf("peer records = %d, want at most %d", got, maxPeerRecords)
 	}
 }
 
@@ -432,6 +484,82 @@ func TestTCPForwardRefusesHostNetworkByDefault(t *testing.T) {
 	}
 	if got := n.Stats().PolicyRejections; got != 8 {
 		t.Fatalf("policyRejections = %d, want 8", got)
+	}
+}
+
+// A UDP datagram that does not fit the tunnel is dropped in either direction,
+// never truncated and forwarded: half a payload is corruption, not traffic.
+func TestUDPDoesNotForwardOversizeDatagrams(t *testing.T) {
+	n, _ := testNode(t, nil)
+
+	server, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { server.Close() })
+	type datagram struct {
+		n       int
+		payload []byte
+	}
+	received := make(chan datagram, 4)
+	go func() {
+		buf := make([]byte, 64<<10)
+		for {
+			nr, from, err := server.ReadFromUDP(buf)
+			if err != nil {
+				return
+			}
+			received <- datagram{n: nr, payload: append([]byte(nil), buf[:nr]...)}
+			_, _ = server.WriteToUDP(buf[:nr], from)
+		}
+	}()
+
+	guest, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { guest.Close() })
+	nodeSide, err := net.DialUDP("udp4", nil, guest.LocalAddr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { nodeSide.Close() })
+
+	dst := server.LocalAddr().(*net.UDPAddr).AddrPort()
+	go n.serveUDP(nodeSide, dst)
+
+	oversize := bytes.Repeat([]byte("x"), tailcat.MaxUDPPayload+100)
+	if _, err := guest.WriteToUDP(oversize, nodeSide.LocalAddr().(*net.UDPAddr)); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return n.Stats().UDPOversizeDrops == 1 })
+	select {
+	case got := <-received:
+		t.Fatalf("oversize datagram reached the Internet as %d bytes", got.n)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	payload := bytes.Repeat([]byte("y"), tailcat.MaxUDPPayload-32)
+	if _, err := guest.WriteToUDP(payload, nodeSide.LocalAddr().(*net.UDPAddr)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-received:
+		if got.n != len(payload) || !bytes.Equal(got.payload, payload) {
+			t.Fatalf("forwarded datagram = %d bytes, want %d intact", got.n, len(payload))
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a datagram within the tunnel MTU did not arrive")
+	}
+
+	guest.SetReadDeadline(time.Now().Add(5 * time.Second))
+	buf := make([]byte, 2048)
+	nr, _, err := guest.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("reply: %v", err)
+	}
+	if nr != len(payload) || !bytes.Equal(buf[:nr], payload) {
+		t.Fatalf("reply = %d bytes, want %d intact", nr, len(payload))
 	}
 }
 

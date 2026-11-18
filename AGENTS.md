@@ -16,7 +16,7 @@ work; other docs link here.
   `com.tailcat.vpn`
 - Toolchain: Kotlin 2.4.21, Gradle 9.9.1, JDK 21, Go 1.27.4
 - Versions: `gradle/libs.versions.toml`, `core-engine/go.mod`
-- Current version: 1.7.0; notes in `docs/releases/`
+- Current version: 1.7.1; notes in `docs/releases/`
 
 ## Status
 
@@ -94,7 +94,6 @@ There is no VpnService, consent dialog, or TUN in this role.
 | `formal/` | TLA+ lifecycle model, focused exhaustive cleanup/liveness and network-callback models, and deterministic counterexample replays, checked with TLC by `formal/check.sh` |
 | `.github/workflows/` | `ci.yml` gates; `emulator.yml` smoke and live-gateway suites; `formal.yml` TLC model check |
 | `docs/` | Documentation index, release notes, signing notes, screenshots |
-| `exit.md` | Design and threat model of Share this phone (exit-node mode), decisions, known gaps |
 
 ### Start here by task
 
@@ -109,7 +108,7 @@ There is no VpnService, consent dialog, or TUN in this role.
 | Telemetry, stats, speed test | `core-engine/speedtest.go`, `core/speedtest/`, `ui/screens/home/components/TelemetryCard.kt` |
 | In-app updater | `core/update/`, `UpdatePolicy.kt`, `docs/signing.md` |
 | Settings surfaces | `ui/screens/settings/`, `data/PreferencesStore.kt` |
-| Sharing this phone (exit node) | "Exit node" below, `exit.md`, `core-engine/exitnode/`, `core-engine/exitnode_bridge.go`, `service/ExitNodeController.kt`, `ui/screens/share/` |
+| Sharing this phone (exit node) | "Exit node" below, `core-engine/exitnode/`, `core-engine/exitnode_bridge.go`, `service/ExitNodeController.kt`, `ui/screens/share/` |
 | Release | "Release process" below, `app/build.gradle.kts`, `docs/releases/` |
 
 ## Safety invariants
@@ -543,7 +542,7 @@ this integration, and its sources are covered by the native source hash.
 
 The phone can be the gateway instead of the client: it mints a `tc...` code,
 shows it as a QR or copy, and forwards guests' TCP/UDP through its own network.
-Plan and open items: `exit.md`. Rules that must hold:
+Open items are under "Remaining work". Rules that must hold:
 
 - **Separate package.** `core-engine/exitnode/` may open OS sockets because
   forwarding to the Internet is its job; `package engine` still may not
@@ -564,8 +563,9 @@ Plan and open items: `exit.md`. Rules that must hold:
   open admission is always timed (24 h cap), enforced natively and in Kotlin.
 - **Guests never reach the host's network.** Loopback, private, CGNAT,
   link-local, multicast and reserved destinations are refused
-  (`exitnode/policy.go`). `AllowLocalDestinations` is test-only and is not
-  reachable from the bridge config (`TestBridgeConfigCannotAllowLocalDestinations`).
+  (`exitnode/policy.go`); 4-in-6 and NAT64 forms are judged by the IPv4 address
+  they embed. `AllowLocalDestinations` is test-only and is not reachable from
+  the bridge config (`TestBridgeConfigCannotAllowLocalDestinations`).
 - **Transport protection while sharing.** No VPN of ours exists, so the bridge
   installs a permissive socket protector for the node's lifetime and restores
   the previous one at the end. Sockets are still created through the protect
@@ -595,7 +595,9 @@ exist. Sharing is not resumed if Android kills the process: the keys die with
 it. The share screen offers 15 min, 1 h, 4 h, 24 h or "Until I stop" (approval
 only), and approval or open admission. The engine resolver now fails over
 between Android DNS servers (needed to fetch the relay map on networks whose
-first DNS server never answers; partial, see `exit.md`). Verified: on an
+first DNS server never answers). It is still partial: one timeout from a
+flaky-but-working server can move the preference back to a dead one, costing
+one more timeout; hedged queries are the complete fix. Verified: on an
 emulator, start, foreground service, notification, interlock and stop; by
 hand, a real guest phone connecting through an emulator host over mobile data
 with approval and real traffic (about 170 flows, 11 MB in one capture). Not
@@ -629,8 +631,9 @@ verified: a physical phone as the host, battery and doze over long sessions
 - Exit node: battery/doze measurement (a long no-limit session first), a
   physical phone as the host, a stable per-profile client key (each guest
   reconnect needs a new approval today), TLA+ coverage of the interlock, a TCP
-  idle timeout, per-peer caps, and hedged DNS queries in the engine resolver
-  (see `exit.md`).
+  idle timeout, per-peer caps, hedged DNS queries in the engine resolver, and
+  a warning in the share UI when a third-party VPN is active (the node's
+  egress is then that VPN's, which the host may not intend).
 - Confirm the service-lifecycle fixes from the TLA+ model on a device
   (`stopSelf(startId)` with a queued start, STOP after a failed start then a
   quick Connect; see `formal/README.md`). The new instrumented platform probe

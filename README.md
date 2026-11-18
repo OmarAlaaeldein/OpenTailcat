@@ -1,30 +1,39 @@
 # OpenTailcat
 
-**An Android VPN client that connects your phone straight to your own
-[Tailcat](https://github.com/tailscale/tailcat) exit gateway.** You run the
-gateway, paste its `tc…` token, and your traffic leaves through it. No account,
-no subscription, and no control plane in the middle.
-
-Since 1.7 the same app can also be the gateway: **Share this phone** turns your
-phone into an exit gateway and gives someone else a code to use its connection.
-See [Share this phone](#share-this-phone).
+**One Android app for both ends of a Tailcat tunnel.** As a **client**, it sends
+this phone's traffic through your own
+[Tailcat](https://github.com/tailscale/tailcat) exit gateway: you run the
+gateway, paste its `tc…` token, and traffic leaves through it. As an **exit
+node**, it does the reverse: **Share this phone** mints a one-session code and
+lets another device browse through this phone's connection. No account, no
+subscription, and no control plane in the middle.
 
 Independent community project. Not affiliated with Tailscale Inc.
 
-<p align="center">
-  <img src="docs/screenshots/home-connected.png" alt="Connected home screen" width="280" />
-  &nbsp;
-  <img src="docs/screenshots/network-benchmark.png" alt="Network benchmark" width="280" />
-</p>
+| Client, connected | Live tunnel benchmark |
+| --- | --- |
+| ![Connected home screen](docs/screenshots/home-connected.png) | ![Network benchmark](docs/screenshots/network-benchmark.png) |
+
+## Two roles, one app
+
+| | **Client** | **Exit node (Share this phone)** |
+| --- | --- | --- |
+| What it does | Sends this phone through a gateway you run | Lends this phone's connection to a guest device |
+| What you need | A `tc…` token from the gateway | Nothing; the app mints a one-session code |
+| Android VPN | TUN, consent dialog, Always-on support | No TUN or consent; an ordinary foreground service |
+| At the same time | Never runs alongside the exit node | Never runs alongside the client |
 
 ## What you need
 
-- A Tailcat-compatible **exit gateway you control** (for example
-  `tailcat serve exit-node`) and the `tc…` token it prints. Or, to use someone's
-  phone as the gateway, the code that phone's **Share this phone** screen shows.
+- **As a client:** a Tailcat-compatible **exit gateway you control** (for
+  example `tailcat serve exit-node`) and the `tc…` token it prints. Or, to use
+  someone's phone as the gateway, the code that phone's **Share this phone**
+  screen shows.
+- **As an exit node:** a guest device running OpenTailcat (or another Tailcat
+  client) to paste the code into.
 - An Android 8.0+ phone (arm64). Emulator builds use x86_64.
 
-## What it does
+## What it does (client)
 
 - Sends the whole device through your gateway: TCP, UDP, and DNS over IPv4,
   and over IPv6 when the gateway has IPv6 connectivity.
@@ -62,7 +71,8 @@ phone apps ─► Android VPN (TUN) ─► OpenTailcat engine ─► WireGuard/M
    exit, its operator can see that traffic.
 
 There is no directory, account service, or OpenTailcat server anywhere in the
-path.
+path. The exit-node path is the same tunnel in reverse: the phone accepts
+WireGuard/Magicsock from a guest and dials the Internet over its own routes.
 
 ## Share this phone
 
@@ -72,13 +82,9 @@ code, shows it as a QR and a Copy button, and forwards the guest's TCP and UDP
 traffic out over its own Wi-Fi or mobile data. Typical uses: a trusted friend
 abroad, or your own second device.
 
-<p align="center">
-  <img src="docs/screenshots/share-setup.png" alt="Share setup: how long and who can connect" width="240" />
-  &nbsp;
-  <img src="docs/screenshots/share-no-limit.png" alt="Share setup with Until I stop selected" width="240" />
-  &nbsp;
-  <img src="docs/screenshots/share-active.png" alt="Sharing with one connected device and live traffic counters" width="240" />
-</p>
+| Setup | Until I stop | Sharing |
+| --- | --- | --- |
+| ![Share setup: how long and who can connect](docs/screenshots/share-setup.png) | ![Share setup with Until I stop selected](docs/screenshots/share-no-limit.png) | ![Sharing with one connected device and live traffic counters](docs/screenshots/share-active.png) |
 
 *Setup, the no-time-limit choice, and an active share with a guest connected.
 The QR in the last image is blurred; a real one encodes the live code.*
@@ -114,7 +120,7 @@ What to know before you share:
 
 Not measured yet: battery drain and heat over long sessions, and a physical
 phone as the host for a long run (the 1.7 checks used an emulator host with a
-real phone as the guest over mobile data). See [exit.md](exit.md).
+real phone as the guest over mobile data).
 
 ## Install
 
@@ -182,7 +188,6 @@ The engineering contract, invariants, and remaining work live in
 | --- | --- | --- |
 | [AGENTS.md](AGENTS.md) | contributors, LLMs | architecture, safety invariants, build, test, release |
 | [docs/README.md](docs/README.md) | everyone | which document to read |
-| [exit.md](exit.md) | contributors | the Share this phone design: threat model, decisions, known gaps |
 | [docs/releases/](docs/releases/) | users, maintainers | what changed in each version (historical record) |
 | [docs/signing.md](docs/signing.md) | release managers | keys, certificate pins, migration |
 | [PRIVACY_POLICY.md](PRIVACY_POLICY.md) | users | what is stored, sent, and visible |

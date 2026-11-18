@@ -29,6 +29,7 @@ import (
 const (
 	maxExitNodeConfigBytes = 1024
 	exitNodeStartTimeout   = 30 * time.Second
+	exitNodeStopWait       = 10 * time.Second
 )
 
 // exitNodeClaim is true from the moment StartExitNode wins the engine until
@@ -39,11 +40,31 @@ var exitNodeClaim atomic.Bool
 // (for example a local DERP region). Nil in production.
 var exitNodeConfigHook func(*exitnode.Config)
 
+// exitNodeStartHook runs after the bridge has released its lock and before
+// the node starts. Tests use it to hold a start open. Nil in production.
+var exitNodeStartHook func(context.Context)
+
+// exitNodeControlSeq orders start and stop requests. A stop only cancels the
+// starts issued before it, and a start only publishes if no later stop won.
+var exitNodeControlSeq atomic.Uint64
+
 var exitHost struct {
 	mu sync.Mutex
 	// node is kept after it ends, so stats can still report EXPIRED or STOPPED
 	// instead of an error. The next start replaces it.
 	node *exitnode.Node
+	// starting is true while one StartExitNode is building a node. The network
+	// work happens without mu held, so stats and approvals never wait for it.
+	starting    bool
+	startSeq    uint64
+	startCancel context.CancelFunc
+	startDone   chan struct{}
+	// stopSeq is the newest stop request. A start issued before it must not
+	// publish, and a stop that lost to a newer start must not close it.
+	stopSeq uint64
+	// nodeSeq is the request that published node. A stop older than it leaves
+	// the session alone.
+	nodeSeq uint64
 	// swapped records the protector installed for the node so it can be
 	// undone, and what it replaced.
 	swapped  bool
@@ -121,11 +142,50 @@ func StartExitNode(configJSON string) (token string, err error) {
 	if exitNodeConfigHook != nil {
 		exitNodeConfigHook(&cfg)
 	}
+	seq := exitNodeControlSeq.Add(1)
 
+	// Wait out a start already in flight, but never hold the lock across the
+	// network: stats and approvals keep working while a node is starting.
 	exitHost.mu.Lock()
-	defer exitHost.mu.Unlock()
-	if exitHost.node != nil && exitHost.node.State() == exitnode.StateRunning {
-		return "", errors.New("exit node is already running")
+	for {
+		for exitHost.starting {
+			done := exitHost.startDone
+			exitHost.mu.Unlock()
+			if done != nil {
+				<-done
+			}
+			exitHost.mu.Lock()
+		}
+		// A stop issued after this start wins: the user asked to stop while
+		// this request was queued, so do not bring a new session up behind
+		// their back.
+		if exitHost.stopSeq > seq {
+			exitHost.mu.Unlock()
+			return "", errors.New("exit node start was cancelled")
+		}
+		node := exitHost.node
+		if node == nil || node.State() != exitnode.StateRunning {
+			break
+		}
+		if exitHost.nodeSeq > exitHost.stopSeq {
+			exitHost.mu.Unlock()
+			return "", errors.New("exit node is already running")
+		}
+		// A stop that predates this start is closing that node. Wait for it
+		// to finish instead of reporting "already running" for a session the
+		// user already ended.
+		exitHost.mu.Unlock()
+		select {
+		case <-node.Done():
+		case <-time.After(exitNodeStopWait):
+			return "", errors.New("exit node is still stopping")
+		}
+		exitHost.mu.Lock()
+		// The node is gone; free the claim now rather than racing the stop's
+		// own release, which is idempotent.
+		if exitHost.node == node {
+			releaseExitNodeLocked()
+		}
 	}
 
 	globalCore.mu.Lock()
@@ -137,25 +197,71 @@ func StartExitNode(configJSON string) (token string, err error) {
 	}
 	globalCore.mu.Unlock()
 	if !idle {
+		exitHost.mu.Unlock()
 		return "", errors.New("the VPN engine is active; disconnect before sharing")
 	}
 
 	installExitNodeProtectorLocked()
-
 	ctx, cancel := context.WithTimeout(context.Background(), exitNodeStartTimeout)
 	defer cancel()
-	node, err := exitnode.Start(ctx, cfg)
-	if err != nil {
-		releaseExitNodeLocked()
-		return "", err
+	done := make(chan struct{})
+	exitHost.starting = true
+	exitHost.startSeq = seq
+	exitHost.startCancel = cancel
+	exitHost.startDone = done
+	exitHost.mu.Unlock()
+
+	// A panic in the native start must not leave the bridge "starting"
+	// forever with the engine claimed. recoverExported turns the re-panic
+	// into the exported function's error.
+	defer func() {
+		if r := recover(); r != nil {
+			exitHost.mu.Lock()
+			if exitHost.starting && exitHost.startSeq == seq {
+				exitHost.starting = false
+				exitHost.startCancel = nil
+				exitHost.startDone = nil
+				close(done)
+				releaseExitNodeLocked()
+			}
+			exitHost.mu.Unlock()
+			panic(r)
+		}
+	}()
+
+	if exitNodeStartHook != nil {
+		exitNodeStartHook(ctx)
 	}
-	token, err = node.Token()
-	if err != nil {
-		_ = node.Close()
+	node, startErr := exitnode.Start(ctx, cfg)
+	cancel()
+	if startErr == nil {
+		token, startErr = node.Token()
+	}
+
+	exitHost.mu.Lock()
+	if startErr == nil && exitHost.stopSeq > seq {
+		// Stop arrived while the node was being built. Discard it rather than
+		// publish a session the user has already ended.
+		startErr = errors.New("exit node start was cancelled")
+	}
+	if startErr != nil {
+		if node != nil {
+			_ = node.Close()
+		}
+		exitHost.starting = false
+		exitHost.startCancel = nil
+		exitHost.startDone = nil
+		close(done)
 		releaseExitNodeLocked()
-		return "", err
+		exitHost.mu.Unlock()
+		return "", startErr
 	}
 	exitHost.node = node
+	exitHost.nodeSeq = seq
+	exitHost.starting = false
+	exitHost.startCancel = nil
+	exitHost.startDone = nil
+	close(done)
 
 	// The node can end by itself (expiry). Free the engine when it does.
 	go func() {
@@ -166,6 +272,7 @@ func StartExitNode(configJSON string) (token string, err error) {
 			releaseExitNodeLocked()
 		}
 	}()
+	exitHost.mu.Unlock()
 	return token, nil
 }
 
@@ -203,12 +310,36 @@ func releaseExitNodeLocked() {
 // token it issued. Idempotent. Exported as Engine.stopExitNode().
 func StopExitNode() (err error) {
 	defer recoverExported("StopExitNode", &err)
+	seq := exitNodeControlSeq.Add(1)
+
 	exitHost.mu.Lock()
-	defer exitHost.mu.Unlock()
+	if seq > exitHost.stopSeq {
+		exitHost.stopSeq = seq
+	}
+	// Cancel only a start issued before this stop. A newer start is a new
+	// session and must survive.
+	if exitHost.starting && exitHost.startSeq < seq && exitHost.startCancel != nil {
+		exitHost.startCancel()
+	}
+	done := exitHost.startDone
+	exitHost.mu.Unlock()
+
+	if done != nil {
+		<-done
+	}
+
+	exitHost.mu.Lock()
+	// A newer start may have won the lock while this stop waited. It owns the
+	// engine now; leave it alone.
+	if (exitHost.starting && exitHost.startSeq > seq) || exitHost.nodeSeq > seq {
+		exitHost.mu.Unlock()
+		return nil
+	}
 	if exitHost.node != nil {
 		err = exitHost.node.Close()
 	}
 	releaseExitNodeLocked()
+	exitHost.mu.Unlock()
 	return err
 }
 

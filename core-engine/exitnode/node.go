@@ -65,6 +65,14 @@ const (
 
 	maxPending = 16
 	maxDenied  = 64
+	// Open admission remembers device keys so a reconnect does not need a new
+	// decision. Every reconnect uses a fresh key, so the set is capped and the
+	// oldest idle device is forgotten; a forgotten device is simply admitted
+	// again on its next attempt.
+	maxOpenAdmitted = 256
+	// Peer records are display counters, not admission state. They are capped
+	// so a long session cannot grow with every key that ever connected.
+	maxPeerRecords = 512
 	// pendingTTL is how long an unapproved device stays listed after its last
 	// attempt. Rejected clients retry about once a second, so a live request
 	// never ages out.
@@ -150,10 +158,13 @@ type Node struct {
 	mu      sync.Mutex
 	state   State
 	allowed map[key.NodePublic]struct{}
-	denied  map[key.NodePublic]struct{}
-	pending map[key.NodePublic]*pendingPeer
-	peers   map[key.NodePublic]*peerStats
-	timer   *time.Timer
+	// openAdmitted records the open-admission keys that may be evicted, with
+	// the last time each was admitted. Approved keys never appear here.
+	openAdmitted map[key.NodePublic]time.Time
+	denied       map[key.NodePublic]struct{}
+	pending      map[key.NodePublic]*pendingPeer
+	peers        map[key.NodePublic]*peerStats
+	timer        *time.Timer
 
 	tcpSlots, udpSlots chan struct{}
 
@@ -258,19 +269,20 @@ func newNode(cfg Config) *Node {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	n := &Node{
-		cfg:      cfg,
-		dialer:   d,
-		now:      now,
-		ctx:      ctx,
-		cancel:   cancel,
-		state:    StateRunning,
-		allowed:  map[key.NodePublic]struct{}{},
-		denied:   map[key.NodePublic]struct{}{},
-		pending:  map[key.NodePublic]*pendingPeer{},
-		peers:    map[key.NodePublic]*peerStats{},
-		tcpSlots: make(chan struct{}, cfg.MaxTCP),
-		udpSlots: make(chan struct{}, cfg.MaxUDP),
-		done:     make(chan struct{}),
+		cfg:          cfg,
+		dialer:       d,
+		now:          now,
+		ctx:          ctx,
+		cancel:       cancel,
+		state:        StateRunning,
+		allowed:      map[key.NodePublic]struct{}{},
+		openAdmitted: map[key.NodePublic]time.Time{},
+		denied:       map[key.NodePublic]struct{}{},
+		pending:      map[key.NodePublic]*pendingPeer{},
+		peers:        map[key.NodePublic]*peerStats{},
+		tcpSlots:     make(chan struct{}, cfg.MaxTCP),
+		udpSlots:     make(chan struct{}, cfg.MaxUDP),
+		done:         make(chan struct{}),
 	}
 	for _, k := range cfg.Approved {
 		n.allowed[k] = struct{}{}
@@ -384,8 +396,7 @@ func (n *Node) admit(k key.NodePublic) bool {
 		return true
 	}
 	if n.cfg.Admission == AdmitOpen {
-		n.allowed[k] = struct{}{}
-		return true
+		return n.admitOpenLocked(k, n.now())
 	}
 	if _, ok := n.denied[k]; ok {
 		return false
@@ -401,6 +412,45 @@ func (n *Node) admit(k key.NodePublic) bool {
 	}
 	n.pending[k] = &pendingPeer{firstSeen: now, lastSeen: now}
 	return false
+}
+
+// admitOpenLocked admits a token holder while keeping the remembered keys
+// bounded. Only idle, open-admitted keys can be evicted: an active flow and a
+// key the host approved are never forgotten under it.
+func (n *Node) admitOpenLocked(k key.NodePublic, now time.Time) bool {
+	if _, ok := n.allowed[k]; ok {
+		if _, open := n.openAdmitted[k]; open {
+			n.openAdmitted[k] = now
+		}
+		return true
+	}
+	if len(n.openAdmitted) >= maxOpenAdmitted && !n.evictOpenLocked() {
+		return false
+	}
+	n.allowed[k] = struct{}{}
+	n.openAdmitted[k] = now
+	return true
+}
+
+func (n *Node) evictOpenLocked() bool {
+	var oldest key.NodePublic
+	var at time.Time
+	found := false
+	for k, seen := range n.openAdmitted {
+		if p := n.peers[k]; p != nil && p.activeTCP.Load()+p.activeUDP.Load() > 0 {
+			continue
+		}
+		if !found || seen.Before(at) {
+			oldest, at, found = k, seen, true
+		}
+	}
+	if !found {
+		return false
+	}
+	delete(n.openAdmitted, oldest)
+	delete(n.allowed, oldest)
+	delete(n.peers, oldest)
+	return true
 }
 
 func (n *Node) prunePendingLocked(now time.Time) {
@@ -438,6 +488,7 @@ func (n *Node) Approve(k key.NodePublic) error {
 	}
 	delete(n.pending, k)
 	delete(n.denied, k)
+	delete(n.openAdmitted, k)
 	n.allowed[k] = struct{}{}
 	return nil
 }
@@ -461,6 +512,7 @@ func (n *Node) Revoke(k key.NodePublic) bool {
 	n.mu.Lock()
 	_, was := n.allowed[k]
 	delete(n.allowed, k)
+	delete(n.openAdmitted, k)
 	delete(n.pending, k)
 	if len(n.denied) < maxDenied {
 		n.denied[k] = struct{}{}
@@ -521,11 +573,36 @@ func (n *Node) peer(remote net.Addr) *peerStats {
 	defer n.mu.Unlock()
 	p, ok := n.peers[k]
 	if !ok {
+		if len(n.peers) >= maxPeerRecords {
+			n.evictIdlePeerLocked()
+		}
 		p = &peerStats{firstSeen: n.now()}
 		n.peers[k] = p
 	}
 	p.lastActive.Store(n.now().Unix())
 	return p
+}
+
+// evictIdlePeerLocked drops the oldest display record that is neither
+// approved nor carrying a flow. Admitted keys and active flows keep theirs.
+func (n *Node) evictIdlePeerLocked() {
+	var oldest key.NodePublic
+	var at int64
+	found := false
+	for k, p := range n.peers {
+		if k.IsZero() || p.activeTCP.Load()+p.activeUDP.Load() > 0 {
+			continue
+		}
+		if _, allowed := n.allowed[k]; allowed {
+			continue
+		}
+		if !found || p.lastActive.Load() < at {
+			oldest, at, found = k, p.lastActive.Load(), true
+		}
+	}
+	if found {
+		delete(n.peers, oldest)
+	}
 }
 
 func acquire(slots chan struct{}) bool {
@@ -632,7 +709,7 @@ func (n *Node) serveUDP(c tailcat.ConnPacketConn, dst netip.AddrPort) {
 	defer stop()
 
 	done := make(chan struct{}, 2)
-	pump := func(dst, src net.Conn, total, per *atomic.Uint64, enforceMTU bool) {
+	pump := func(dst, src net.Conn, total, per *atomic.Uint64) {
 		defer func() { done <- struct{}{} }()
 		buf := make([]byte, 2048)
 		for {
@@ -640,9 +717,10 @@ func (n *Node) serveUDP(c tailcat.ConnPacketConn, dst netip.AddrPort) {
 			if err != nil {
 				return
 			}
-			if enforceMTU && nr > tailcat.MaxUDPPayload {
+			if nr > tailcat.MaxUDPPayload {
 				// A datagram that cannot fit the tunnel is dropped and
-				// counted; it does not end the flow.
+				// counted in either direction; it does not end the flow.
+				// Forwarding a truncated prefix would corrupt the payload.
 				n.udpOversizeDrop.Add(1)
 				continue
 			}
@@ -655,8 +733,8 @@ func (n *Node) serveUDP(c tailcat.ConnPacketConn, dst netip.AddrPort) {
 			}
 		}
 	}
-	go pump(remote, c, &n.bytesFromPeers, &p.fromPeer, false)
-	go pump(c, remote, &n.bytesToPeer, &p.toPeer, true)
+	go pump(remote, c, &n.bytesFromPeers, &p.fromPeer)
+	go pump(c, remote, &n.bytesToPeer, &p.toPeer)
 	<-done
 	c.Close()
 	remote.Close()

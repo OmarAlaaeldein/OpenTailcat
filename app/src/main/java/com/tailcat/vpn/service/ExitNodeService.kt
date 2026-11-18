@@ -35,9 +35,21 @@ class ExitNodeService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var runJob: Job? = null
+    @Volatile private var stopJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     @Volatile private var renewWakeLockAtMs = Long.MAX_VALUE
     @Volatile private var userStopped = false
+    /**
+     * Identifies the session allowed to end this instance. [finish] is called
+     * from IO coroutines and from a Start that Android queued around a Stop;
+     * only the newest start may stop the service, so an older session cannot
+     * tear down the one that replaced it.
+     */
+    @Volatile private var startGeneration = 0L
+
+    /** startId of the last intent handled, for stopSelf(startId). */
+    @Volatile private var lastStartId = 0
+
     private lateinit var notifications: ExitNodeNotifications
 
     private val controller get() = TailcatApplication.instance.exitNodeController
@@ -51,6 +63,7 @@ class ExitNodeService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
         when (intent?.action) {
             ACTION_START -> startSharing(intent)
             ACTION_STOP -> stopSharing()
@@ -67,8 +80,11 @@ class ExitNodeService : Service() {
         // Android allows five seconds between startForegroundService and
         // startForeground, so this comes before anything that can block.
         enterForeground(ExitNodeNotificationText.STARTING)
-        if (runJob?.isActive == true) return
+        // A duplicate tap while a session is live keeps that session. A start
+        // that arrives while the previous one is stopping supersedes it.
+        if (runJob?.isActive == true && controller.isActive) return
         userStopped = false
+        val generation = ++startGeneration
 
         val ttl: Long? = if (intent.getBooleanExtra(EXTRA_NO_LIMIT, false)) null
         else intent.getLongExtra(EXTRA_TTL_SECONDS, 0L)
@@ -78,16 +94,24 @@ class ExitNodeService : Service() {
         }
         val config = runCatching { ExitNodeConfig(ttl, admission) }.getOrElse {
             controller.fail(it.message ?: "Invalid sharing time")
-            finish()
+            finish(generation)
             return
         }
 
         notifications.clearEnded()
+        notifications.clearPendingAlert()
         acquireWakeLock(ttl)
-        runJob = scope.launch { run(config) }
+        runJob = scope.launch { run(config, generation) }
     }
 
-    private suspend fun run(config: ExitNodeConfig) {
+    private suspend fun run(config: ExitNodeConfig, generation: Long) {
+        // A start that superseded a stop must not race the native close: an
+        // old controller.stop() would end the session we are about to build.
+        stopJob?.join()
+        if (generation != startGeneration) {
+            finish(generation)
+            return
+        }
         // The engine resolves hostnames (the DERP map host) only through the DNS
         // servers Android reported to it. The VPN service pushes a fresh state
         // before it connects; sharing needs the same, because the app's single
@@ -100,13 +124,15 @@ class ExitNodeService : Service() {
             // The controller records engine failures itself; a refusal made
             // before it began (the VPN is up) is recorded here.
             controller.fail(refusal)
-            finish()
+            finish(generation)
             return
         }
 
         var lastPending = 0
         var lastText = ""
-        while (scope.isActive && controller.isActive) {
+        // A newer start replaces this session; stop polling for the old one
+        // instead of running a second loop beside it.
+        while (scope.isActive && controller.isActive && generation == startGeneration) {
             delay(POLL_MS)
             renewWakeLockIfDue()
             controller.refresh()
@@ -121,7 +147,7 @@ class ExitNodeService : Service() {
             if (pending == 0 && lastPending > 0) notifications.clearPendingAlert()
             lastPending = pending
         }
-        finish()
+        finish(generation)
     }
 
     private fun stopSharing() {
@@ -129,16 +155,20 @@ class ExitNodeService : Service() {
         // finishes the service. Done off the main thread: native close blocks.
         userStopped = true
         enterForeground(ExitNodeNotificationText.TITLE)
-        scope.launch {
+        // The stop owns the service until a newer start replaces it. Without
+        // this generation a start Android queued around this stop would be
+        // torn down when the native close finished.
+        val generation = ++startGeneration
+        stopJob = scope.launch {
             controller.stop()
-            finish()
+            finish(generation)
         }
     }
 
     /** Satisfies the foreground contract for an intent we then decline. */
     private fun promoteThenStop() {
         enterForeground(ExitNodeNotificationText.TITLE)
-        finish()
+        finish(++startGeneration)
     }
 
     private fun enterForeground(text: String) {
@@ -154,7 +184,9 @@ class ExitNodeService : Service() {
         }
     }
 
-    private fun finish() {
+    private fun finish(generation: Long) {
+        // A newer start owns the service, its notification and its wake lock.
+        if (generation != startGeneration) return
         releaseWakeLock()
         notifications.clearPendingAlert()
         // Someone who pressed Stop knows; anyone else (expiry, a failure, the
@@ -163,20 +195,29 @@ class ExitNodeService : Service() {
             (controller.state.value as? ExitNodeUiState.Ended)?.let { notifications.ended(it.reason, it.message) }
         }
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        // Not stopSelf(): a start Android already queued for this instance
+        // must reach onStartCommand instead of being dropped. stopSelf(id)
+        // keeps the service alive when a newer start id exists.
+        stopSelf(lastStartId)
     }
 
     private fun acquireWakeLock(ttlSeconds: Long?) {
-        if (wakeLock?.isHeld == true) return
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         // The timeout bounds the lock even if this class never reaches
         // finish(): a timed session's lock cannot outlive it by more than a
         // minute. A session without a limit holds it in renewed chunks, so a
         // poll loop that stops renewing (a hung process) lets it lapse.
         val timeoutMs = if (ttlSeconds != null) (ttlSeconds + WAKE_LOCK_SLACK_SECONDS) * 1000 else WAKE_LOCK_CHUNK_MS
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG).apply {
-            setReferenceCounted(false)
-            acquire(timeoutMs)
+        val lock = wakeLock
+        if (lock?.isHeld == true) {
+            // A start that superseded a stopping session replaces the old
+            // timeout. Not reference counted, so this does not stack holds.
+            lock.acquire(timeoutMs)
+        } else {
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG).apply {
+                setReferenceCounted(false)
+                acquire(timeoutMs)
+            }
         }
         renewWakeLockAtMs = if (ttlSeconds == null) SystemClock.elapsedRealtime() + WAKE_LOCK_CHUNK_MS / 2 else Long.MAX_VALUE
     }

@@ -1,0 +1,1 @@
+Fix sharing lifecycle races: a queued start is no longer dropped, stopping cannot tear down a newer session, and approvals and stats stay responsive while a node starts. Bound open-admission and peer records, and drop oversized UDP datagrams instead of truncating them. The README now covers both client and exit-node roles.

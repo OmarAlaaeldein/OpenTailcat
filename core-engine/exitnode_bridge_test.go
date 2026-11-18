@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"net"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"tailscale.com/derp/derpserver"
 	"tailscale.com/net/stun"
@@ -290,6 +292,81 @@ func TestExitNodeLifecycleThroughTheBridge(t *testing.T) {
 	// The engine is free again: sharing can restart.
 	if _, err := StartExitNode(approvalConfig); err != nil {
 		t.Fatalf("restart after stop: %v", err)
+	}
+}
+
+// A start can take seconds (relay discovery). Stats and approvals must not
+// wait for it: only the start's own state is locked while the network runs.
+func TestStatsDoesNotWaitForAnInFlightStart(t *testing.T) {
+	useLocalDERP(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	exitNodeStartHook = func(context.Context) {
+		close(entered)
+		<-release
+	}
+	t.Cleanup(func() { exitNodeStartHook = nil })
+
+	started := make(chan error, 1)
+	go func() {
+		_, err := StartExitNode(approvalConfig)
+		started <- err
+	}()
+	<-entered
+
+	statsDone := make(chan error, 1)
+	go func() {
+		_, err := ExitNodeStatsJSON()
+		statsDone <- err
+	}()
+	select {
+	case <-statsDone:
+		// Either an answer or "was never started"; both are immediate.
+	case <-time.After(2 * time.Second):
+		t.Fatal("stats waited for the in-flight start")
+	}
+
+	close(release)
+	if err := <-started; err != nil {
+		t.Fatalf("StartExitNode: %v", err)
+	}
+}
+
+// Stop during startup must cancel the start, not block until its 30 s timeout.
+func TestStopCancelsAnInFlightStart(t *testing.T) {
+	useLocalDERP(t)
+	entered := make(chan struct{})
+	exitNodeStartHook = func(ctx context.Context) {
+		close(entered)
+		<-ctx.Done()
+	}
+	t.Cleanup(func() { exitNodeStartHook = nil })
+
+	started := make(chan error, 1)
+	go func() {
+		_, err := StartExitNode(approvalConfig)
+		started <- err
+	}()
+	<-entered
+
+	begin := time.Now()
+	if err := StopExitNode(); err != nil {
+		t.Fatalf("StopExitNode: %v", err)
+	}
+	if elapsed := time.Since(begin); elapsed > 2*time.Second {
+		t.Fatalf("StopExitNode took %v with a start in flight", elapsed)
+	}
+	if err := <-started; err == nil {
+		t.Fatal("a start cancelled by Stop reported success")
+	}
+	if exitNodeClaim.Load() {
+		t.Fatal("a cancelled start left the engine claimed")
+	}
+
+	// The stop must not poison the next, deliberate start.
+	exitNodeStartHook = nil
+	if _, err := StartExitNode(approvalConfig); err != nil {
+		t.Fatalf("start after a cancelled start: %v", err)
 	}
 }
 

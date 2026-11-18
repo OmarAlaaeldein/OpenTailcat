@@ -9,19 +9,18 @@ release.
 | --- | --- |
 | Understand the product, install it, or check its limits | [README.md](../README.md) |
 | Change the app, engine, or build | [AGENTS.md](../AGENTS.md) |
-| Understand or change Share this phone (exit node) | [exit.md](../exit.md), [AGENTS.md](../AGENTS.md#exit-node) |
+| Understand or change Share this phone (exit node) | [AGENTS.md](../AGENTS.md#exit-node) |
 | Know what changed between versions | [releases/](releases/) |
 | Cut or sign a release | [signing.md](signing.md), [AGENTS.md](../AGENTS.md#release-process) |
 | Understand what data is stored or sent | [PRIVACY_POLICY.md](../PRIVACY_POLICY.md) |
 | Report a vulnerability | [SECURITY.md](../SECURITY.md) |
 | Run emulator or live-gateway tests | [scripts/emulator/README.md](../scripts/emulator/README.md) |
 | Check the pinned upstream Tailcat commit | [third_party/PROVENANCE.md](../third_party/PROVENANCE.md) |
-| Review UI revamp skill candidates and visual direction | [design/ui-revamp-options.md](design/ui-revamp-options.md) |
 
 ## Release notes
 
 `releases/` is a historical record, one file per version, named after the
-version. The newest is [1.7.0](releases/1.7.0.md). Each note describes what
+version. The newest is [1.7.1](releases/1.7.1.md). Each note describes what
 changed, what was verified at the time, and the published artifact hashes.
 Verification lines are evidence for that release, not a promise about later
 builds.
