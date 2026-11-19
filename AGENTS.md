@@ -16,7 +16,7 @@ work; other docs link here.
   `com.tailcat.vpn`
 - Toolchain: Kotlin 2.4.21, Gradle 9.9.1, JDK 21, Go 1.27.4
 - Versions: `gradle/libs.versions.toml`, `core-engine/go.mod`
-- Current version: 1.7.1; notes in `docs/releases/`
+- Current version: 1.7.2; notes in `docs/releases/`
 
 ## Status
 
@@ -563,9 +563,12 @@ Open items are under "Remaining work". Rules that must hold:
   open admission is always timed (24 h cap), enforced natively and in Kotlin.
 - **Guests never reach the host's network.** Loopback, private, CGNAT,
   link-local, multicast and reserved destinations are refused
-  (`exitnode/policy.go`); 4-in-6 and NAT64 forms are judged by the IPv4 address
-  they embed. `AllowLocalDestinations` is test-only and is not reachable from
-  the bridge config (`TestBridgeConfigCannotAllowLocalDestinations`).
+  (`exitnode/policy.go`); 4-in-6 and the well-known (`64:ff9b::/96`) and RFC
+  8215 local-use (`64:ff9b:1::/48`) NAT64 forms are judged by the IPv4 address
+  they embed. Carrier-specific NAT64 prefixes are a known limitation: the node
+  does not read the active network's prefix yet. `AllowLocalDestinations` is
+  test-only and is not reachable from the bridge config
+  (`TestBridgeConfigCannotAllowLocalDestinations`).
 - **Transport protection while sharing.** No VPN of ours exists, so the bridge
   installs a permissive socket protector for the node's lifetime and restores
   the previous one at the end. Sockets are still created through the protect
@@ -631,9 +634,12 @@ verified: a physical phone as the host, battery and doze over long sessions
 - Exit node: battery/doze measurement (a long no-limit session first), a
   physical phone as the host, a stable per-profile client key (each guest
   reconnect needs a new approval today), TLA+ coverage of the interlock, a TCP
-  idle timeout, per-peer caps, hedged DNS queries in the engine resolver, and
-  a warning in the share UI when a third-party VPN is active (the node's
-  egress is then that VPN's, which the host may not intend).
+  idle timeout, per-peer caps, hedged DNS queries in the engine resolver, a
+  warning in the share UI when a third-party VPN is active (the node's
+  egress is then that VPN's, which the host may not intend), and the active
+  network's NAT64 prefix (from `LinkProperties.getNat64Prefix()`) so guests
+  cannot encode blocked IPv4 addresses through carrier-specific translation
+  prefixes.
 - Confirm the service-lifecycle fixes from the TLA+ model on a device
   (`stopSelf(startId)` with a queued start, STOP after a failed start then a
   quick Connect; see `formal/README.md`). The new instrumented platform probe

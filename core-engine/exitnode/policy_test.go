@@ -57,10 +57,15 @@ func TestCheckDestination(t *testing.T) {
 		{"[::ffff:169.254.169.254]:80", true, errBlockedAlways},
 		{"[::ffff:8.8.8.8]:80", false, nil},
 
-		// So is a NAT64-embedded one.
+		// So is a NAT64-embedded one, including the RFC 8215 local-use /48.
 		{"[64:ff9b::7f00:1]:80", false, errBlockedLocal},
 		{"[64:ff9b::a9fe:a9fe]:80", true, errBlockedAlways},
 		{"[64:ff9b::808:808]:80", false, nil},
+		{"[64:ff9b:1:7f00:0:100::]:80", false, errBlockedLocal},
+		{"[64:ff9b:1:c0a8:1:100::]:80", false, errBlockedLocal},
+		{"[64:ff9b:1:a9fe:a9:fe00::]:80", true, errBlockedAlways},
+		{"[64:ff9b:1:808:8:800::]:80", false, nil},
+		{"[64:ff9b:1:c0a8:1:100::]:80", true, nil},
 
 		// Port 0 is not a destination.
 		{"8.8.8.8:0", false, errBadDestination},
@@ -76,5 +81,49 @@ func TestCheckDestination(t *testing.T) {
 func TestCheckDestinationInvalid(t *testing.T) {
 	if err := checkDestination(netip.AddrPort{}, true); err != errBadDestination {
 		t.Fatalf("zero AddrPort: got %v, want errBadDestination", err)
+	}
+}
+
+// RFC 6052 section 2.4: every prefix length the specification defines must
+// decode to the same IPv4 address. Only /96 and /48 are used by the policy
+// today; the rest keep the decoder honest for a runtime network prefix.
+func TestEmbeddedIPv4RFC6052(t *testing.T) {
+	cases := []struct {
+		prefix string
+		addr   string
+		want   string
+	}{
+		{"2001:db8::/32", "2001:db8:c000:221::", "192.0.2.33"},
+		{"2001:db8:100::/40", "2001:db8:1c0:2:21::", "192.0.2.33"},
+		{"2001:db8:122::/48", "2001:db8:122:c000:2:2100::", "192.0.2.33"},
+		{"2001:db8:122:300::/56", "2001:db8:122:3c0:0:221::", "192.0.2.33"},
+		{"2001:db8:122:344::/64", "2001:db8:122:344:c0:2:2100:0", "192.0.2.33"},
+		{"2001:db8:122:344::/96", "2001:db8:122:344::c000:221", "192.0.2.33"},
+	}
+	for _, tc := range cases {
+		prefix := netip.MustParsePrefix(tc.prefix)
+		got, ok := embeddedIPv4(prefix, netip.MustParseAddr(tc.addr))
+		if !ok || got != netip.MustParseAddr(tc.want) {
+			t.Errorf("%s in %s = %v, %v; want %s, true", tc.addr, tc.prefix, got, ok, tc.want)
+		}
+	}
+
+	if _, ok := embeddedIPv4(
+		netip.MustParsePrefix("64:ff9b::/120"),
+		netip.MustParseAddr("64:ff9b::1:2"),
+	); ok {
+		t.Error("an RFC 6052-invalid prefix length must not decode an IPv4 address")
+	}
+	if _, ok := embeddedIPv4(
+		netip.MustParsePrefix("64:ff9b::/96"),
+		netip.MustParseAddr("8.8.8.8"),
+	); ok {
+		t.Error("an IPv4 address must not be decoded as NAT64")
+	}
+	if _, ok := embeddedIPv4(
+		netip.MustParsePrefix("64:ff9b::/96"),
+		netip.MustParseAddr("64:ff9b:1::808:808"),
+	); ok {
+		t.Error("an address outside the prefix must not decode")
 	}
 }

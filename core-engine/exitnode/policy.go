@@ -48,7 +48,39 @@ var localOnly = []netip.Prefix{
 	netip.MustParsePrefix("fc00::/7"),       // unique local (also Tailcat's own range)
 }
 
-var nat64 = netip.MustParsePrefix("64:ff9b::/96")
+// Prefixes this policy can decode without knowing the active network: the
+// well-known NAT64 prefix and the RFC 8215 local-use prefix. A carrier-specific
+// prefix is only known at runtime, which the node does not receive yet.
+var nat64Prefixes = []netip.Prefix{
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+}
+
+// embeddedIPv4 returns the IPv4 address an RFC 6052 address carries, if ip is
+// inside prefix and the prefix length is one RFC 6052 defines. The u octet at
+// bits 64-71 is skipped for prefix lengths shorter than /96.
+func embeddedIPv4(prefix netip.Prefix, ip netip.Addr) (netip.Addr, bool) {
+	if !ip.Is6() || !prefix.Contains(ip) {
+		return netip.Addr{}, false
+	}
+	b := ip.As16()
+	switch prefix.Bits() {
+	case 32:
+		return netip.AddrFrom4([4]byte{b[4], b[5], b[6], b[7]}), true
+	case 40:
+		return netip.AddrFrom4([4]byte{b[5], b[6], b[7], b[9]}), true
+	case 48:
+		return netip.AddrFrom4([4]byte{b[6], b[7], b[9], b[10]}), true
+	case 56:
+		return netip.AddrFrom4([4]byte{b[7], b[9], b[10], b[11]}), true
+	case 64:
+		return netip.AddrFrom4([4]byte{b[9], b[10], b[11], b[12]}), true
+	case 96:
+		return netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]}), true
+	default:
+		return netip.Addr{}, false
+	}
+}
 
 var (
 	errBadDestination = errors.New("exitnode: invalid destination")
@@ -65,10 +97,13 @@ func checkDestination(dst netip.AddrPort, allowLocal bool) error {
 	ip = ip.Unmap() // ::ffff:127.0.0.1 is 127.0.0.1
 	ip = ip.WithZone("")
 	// A NAT64-mapped address is judged by the IPv4 address it embeds, so
-	// 64:ff9b::7f00:1 cannot smuggle loopback past the IPv4 rules.
-	if ip.Is6() && nat64.Contains(ip) {
-		b := ip.As16()
-		ip = netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]})
+	// 64:ff9b::7f00:1 or 64:ff9b:1:7f00:0:100:: cannot smuggle loopback past
+	// the IPv4 rules.
+	for _, p := range nat64Prefixes {
+		if v4, ok := embeddedIPv4(p, ip); ok {
+			ip = v4
+			break
+		}
 	}
 	for _, p := range alwaysRejected {
 		if p.Contains(ip) {

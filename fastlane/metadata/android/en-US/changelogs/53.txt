@@ -1,0 +1,1 @@
+Exit-node destination filtering now also decodes the RFC 8215 local-use NAT64 prefix, so guests cannot reach private IPv4 addresses through it. The README and store listing now present both roles: connect through your own gateway, or share this phone as one.
