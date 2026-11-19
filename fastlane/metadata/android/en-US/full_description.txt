@@ -1,6 +1,7 @@
-<p>OpenTailcat is an Android client for <a href="https://github.com/tailscale/tailcat">Tailcat</a>. Paste a <code>tc…</code> token and connect to <b>your own</b> exit gateway over a WireGuard-encrypted tunnel, with peer-to-peer NAT traversal and DERP relays as a fallback. There is no account and no control plane in the middle.</p>
+<p>OpenTailcat is one Android app for both ends of a <a href="https://github.com/tailscale/tailcat">Tailcat</a> tunnel. As a client, paste a <code>tc…</code> token and connect to <b>your own</b> exit gateway over a WireGuard-encrypted tunnel, with peer-to-peer NAT traversal and DERP relays as a fallback. As an exit node, use <b>Share this phone</b> to hand another device a one-session code and let its traffic leave through your connection. There is no account and no control plane in the middle.</p>
 <p>Features:</p>
 <ul>
+<li>Share this phone as an exit node: per-device approval, a time limit or none, live device and traffic counters, and a one-tap stop</li>
 <li>Whole-device IPv4 and IPv6 VPN through your own gateway</li>
 <li>Multiple gateway profiles, each with its own DNS resolver, DNS policy, and MTU</li>
 <li>Pair by pasting a token, import a QR image from storage, or share a saved profile as a QR code; no camera permission is needed</li>
@@ -8,7 +9,6 @@
 <li>Live tunnel telemetry: latency, jitter, relay region, counters, and the public egress IP</li>
 <li>On-demand speed test through the tunnel when connected, labelled when it uses device routes instead</li>
 <li>Works with Android Always-on VPN and "Block connections without VPN"; disconnecting from the lock screen requires unlocking</li>
-<li>Share this phone: let someone you trust use your connection through a one-session code, with per-device approval, a time limit or none, and a one-tap stop</li>
 <li>No ads, analytics, accounts, or crash reporting; saved tokens are encrypted with Android Keystore</li>
 </ul>
 <p>OpenTailcat is an independent community project and is not affiliated with Tailscale Inc. It is under active development: physical leak testing is not finished and the GitHub builds are development-signed, so do not rely on it as a hardened privacy VPN yet. Your gateway operator can see traffic that leaves through it, and apps you exclude bypass the tunnel. If you share your phone, sites see your IP address and the traffic uses your data plan, so share only with people you trust.</p>

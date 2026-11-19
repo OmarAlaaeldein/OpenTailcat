@@ -13,8 +13,10 @@ class StartRetryTest {
         assertEquals(4_000L, StartRetry.delayMs(2))
         assertEquals(8_000L, StartRetry.delayMs(3))
         assertEquals(16_000L, StartRetry.delayMs(4))
-        assertEquals(StartRetry.MAX_DELAY_MS, StartRetry.delayMs(5))
-        assertEquals(StartRetry.MAX_DELAY_MS, StartRetry.delayMs(10_000))
+        // Pin the cap itself: comparing against StartRetry.MAX_DELAY_MS would
+        // stay green if a changed constant made retries hammer the engine.
+        assertEquals(30_000L, StartRetry.delayMs(5))
+        assertEquals(30_000L, StartRetry.delayMs(10_000))
         assertEquals(2_000L, StartRetry.delayMs(0))
     }
 

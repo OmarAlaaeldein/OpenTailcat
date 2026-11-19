@@ -1,1 +1,1 @@
-Tailcat VPN client: connect straight to your own gateway with a tc… token
+Tailcat VPN: use your gateway, or share this phone as one

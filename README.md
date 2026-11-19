@@ -1,18 +1,17 @@
 # OpenTailcat
 
-**One Android app for both ends of a Tailcat tunnel.** As a **client**, it sends
-this phone's traffic through your own
-[Tailcat](https://github.com/tailscale/tailcat) exit gateway: you run the
-gateway, paste its `tc…` token, and traffic leaves through it. As an **exit
-node**, it does the reverse: **Share this phone** mints a one-session code and
-lets another device browse through this phone's connection. No account, no
-subscription, and no control plane in the middle.
+**Use a `tc…` token to route this phone through your own
+[Tailcat](https://github.com/tailscale/tailcat) gateway, or tap Share this
+phone to route another device through this one.** One Android app for both
+ends of the tunnel: as a **client**, this phone's traffic leaves through a
+gateway you run; as an **exit node**, this phone is the gateway for someone
+else. No account, no subscription, and no control plane in the middle.
 
 Independent community project. Not affiliated with Tailscale Inc.
 
-| Client, connected | Live tunnel benchmark |
-| --- | --- |
-| ![Connected home screen](docs/screenshots/home-connected.png) | ![Network benchmark](docs/screenshots/network-benchmark.png) |
+| Connect through your gateway | Share this phone | Live tunnel benchmark |
+| --- | --- | --- |
+| ![Connected home screen](docs/screenshots/home-connected.png) | ![Sharing with a guest connected](docs/screenshots/share-active.png) | ![Network benchmark](docs/screenshots/network-benchmark.png) |
 
 ## Two roles, one app
 

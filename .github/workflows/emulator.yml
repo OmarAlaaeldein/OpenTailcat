@@ -11,6 +11,12 @@ on:
 permissions:
   contents: read
 
+# A pushed-over pull-request run is wasted emulator time. Never cancel main
+# or scheduled runs, and the live job keeps its own serialization below.
+concurrency:
+  group: emulator-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   EMULATOR_API: 35
 
@@ -27,6 +33,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+          cache: gradle
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27.4"
@@ -100,6 +107,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+          cache: gradle
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         if: steps.token.outputs.present == 'true'
         with:
