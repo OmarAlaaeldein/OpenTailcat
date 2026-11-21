@@ -17,6 +17,8 @@ import (
 	"tailscale.com/types/key"
 	"tailscale.com/types/logger"
 
+	"github.com/tailscale/tailcat"
+
 	"com.tailcat.vpn/engine/exitnode"
 )
 
@@ -115,6 +117,109 @@ func TestParseExitNodeConfig(t *testing.T) {
 		if _, err := parseExitNodeConfig(raw); err == nil {
 			t.Errorf("%s: accepted %q", name, raw)
 		}
+	}
+}
+
+const relayConfig = `{"ttlSeconds":3600,"admission":"approval","relay":{"hostname":"derp.example.com"}}`
+
+func TestParseExitNodeConfigWithACustomRelay(t *testing.T) {
+	cfg, err := parseExitNodeConfig(relayConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Region == nil {
+		t.Fatal("relay config did not build a region")
+	}
+	if cfg.RegionID != 0 || cfg.DERPMapURL != "" {
+		t.Fatalf("relay config left the public map path on: %+v", cfg)
+	}
+	if cfg.Region.RegionID != customRelayRegionID {
+		t.Fatalf("region ID = %d, want the private range %d", cfg.Region.RegionID, customRelayRegionID)
+	}
+	if len(cfg.Region.Nodes) != 1 {
+		t.Fatalf("region has %d nodes, want 1", len(cfg.Region.Nodes))
+	}
+	node := cfg.Region.Nodes[0]
+	if node.HostName != "derp.example.com" || node.DERPPort != 443 || node.STUNPort != 3478 {
+		t.Fatalf("node = %+v, want derp.example.com:443 with STUN 3478", node)
+	}
+	if node.InsecureForTests {
+		t.Fatal("a configured relay must present a real certificate")
+	}
+
+	explicit, err := parseExitNodeConfig(
+		`{"ttlSeconds":60,"admission":"open","relay":{"hostname":"derp.example.com","derpPort":8443,"stunPort":3479}}`,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node = explicit.Region.Nodes[0]
+	if node.DERPPort != 8443 || node.STUNPort != 3479 {
+		t.Fatalf("explicit ports were not kept: %+v", node)
+	}
+}
+
+func TestParseExitNodeConfigRejectsBadRelays(t *testing.T) {
+	for name, raw := range map[string]string{
+		"no hostname":       `{"ttlSeconds":60,"admission":"approval","relay":{}}`,
+		"blank hostname":    `{"ttlSeconds":60,"admission":"approval","relay":{"hostname":"   "}}`,
+		"url":               `{"ttlSeconds":60,"admission":"approval","relay":{"hostname":"https://derp.example.com"}}`,
+		"host and port":     `{"ttlSeconds":60,"admission":"approval","relay":{"hostname":"derp.example.com:8443"}}`,
+		"ipv4":              `{"ttlSeconds":60,"admission":"approval","relay":{"hostname":"203.0.113.10"}}`,
+		"ipv6":              `{"ttlSeconds":60,"admission":"approval","relay":{"hostname":"::1"}}`,
+		"loopback name":     `{"ttlSeconds":60,"admission":"approval","relay":{"hostname":"localhost"}}`,
+		"space":             `{"ttlSeconds":60,"admission":"approval","relay":{"hostname":"derp example.com"}}`,
+		"derp port too big": `{"ttlSeconds":60,"admission":"approval","relay":{"hostname":"derp.example.com","derpPort":65536}}`,
+		"negative stun":     `{"ttlSeconds":60,"admission":"approval","relay":{"hostname":"derp.example.com","stunPort":-1}}`,
+		"test-only relay":   `{"ttlSeconds":60,"admission":"approval","relay":{"hostname":"derp.example.com","insecureForTests":true}}`,
+	} {
+		if _, err := parseExitNodeConfig(raw); err == nil {
+			t.Errorf("%s: accepted %q", name, raw)
+		}
+	}
+}
+
+// The region the bridge builds must survive the token it is embedded in: a
+// guest parses this token with the same policy as the host app.
+func TestACustomRelayTokenRoundTrips(t *testing.T) {
+	region, err := (&exitNodeRelayJSON{
+		Hostname: "derp.example.com",
+		DERPPort: 8443,
+		STUNPort: 3479,
+	}).region()
+	if err != nil {
+		t.Fatal(err)
+	}
+	minted := tailcat.ConnInfo{
+		ServerPublic:      tailcat.NodePublic{NodePublic: key.NewNode().Public()},
+		ServerDiscoPublic: tailcat.DiscoPublic{DiscoPublic: key.NewDisco().Public()},
+		Region:            []*tailcfg.DERPRegion{region},
+	}
+	addr := minted.Addr()
+
+	pt, err := ParseToken(string(addr))
+	if err != nil {
+		t.Fatalf("the token minted for a custom relay was rejected: %v", err)
+	}
+	if !pt.IsConnectable() || !pt.HasEmbeddedRegion {
+		t.Fatalf("classification %s, embedded region %v", pt.Classification, pt.HasEmbeddedRegion)
+	}
+
+	// The client dials the relay from tailcat.ParseAddr, not from the
+	// validation parser, so check the path the guest's data plane uses.
+	ci, err := tailcat.ParseAddr(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ci.Region) != 1 || len(ci.Region[0].Nodes) != 1 {
+		t.Fatalf("parsed region = %+v, want one node", ci.Region)
+	}
+	node := ci.Region[0].Nodes[0]
+	if node.HostName != "derp.example.com" || node.DERPPort != 8443 || node.STUNPort != 3479 {
+		t.Fatalf("node = %+v, want derp.example.com:8443 with STUN 3479", node)
+	}
+	if node.InsecureForTests {
+		t.Fatal("the round trip turned on InsecureForTests")
 	}
 }
 

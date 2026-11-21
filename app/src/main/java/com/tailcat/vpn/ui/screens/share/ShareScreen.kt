@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -37,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -57,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -67,6 +70,7 @@ import com.tailcat.vpn.core.exitnode.deviceShortId
 import com.tailcat.vpn.core.metrics.TrafficFormat
 import com.tailcat.vpn.core.model.TunnelState
 import com.tailcat.vpn.service.ExitNodeAdmission
+import com.tailcat.vpn.service.ExitNodeRelay
 import com.tailcat.vpn.service.ExitNodeUiState
 import com.tailcat.vpn.ui.screens.home.QrMatrixCanvas
 import com.tailcat.vpn.ui.screens.home.encodeTokenQr
@@ -99,6 +103,7 @@ fun ShareScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val duration by viewModel.duration.collectAsStateWithLifecycle()
     val admission by viewModel.admission.collectAsStateWithLifecycle()
+    val relay by viewModel.relay.collectAsStateWithLifecycle()
     val tunnelState by viewModel.tunnelState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
 
@@ -136,6 +141,7 @@ fun ShareScreen(
                 ExitNodeUiState.Idle -> SetupContent(
                     duration = duration,
                     admission = admission,
+                    relay = relay,
                     blockedReason = when {
                         !viewModel.availability.isAvailable -> viewModel.availability.message
                         tunnelState != TunnelState.DISCONNECTED ->
@@ -144,6 +150,10 @@ fun ShareScreen(
                     },
                     onDuration = viewModel::selectDuration,
                     onAdmission = viewModel::selectAdmission,
+                    onRelayEnabled = viewModel::selectRelayEnabled,
+                    onRelayHostname = viewModel::setRelayHostname,
+                    onRelayDerpPort = viewModel::setRelayDerpPort,
+                    onRelayStunPort = viewModel::setRelayStunPort,
                     onStart = viewModel::start
                 )
                 ExitNodeUiState.Starting -> StartingContent()
@@ -167,9 +177,14 @@ fun ShareScreen(
 private fun SetupContent(
     duration: ShareDuration,
     admission: ExitNodeAdmission,
+    relay: ShareRelay,
     blockedReason: String?,
     onDuration: (ShareDuration) -> Unit,
     onAdmission: (ExitNodeAdmission) -> Unit,
+    onRelayEnabled: (Boolean) -> Unit,
+    onRelayHostname: (String) -> Unit,
+    onRelayDerpPort: (String) -> Unit,
+    onRelayStunPort: (String) -> Unit,
     onStart: () -> Unit
 ) {
     Card {
@@ -234,6 +249,14 @@ private fun SetupContent(
         )
     }
 
+    RelayCard(
+        relay = relay,
+        onEnabled = onRelayEnabled,
+        onHostname = onRelayHostname,
+        onDerpPort = onRelayDerpPort,
+        onStunPort = onRelayStunPort
+    )
+
     Text(
         "Keep the screen on or the phone charging for the best results. If you use Always-on VPN " +
             "with \u2018Block connections without VPN\u2019, turn that off while sharing: Android would " +
@@ -246,11 +269,95 @@ private fun SetupContent(
 
     Button(
         onClick = onStart,
-        enabled = blockedReason == null,
+        enabled = blockedReason == null && relay.problem == null,
         colors = TailcatButtons.filled(),
         modifier = Modifier.fillMaxWidth().height(52.dp)
     ) {
         Text("Start sharing")
+    }
+}
+
+/**
+ * Relay choice. The default is invisible to the host on purpose: one tap starts
+ * sharing. Naming a relay is for operators who run one, and it is embedded in
+ * the code, so the guest needs no matching setting.
+ */
+@Composable
+private fun RelayCard(
+    relay: ShareRelay,
+    onEnabled: (Boolean) -> Unit,
+    onHostname: (String) -> Unit,
+    onDerpPort: (String) -> Unit,
+    onStunPort: (String) -> Unit
+) {
+    val hostProblem = ExitNodeRelay.validateHostname(relay.hostname)
+    val derpOk = relay.derpPort.toIntOrNull()?.let { it in 1..65535 } == true
+    val stunOk = relay.stunPort.toIntOrNull()?.let { it in 1..65535 } == true
+
+    Card {
+        Eyebrow("RELAY")
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "A guest reaches this phone through a relay. Automatic picks the nearest public one; " +
+                "your own keeps that traffic on a server you control.",
+            style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
+        )
+        AdmissionOption(
+            selected = !relay.enabled,
+            title = "Automatic",
+            body = "Nearest public relay, chosen by this phone's latency. Works on any network.",
+            recommended = true,
+            onClick = { onEnabled(false) }
+        )
+        AdmissionOption(
+            selected = relay.enabled,
+            title = "My own relay",
+            body = "It must be reachable from the guest and serve a valid TLS certificate for its name.",
+            recommended = false,
+            onClick = { onEnabled(true) }
+        )
+        if (relay.enabled) {
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = relay.hostname,
+                onValueChange = onHostname,
+                label = { Text("Relay host name") },
+                placeholder = { Text("derp.example.com") },
+                singleLine = true,
+                isError = hostProblem != null,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = relay.derpPort,
+                    onValueChange = onDerpPort,
+                    label = { Text("DERP port") },
+                    singleLine = true,
+                    isError = !derpOk,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = relay.stunPort,
+                    onValueChange = onStunPort,
+                    label = { Text("STUN port") },
+                    singleLine = true,
+                    isError = !stunOk,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                relay.problem
+                    ?: "The name is baked into the code, so guests need no setup.",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = if (relay.problem != null) RedDegraded else TextMuted
+                )
+            )
+        }
     }
 }
 

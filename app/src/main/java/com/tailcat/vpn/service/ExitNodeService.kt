@@ -92,7 +92,14 @@ class ExitNodeService : Service() {
             ADMISSION_OPEN -> ExitNodeAdmission.OPEN
             else -> ExitNodeAdmission.APPROVAL
         }
-        val config = runCatching { ExitNodeConfig(ttl, admission) }.getOrElse {
+        val relay = intent.getStringExtra(EXTRA_RELAY_HOSTNAME)?.let { host ->
+            ExitNodeRelay(
+                hostname = host,
+                derpPort = intent.getIntExtra(EXTRA_RELAY_DERP_PORT, ExitNodeRelay.DEFAULT_DERP_PORT),
+                stunPort = intent.getIntExtra(EXTRA_RELAY_STUN_PORT, ExitNodeRelay.DEFAULT_STUN_PORT)
+            )
+        }
+        val config = runCatching { ExitNodeConfig(ttl, admission, relay) }.getOrElse {
             controller.fail(it.message ?: "Invalid sharing time")
             finish(generation)
             return
@@ -252,6 +259,9 @@ class ExitNodeService : Service() {
         const val EXTRA_TTL_SECONDS = "ttlSeconds"
         const val EXTRA_NO_LIMIT = "noTimeLimit"
         const val EXTRA_ADMISSION = "admission"
+        const val EXTRA_RELAY_HOSTNAME = "relayHostname"
+        const val EXTRA_RELAY_DERP_PORT = "relayDerpPort"
+        const val EXTRA_RELAY_STUN_PORT = "relayStunPort"
         const val ADMISSION_OPEN = "open"
         const val ADMISSION_APPROVAL = "approval"
 
@@ -271,6 +281,13 @@ class ExitNodeService : Service() {
                     EXTRA_ADMISSION,
                     if (config.admission == ExitNodeAdmission.OPEN) ADMISSION_OPEN else ADMISSION_APPROVAL
                 )
+                .apply {
+                    config.relay?.let { relay ->
+                        putExtra(EXTRA_RELAY_HOSTNAME, relay.host)
+                        putExtra(EXTRA_RELAY_DERP_PORT, relay.derpPort)
+                        putExtra(EXTRA_RELAY_STUN_PORT, relay.stunPort)
+                    }
+                }
             ContextCompat.startForegroundService(context, intent)
         }
 

@@ -71,6 +71,17 @@ class TunnelExitNode : NativeExitNode {
                     ExitNodeAdmission.OPEN -> "open"
                 }
             )
+            .apply {
+                config.relay?.let { relay ->
+                    put(
+                        "relay",
+                        JSONObject()
+                            .put("hostname", relay.host)
+                            .put("derpPort", relay.derpPort)
+                            .put("stunPort", relay.stunPort)
+                    )
+                }
+            }
             .toString()
     }
 }

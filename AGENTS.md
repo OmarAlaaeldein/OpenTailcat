@@ -561,6 +561,14 @@ Open items are under "Remaining work". Rules that must hold:
   at stop, so stopping revokes every code. The node enforces expiry itself.
   A share may have no time limit (`NoExpiry`) only with approval admission;
   open admission is always timed (24 h cap), enforced natively and in Kotlin.
+- **The relay is configurable.** By default the node picks the nearest public
+  DERP region. The host can name their own relay in the share screen (host
+  name plus DERP/STUN ports); the bridge turns that into the `tailcat.Server`
+  region, so no DERP map is fetched, and the region is embedded in the minted
+  code, so the guest needs no matching setting. The name must be a bare DNS
+  name with a valid TLS certificate (an IP or loopback is refused, and
+  `InsecureForTests` stays off); ports default to 443 and 3478. Relay
+  configuration is per session and is not persisted.
 - **Guests never reach the host's network.** Loopback, private, CGNAT,
   link-local, multicast and reserved destinations are refused
   (`exitnode/policy.go`); 4-in-6 and the well-known (`64:ff9b::/96`) and RFC
@@ -596,7 +604,8 @@ Open items are under "Remaining work". Rules that must hold:
 Status: shipped in 1.7.0. Native engine, bridge, UI and `ExitNodeService`
 exist. Sharing is not resumed if Android kills the process: the keys die with
 it. The share screen offers 15 min, 1 h, 4 h, 24 h or "Until I stop" (approval
-only), and approval or open admission. The engine resolver now fails over
+only), and approval or open admission, plus an optional self-hosted relay
+instead of the nearest public DERP region. The engine resolver now fails over
 between Android DNS servers (needed to fetch the relay map on networks whose
 first DNS server never answers). It is still partial: one timeout from a
 flaky-but-working server can move the preference back to a dead one, costing
@@ -639,7 +648,8 @@ verified: a physical phone as the host, battery and doze over long sessions
   egress is then that VPN's, which the host may not intend), and the active
   network's NAT64 prefix (from `LinkProperties.getNat64Prefix()`) so guests
   cannot encode blocked IPv4 addresses through carrier-specific translation
-  prefixes.
+  prefixes, a per-guest direct-or-relayed path indicator (the node knows
+  `CurAddr` vs `Relay`), and remembering the relay choice across sessions.
 - Confirm the service-lifecycle fixes from the TLA+ model on a device
   (`stopSelf(startId)` with a queued start, STOP after a failed start then a
   quick Connect; see `formal/README.md`). The new instrumented platform probe

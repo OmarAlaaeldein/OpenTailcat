@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"tailscale.com/tailcfg"
 	"tailscale.com/types/key"
 
 	"com.tailcat.vpn/engine/exitnode"
@@ -27,9 +30,18 @@ import (
 // under globalCore.mu, so they cannot interleave.
 
 const (
-	maxExitNodeConfigBytes = 1024
+	maxExitNodeConfigBytes = 2048
 	exitNodeStartTimeout   = 30 * time.Second
 	exitNodeStopWait       = 10 * time.Second
+)
+
+// Self-hosted relay defaults. A region ID of 900+ is the convention for
+// private DERP regions, so a custom relay can never be mistaken for one of the
+// public regions (301-304) a token might otherwise name.
+const (
+	customRelayRegionID  = 900
+	defaultRelayDERPPort = 443
+	defaultRelaySTUNPort = 3478
 )
 
 // exitNodeClaim is true from the moment StartExitNode wins the engine until
@@ -74,11 +86,82 @@ var exitHost struct {
 
 // exitNodeConfigJSON is what Kotlin sends: {"ttlSeconds":3600,"admission":
 // "approval"}, or {"noExpiry":true,"admission":"approval"} for a share that
-// lasts until stopped (approval only; ttlSeconds then absent or 0).
+// lasts until stopped (approval only; ttlSeconds then absent or 0). "relay"
+// is optional; without it the nearest public DERP region is used.
 type exitNodeConfigJSON struct {
-	TTLSeconds int64  `json:"ttlSeconds"`
-	NoExpiry   bool   `json:"noExpiry"`
-	Admission  string `json:"admission"`
+	TTLSeconds int64              `json:"ttlSeconds"`
+	NoExpiry   bool               `json:"noExpiry"`
+	Admission  string             `json:"admission"`
+	Relay      *exitNodeRelayJSON `json:"relay"`
+}
+
+// exitNodeRelayJSON points a share at its own DERP server instead of the
+// nearest public one. The region is embedded in the token this node mints, so
+// a guest needs no configuration of its own: pairing is enough.
+//
+// A relay only ever sees WireGuard ciphertext, but a public relay still sees
+// the metadata (which keys talk, when, how much), and the nearest public
+// region is chosen from the host's latency alone. Naming a private relay
+// keeps that first-party and lets the operator place it for the pair.
+type exitNodeRelayJSON struct {
+	// Hostname is the relay's name. It must match the certificate the relay
+	// serves; it is not a URL and takes no scheme or path.
+	Hostname string `json:"hostname"`
+	// DERPPort and STUNPort default to 443 and 3478 when zero.
+	DERPPort int `json:"derpPort"`
+	STUNPort int `json:"stunPort"`
+}
+
+// region validates the relay and builds the DERP region the node advertises.
+// The endpoint policy mirrors the token parser's, so a configuration that
+// would mint a token this app then refuses is rejected here rather than at
+// pairing time on the guest.
+func (r *exitNodeRelayJSON) region() (*tailcfg.DERPRegion, error) {
+	host := strings.TrimSpace(r.Hostname)
+	if host == "" {
+		return nil, errors.New("relay hostname is required")
+	}
+	if strings.ContainsAny(host, "/?#@: \t\\") {
+		return nil, errors.New("relay hostname must be a bare host name, not a URL or host:port")
+	}
+	// An IP literal can pass the token parser's endpoint policy, but the relay
+	// would then have to serve a certificate with that IP in it, which no
+	// public CA issues. Reject it here so the failure lands on the switch that
+	// configured it rather than on every guest at pairing time.
+	if _, err := netip.ParseAddr(host); err == nil {
+		return nil, errors.New("relay hostname must be a DNS name, not an IP address")
+	}
+	// The token parser applies the same endpoint policy to the region this
+	// function builds, so a rejection here would otherwise surface at pairing
+	// time on the guest instead of at the switch that caused it.
+	if err := rejectUnsafeDERPEndpoint("hostname", host); err != nil {
+		return nil, fmt.Errorf("relay hostname %q is not a usable DNS name", host)
+	}
+	derpPort, stunPort := r.DERPPort, r.STUNPort
+	if derpPort == 0 {
+		derpPort = defaultRelayDERPPort
+	}
+	if stunPort == 0 {
+		stunPort = defaultRelaySTUNPort
+	}
+	if derpPort < 1 || derpPort > 65535 {
+		return nil, errors.New("relay derpPort must be between 1 and 65535")
+	}
+	if stunPort < 1 || stunPort > 65535 {
+		return nil, errors.New("relay stunPort must be between 1 and 65535")
+	}
+	return &tailcfg.DERPRegion{
+		RegionID:   customRelayRegionID,
+		RegionCode: "custom",
+		RegionName: "Custom relay",
+		Nodes: []*tailcfg.DERPNode{{
+			Name:     "900a",
+			RegionID: customRelayRegionID,
+			HostName: host,
+			DERPPort: derpPort,
+			STUNPort: stunPort,
+		}},
+	}, nil
 }
 
 // allowAllProtector accepts every socket. The client tunnel is not running
@@ -126,6 +209,13 @@ func parseExitNodeConfig(raw string) (exitnode.Config, error) {
 	}
 	if cfg.NoExpiry && cfg.Admission != exitnode.AdmitApproval {
 		return exitnode.Config{}, errors.New("a share without a time limit requires approval")
+	}
+	if in.Relay != nil {
+		region, err := in.Relay.region()
+		if err != nil {
+			return exitnode.Config{}, err
+		}
+		cfg.Region = region
 	}
 	return cfg, nil
 }

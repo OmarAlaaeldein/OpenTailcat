@@ -6,6 +6,7 @@ import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.core.model.TunnelState
 import com.tailcat.vpn.service.ExitNodeAdmission
 import com.tailcat.vpn.service.ExitNodeConfig
+import com.tailcat.vpn.service.ExitNodeRelay
 import com.tailcat.vpn.service.ExitNodeService
 import com.tailcat.vpn.service.ExitNodeUiState
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
@@ -32,6 +34,28 @@ enum class ShareDuration(val label: String, val seconds: Long?) {
     val isTimed: Boolean get() = seconds != null
 }
 
+/**
+ * What the setup screen has typed for a self-hosted relay. Disabled means the
+ * nearest public relay, which is the default and needs no input.
+ */
+data class ShareRelay(
+    val enabled: Boolean = false,
+    val hostname: String = "",
+    val derpPort: String = ExitNodeRelay.DEFAULT_DERP_PORT.toString(),
+    val stunPort: String = ExitNodeRelay.DEFAULT_STUN_PORT.toString()
+) {
+    /** A user-facing problem with the current fields, or null. */
+    val problem: String?
+        get() = if (enabled) ExitNodeRelay.problem(hostname, derpPort, stunPort) else null
+
+    /** Only valid when [problem] is null. */
+    fun toConfig(): ExitNodeRelay? = if (enabled) {
+        ExitNodeRelay(hostname, derpPort.toInt(), stunPort.toInt())
+    } else {
+        null
+    }
+}
+
 class ShareViewModel : ViewModel() {
     private val app = TailcatApplication.instance
     private val controller = app.exitNodeController
@@ -45,6 +69,9 @@ class ShareViewModel : ViewModel() {
 
     private val _admission = MutableStateFlow(ExitNodeAdmission.APPROVAL)
     val admission: StateFlow<ExitNodeAdmission> = _admission.asStateFlow()
+
+    private val _relay = MutableStateFlow(ShareRelay())
+    val relay: StateFlow<ShareRelay> = _relay.asStateFlow()
 
     private val _events = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val events: SharedFlow<String> = _events.asSharedFlow()
@@ -60,13 +87,35 @@ class ShareViewModel : ViewModel() {
         _admission.value = value
     }
 
+    fun selectRelayEnabled(value: Boolean) = _relay.update { it.copy(enabled = value) }
+
+    fun setRelayHostname(value: String) {
+        if (value.length <= MAX_RELAY_HOSTNAME) _relay.update { it.copy(hostname = value) }
+    }
+
+    fun setRelayDerpPort(value: String) {
+        if (value.length <= 5 && value.all(Char::isDigit)) _relay.update { it.copy(derpPort = value) }
+    }
+
+    fun setRelayStunPort(value: String) {
+        if (value.length <= 5 && value.all(Char::isDigit)) _relay.update { it.copy(stunPort = value) }
+    }
+
     /**
      * Hands the session to the foreground service, which owns the poll loop,
      * the notification and the wake lock. Refusals (the VPN is up) are
      * recorded by the service as an ended session, which this screen shows.
      */
     fun start() {
-        ExitNodeService.start(app, ExitNodeConfig(_duration.value.seconds, _admission.value))
+        val relayInput = _relay.value
+        relayInput.problem?.let {
+            _events.tryEmit(it)
+            return
+        }
+        ExitNodeService.start(
+            app,
+            ExitNodeConfig(_duration.value.seconds, _admission.value, relayInput.toConfig())
+        )
     }
 
     fun stop() {
@@ -81,5 +130,10 @@ class ShareViewModel : ViewModel() {
 
     private fun deviceAction(block: () -> String?) {
         viewModelScope.launch(Dispatchers.IO) { block()?.let { _events.emit(it) } }
+    }
+
+    private companion object {
+        /** The DNS limit; longer names cannot resolve, so they never reach the engine. */
+        const val MAX_RELAY_HOSTNAME = 253
     }
 }
