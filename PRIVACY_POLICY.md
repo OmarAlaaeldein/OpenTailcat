@@ -1,141 +1,71 @@
-# Privacy policy for OpenTailcat
+# Privacy Policy for OpenTailcat
 
 **Last updated:** November 21, 2026
 
-OpenTailcat has no accounts, advertising, analytics SDKs, remote crash
-reporting, or coordination service. This policy covers the current source
-tree. What the app is and how it works is in the [README](README.md);
-engineering detail is in [AGENTS.md](AGENTS.md).
+OpenTailcat has no accounts, ads, analytics SDKs, remote crash reporting, or hosted control plane. This policy describes the behavior of the current source tree. See [README.md](README.md#project-status) for development-preview limitations.
 
-## Development status
+## Data stored on your device
 
-Development preview, not a leak-free VPN. Current limitations are in the
-README's [project status](README.md#project-status). Split-tunnel apps bypass
-the tunnel.
+OpenTailcat stores gateway profile names, `tc…` connection tokens, the active profile selection, default MTU/DNS settings, debug logging toggle, and split-tunnel excluded package names locally.
 
-## Data stored on the device
+All preferences are encrypted value-by-value with AES-256-GCM using a non-exportable key in Android Keystore. Older plaintext or legacy encrypted preference files from previous versions are migrated once and removed. Android cloud backup and device-to-device data transfer are disabled in the app manifest.
 
-OpenTailcat stores gateway names, connection tokens, the selected profile, MTU
-and DNS settings, and split-tunnel package names locally. These use AES-256
-encrypted preferences with a key held by Android Keystore. Plaintext
-preferences from earlier builds are migrated and cleared. Android backup and
-device-to-device transfer are disabled for app data.
+Saved profile tokens can be shown as a QR code (`FLAG_SECURE` enabled) and imported from an image picked through Android's system picker. Decoding happens in memory on the device via ZXing; no image or token is sent to an external app or server, and OpenTailcat does not request camera permission.
 
-The app can display a saved profile's token as a QR code, and can import a QR
-code from an image you choose with the system picker. The image is decoded in
-memory on the device and is not sent anywhere. OpenTailcat does not request
-camera permission and does not hand tokens to an external scanner.
-
-Gateway tokens are secrets. Anyone who obtains one may learn connection
-metadata or attempt to reach its gateway. Protect device access, screenshots,
-logs, and exported diagnostics.
+Treat gateway tokens as credentials: anyone with a token can try to connect to that gateway.
 
 ## Network requests
 
-- On startup and manual refresh, the app requests Cloudflare
-  `https://1.1.1.1/cdn-cgi/trace` (TLS-pinned) to show the app process's public
-  IP and country. This follows device routes, not the tunnel.
-- A benchmark started while CONNECTED uses `Client.DialTCP` through the
-  gateway; `speed.cloudflare.com` is resolved with DNS-over-TCP to
-  `1.1.1.1:53`. When not CONNECTED it uses ordinary app connections. The UI
-  labels which path ran.
-- During a prepared session the native engine contacts the gateway peer and
-  the relay described by the token or DERP map. It may fetch
-  `https://tailcat.dev/derpmap.json`, and relay hostnames use the device
-  resolver.
-- **Check for updates** requests the GitHub Releases API; **Download** fetches
-  the APK from GitHub and its release-asset hosts. The F-Droid flavor has no
-  updater.
-- **Share this phone** (see below) connects to a relay. With the default
-  relay it fetches the public relay map (`https://tailcat.dev/derpmap.json`)
-  and picks the nearest region. If you name your own relay, it connects to
-  that host instead and does not fetch the map. The phone opens a connection
-  to every destination a guest asks for.
-- After TUN attachment, the engine performs an exit-IP audit through Tailcat
-  (authenticated TLS `GET /cdn-cgi/trace` to `1.1.1.1` via `Client.DialTCP`).
-  Intercepted DNS is proxied through Tailcat under the profile or forced
-  resolver policy.
+OpenTailcat makes network connections only for the features below:
 
-These providers and your gateway receive ordinary connection metadata such as
-source IP, time, TLS details, and request headers under their own policies.
-OpenTailcat adds no account ID or advertising identifier.
+- **Device public IP readout:** on app launch, disconnect, or manual refresh (while disconnected), the app queries `https://1.1.1.1/cdn-cgi/trace` (TLS-pinned) over normal Android HTTP sockets to display your public IP and country.
+- **Gateway tunnel & probes:** connecting to a gateway contacts the gateway peer and its DERP relay(s). When a token does not embed a custom DERP map, the engine fetches `https://tailcat.dev/derpmap.json` and resolves relay hostnames through Android's DNS servers on protected sockets. During connection setup and health monitoring, the engine probes through the gateway to verify UDP forwarding (STUN to `162.159.207.0:3478` and `74.125.250.129:19302`), IPv6 WAN reachability (TLS-pinned to `[2606:4700:4700::1111]:443`), and tunnel exit IP (TLS-pinned `https://1.1.1.1/cdn-cgi/trace` via `Client.DialTCP`).
+- **Tunneled traffic and DNS:** while connected, captured device traffic and DNS queries go through the WireGuard tunnel to your gateway under the profile's DNS policy.
+- **Speed test (on demand):** when connected, the speed test resolves `speed.cloudflare.com` over TCP to `1.1.1.1:53` and tests against `1.1.1.1` / `speed.cloudflare.com` (TLS-pinned) through `Client.DialTCP`. When not connected, it uses normal Android HTTP sockets (following your device's active routes: your physical network if the VPN is off, or the TUN if a VPN interface is up). The UI labels which path was used.
+- **In-app updates (`github` flavor only):** tapping Check for update queries the GitHub Releases API, and tapping Download fetches the APK from GitHub release-asset hosts. The `fdroid` flavor contains no updater code.
+- **Share this phone (exit node):** when enabled, the phone connects to the nearest public DERP region (fetching `https://tailcat.dev/derpmap.json`) or to a custom relay hostname you enter. Outbound connections are opened from your phone to whatever Internet destinations approved guests request.
 
-## Gateway visibility
+Your gateway operator, relay servers, Cloudflare, and GitHub receive standard network metadata (IP address, timestamps, TLS/HTTP headers) under their respective policies. OpenTailcat adds no account IDs or advertising identifiers.
 
-Traffic carried through Tailcat is WireGuard-encrypted between the device and
-the selected gateway. A DERP relay sees encrypted transport metadata. The
-gateway operator can observe decrypted exit traffic, like any VPN provider.
-OpenTailcat makes no privacy promises on behalf of a gateway you choose.
+## Gateway and split-tunnel visibility
 
-Apps selected in split-tunnel settings bypass the VPN. OpenTailcat does not
-exclude itself: Tailcat transport sockets are protected with
-`VpnService.protect`, while its other requests follow device routes.
+Traffic between OpenTailcat and your gateway is WireGuard-encrypted. DERP relays see encrypted transport packets and connection metadata. Your gateway decrypts exit traffic and can observe it like any VPN server.
 
-## Sharing this phone
+Apps checked in split-tunnel settings bypass the VPN directly over your device's network. OpenTailcat does not exclude its own UID from the VPN: only native WireGuard/Magicsock/DERP transport sockets are protected via `VpnService.protect`, while ordinary app HTTP requests follow Android's routing table.
 
-Share this phone is optional and off until you start it. While it runs, you are
-the gateway operator for the person you shared with.
+## Sharing this phone (exit node)
 
-- **What the phone handles.** A guest's traffic is WireGuard-encrypted to your
-  phone, which forwards it to the Internet over your own Wi-Fi or mobile
-  network. Like any gateway, your phone handles that traffic unencrypted, and
-  the sites it reaches see your IP address. Your network provider may also see
-  it and may count it against your plan.
-- **What the app keeps.** Only live counters in memory: connected devices,
-  bytes in each direction, and open flows. It does not record the destinations
-  or contents of a guest's traffic, and logs none of it. Devices appear as a
-  short fingerprint of their session key, not a name or account.
-- **Keys and the code.** Each session creates new keys and a new code in
-  memory. Nothing is written to storage. Stopping, expiry, or Android closing
-  the app discards the keys, so the code stops working. The code is shown in a
-  window Android will not screenshot, and is copied to the clipboard only when
-  you press Copy.
-- **Who can connect.** By default each new device waits until you approve it.
-  You can instead allow anyone holding the code (always time-limited). Anyone
-  you approve, or who holds the code in that mode, can use your connection
-  until sharing ends.
-- **What is refused.** Guests cannot reach your phone itself or the networks it
-  is on (loopback, private, carrier-internal, link-local, multicast).
-- **A notification** shows while sharing, with the device count and data moved.
+Sharing is off until you start it. While active, your phone acts as the exit gateway:
 
-Responsibility for what a guest does through your connection, including your
-carrier's or network's terms, rests with you. Share only with people you trust.
+- Guest traffic arrives WireGuard-encrypted and leaves unencrypted from your phone over your Wi-Fi or mobile data. Destination sites see your IP address, and your ISP/carrier sees the traffic and counts it toward your plan.
+- The app keeps only live in-memory counters (connected devices, active flows, byte totals). It does not store or log guest traffic, destination addresses, or guest keys.
+- Each session generates fresh keys in memory only. Stopping sharing, expiry, or Android killing the app discards those keys so the code stops working. The sharing screen sets `FLAG_SECURE` while displaying the code, and only writes to the clipboard when you tap Copy (flagged `EXTRA_IS_SENSITIVE` on Android 13+).
+- Default admission requires your manual approval per device; open admission is optional and always time-limited (max 24 hours).
+- Guests are blocked from connecting to loopback, private LAN, CGNAT, link-local, and multicast destinations.
+- A persistent notification displays the active device count, data transferred, and remaining time.
+
+You are responsible for traffic sent through your connection, so share only with people you trust.
 
 ## Android permissions
 
-- `INTERNET` — Tailcat transport, public-IP checks, benchmarks, exit audit.
-- `ACCESS_NETWORK_STATE` — connectivity and network-change detection.
-- `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SYSTEM_EXEMPTED` — active VPN
-  service.
-- `FOREGROUND_SERVICE_SPECIAL_USE` — the foreground service that forwards a
-  guest's traffic while you share this phone.
-- `WAKE_LOCK` — keeps the CPU awake only while sharing, so forwarding does not
-  stall when the screen turns off. It is released when sharing stops.
-- `POST_NOTIFICATIONS` — optional VPN and sharing status notifications on
-  Android 13+.
-- `BIND_VPN_SERVICE` — required by Android for the VPN service.
-- `QUERY_ALL_PACKAGES` — lists installed apps for the split-tunnel picker. The
-  list stays on the device.
-- `REQUEST_INSTALL_PACKAGES` — hands a downloaded update to the installer.
+- `INTERNET`: tunnel transport, public IP lookup, speed test, exit-IP audit, updates, exit-node forwarding.
+- `ACCESS_NETWORK_STATE`: detect online status and Wi-Fi/cellular roaming.
+- `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SYSTEM_EXEMPTED`: keep the client VPN service running.
+- `FOREGROUND_SERVICE_SPECIAL_USE`: keep the exit-node sharing service running.
+- `WAKE_LOCK`: keep the CPU awake while sharing (timed or renewed chunks, released on stop).
+- `POST_NOTIFICATIONS`: show VPN and sharing status notifications on Android 13+.
+- `BIND_VPN_SERVICE`: required by Android for `VpnService`.
+- `QUERY_ALL_PACKAGES`: list installed apps locally for the split-tunnel exclusion screen.
+- `REQUEST_INSTALL_PACKAGES` (`github` flavor only): hand verified downloaded update APKs to Android's package installer.
 
-No camera, location, contacts, storage, or advertising permissions are
-requested.
+OpenTailcat does not request camera, location, contacts, storage, or advertising permissions.
 
 ## Logging and diagnostics
 
-There is no analytics or project-owned telemetry endpoint. Benchmark and IP
-results live in memory. The Network Benchmark screen can copy a plain-text
-report (redacted public IPs) to the clipboard; the app sends it nowhere, but
-other apps with clipboard access may read it.
+There is no remote logging or telemetry server. The speed-test screen lets you copy a plain-text troubleshooting report (public IPs redacted) to the clipboard; other apps with clipboard access could read it if you copy it.
 
-Native logs may contain connection errors or relay metadata; tokens and traffic
-payloads are not intentionally logged. Detailed engine logs, including public
-and local addresses and relay endpoints, are written to the Android system log
-only while Settings → Diagnostics → Debug failure reports is on. Otherwise the
-engine logs errors and one line per network change. Android, vendors,
-gateways, relays, and endpoint operators may keep independent logs.
+By default, native logs record only errors and brief network-change summaries (no tokens, payloads, or peer IPs). Turning on **Settings → Diagnostics → Debug failure reports** enables verbose upstream Tailcat engine logs (including local/public IP addresses and relay endpoints) in Android's system logcat and appends a telemetry summary to failure banners.
 
 ## Contact
 
-For security issues use [SECURITY.md](SECURITY.md). For other policy questions,
-use the repository's maintainer contact channel.
+Report security issues via [SECURITY.md](SECURITY.md). For other questions, use the repository's maintainer contact channel.

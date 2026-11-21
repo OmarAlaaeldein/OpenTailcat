@@ -1,200 +1,89 @@
 # OpenTailcat
 
-**Use a `tc…` token to route this phone through your own
-[Tailcat](https://github.com/tailscale/tailcat) gateway, or tap Share this
-phone to route another device through this one.** One Android app for both
-ends of the tunnel: as a **client**, this phone's traffic leaves through a
-gateway you run; as an **exit node**, this phone is the gateway for someone
-else. No account, no subscription, and no control plane in the middle.
+Android app for [Tailcat](https://github.com/tailscale/tailcat) exit gateways. You can route your phone's traffic through a gateway you host (`tc…` token), or share your phone's connection as a gateway for another device. Everything runs peer-to-peer over WireGuard/Magicsock with DERP relay fallback, with no accounts or hosted control plane.
 
-Independent community project. Not affiliated with Tailscale Inc.
+Independent community project, not affiliated with Tailscale Inc.
 
-| Connect through your gateway | Share this phone | Live tunnel benchmark |
+| Connect through your gateway | Share this phone | Speed test |
 | --- | --- | --- |
 | ![Connected home screen](docs/screenshots/home-connected.png) | ![Sharing with a guest connected](docs/screenshots/share-active.png) | ![Network benchmark](docs/screenshots/network-benchmark.png) |
 
-## Two roles, one app
+## Requirements
 
-| | **Client** | **Exit node (Share this phone)** |
+- Android 8.0+ (arm64 for phones, x86_64 for emulators).
+- For client mode: a Tailcat exit gateway (e.g. `tailcat serve exit-node`) and its `tc…` token, or a code from another phone running **Share this phone**.
+- For exit-node mode: another device running OpenTailcat (or any Tailcat client) to connect with the generated code.
+
+## Client mode
+
+Paste a `tc…` token or import a QR image to pair a gateway. OpenTailcat establishes a WireGuard tunnel to the gateway, terminates captured TUN packets in a userspace TCP/IP stack (gVisor), and forwards IPv4/IPv6 TCP, UDP, and DNS over the tunnel.
+
+What's included:
+
+- Multiple saved gateway profiles, each with its own DNS resolver, DNS policy (profile resolver or forced resolver), and MTU (1280–1500).
+- Token pairing via paste or on-device QR image import (uses Android's image picker and ZXing in memory, no camera permission), plus QR display for saved profiles.
+- Per-app split tunneling (excluded apps bypass the VPN).
+- Live stats: RTT, jitter, direct vs. DERP relay region, traffic counters, and tunnel exit IP.
+- Built-in speed test (runs through `Client.DialTCP` when connected, or over normal device routes when disconnected, with the path labelled on screen).
+- Android **Always-on VPN** and **Block connections without VPN** support. Disconnecting from the notification requires unlocking the phone first.
+- Optional self-updater in the `github` flavor that verifies APK SHA-256 and signing certificate pins. The `fdroid` flavor removes the updater completely.
+
+## Share this phone (exit node)
+
+Tap the share button on the home screen to turn the phone into a temporary Tailcat exit gateway. It generates fresh session keys and a `tc…` code (shown as a QR and copyable), then forwards guests' TCP and UDP traffic out through your Wi-Fi or mobile data.
+
+| Setup | Until I stop | Active share |
 | --- | --- | --- |
-| What it does | Sends this phone through a gateway you run | Lends this phone's connection to a guest device |
-| What you need | A `tc…` token from the gateway | Nothing; the app mints a one-session code |
-| Android VPN | TUN, consent dialog, Always-on support | No TUN or consent; an ordinary foreground service |
-| At the same time | Never runs alongside the exit node | Never runs alongside the client |
+| ![Share setup](docs/screenshots/share-setup.png) | ![Share setup with Until I stop](docs/screenshots/share-no-limit.png) | ![Active share with a guest connected](docs/screenshots/share-active.png) |
 
-## What you need
+1. Pick a duration: 15 min, 1 h, 4 h, 24 h, or **Until I stop**.
+2. Choose admission mode: **Approve each device** (default) holds every new guest until you tap Approve. **Anyone with the code** skips approval and always requires a time limit.
+3. Optionally specify your own DERP relay (hostname plus DERP/STUN ports) instead of auto-picking the nearest public region. The relay info is embedded in the session code so guests need no extra setup.
+4. Tap **Start sharing**, let the guest scan or paste the code, and monitor active devices, open flows, and byte counts. Tap **Stop sharing** whenever you want to end the session and discard the keys.
 
-- **As a client:** a Tailcat-compatible **exit gateway you control** (for
-  example `tailcat serve exit-node`) and the `tc…` token it prints. Or, to use
-  someone's phone as the gateway, the code that phone's **Share this phone**
-  screen shows.
-- **As an exit node:** a guest device running OpenTailcat (or another Tailcat
-  client) to paste the code into.
-- An Android 8.0+ phone (arm64). Emulator builds use x86_64.
+Things to keep in mind when sharing:
 
-## What it does (client)
-
-- Sends the whole device through your gateway: TCP, UDP, and DNS over IPv4,
-  and over IPv6 when the gateway has IPv6 connectivity.
-- Keeps several gateways as profiles, each with its own DNS resolver, DNS
-  policy, and MTU.
-- Pairs by pasting a token, importing a QR image on-device, or
-  showing a saved profile's QR for another device.
-- Excludes apps you choose from the tunnel (split tunneling).
-- Shows live tunnel state: RTT, jitter, relay region, tunnel counters, and the
-  public egress IP.
-- Runs an on-demand speed test, through the gateway when connected and over
-  device routes otherwise, labelling which path ran.
-- Works with Android **Always-on VPN** and **Block connections without VPN**;
-  disconnecting from the lock screen requires unlocking the phone.
-- Can **share this phone's connection** as an exit gateway for someone you
-  trust, with per-device approval, a time limit or none, and a one-tap stop
-  (see below).
-- Has no accounts, ads, analytics, crash reporting, or camera permission. The
-  GitHub build can update itself after checking the APK digest and signing
-  certificate.
-
-## How it works
-
-```text
-phone apps ─► Android VPN (TUN) ─► OpenTailcat engine ─► WireGuard/Magicsock ─► your gateway ─► Internet
-```
-
-1. The token carries the gateway's node and disco keys, an optional pre-shared
-   key, and an optional relay (DERP) region.
-2. The app opens a WireGuard-encrypted tunnel to that gateway, using Magicsock
-   for NAT traversal and DERP relays as a fallback.
-3. Android hands captured packets to the app's userspace TCP/IP stack, which
-   proxies TCP and UDP flows and applies the profile's DNS and IPv6 policy.
-4. The gateway decrypts the traffic and sends it to the Internet. Like any VPN
-   exit, its operator can see that traffic.
-
-There is no directory, account service, or OpenTailcat server anywhere in the
-path. The exit-node path is the same tunnel in reverse: the phone accepts
-WireGuard/Magicsock from a guest and dials the Internet over its own routes.
-
-## Share this phone
-
-Tap the share icon on the home screen to let someone else use this phone's
-connection. The phone becomes the exit gateway: it mints a one-session `tc…`
-code, shows it as a QR and a Copy button, and forwards the guest's TCP and UDP
-traffic out over its own Wi-Fi or mobile data. Typical uses: a trusted friend
-abroad, or your own second device.
-
-| Setup | Until I stop | Sharing |
-| --- | --- | --- |
-| ![Share setup: how long and who can connect](docs/screenshots/share-setup.png) | ![Share setup with Until I stop selected](docs/screenshots/share-no-limit.png) | ![Sharing with one connected device and live traffic counters](docs/screenshots/share-active.png) |
-
-*Setup, the no-time-limit choice, and an active share with a guest connected.
-The QR in the last image is blurred; a real one encodes the live code.*
-
-1. Pick how long to share: 15 minutes, 1, 4 or 24 hours, or **Until I stop**.
-   The relay is the nearest public DERP region unless you name your own
-   (a host name, plus DERP and STUN ports). The guest needs no matching setting.
-2. Pick who can connect. **Approve each device** (recommended) parks every new
-   device until you tap Approve, so a leaked code is not enough. **Anyone with
-   the code** skips approval and always has a time limit. "Until I stop" is
-   only available with approval.
-3. Tap **Start sharing**, then show the QR or copy the code. The guest pastes it
-   into **Pair another gateway** in their OpenTailcat and connects. Their
-   device appears under *Devices*; tap Approve.
-4. Watch connected devices, open flows and traffic, remove a device, or tap
-   **Stop sharing**. Stopping discards the session's keys, so every code you
-   issued stops working at once.
-
-What to know before you share:
-
-- **It is your connection.** Sites see your IP address, the traffic counts
-  against your data plan, and it uses battery. Share only with people you trust.
-- **Guests cannot reach your own network.** Loopback, private (home and
-  office), carrier-internal, link-local and multicast addresses are refused.
-- **A foreground notification shows while sharing**, with the device count and
-  data moved. Keep the phone charging or the screen on for the best results.
-- **Sharing and the VPN cannot run together.** Disconnect the VPN first;
-  starting either while the other runs is refused.
-- **Sharing ends when Android closes the app,** and the code then stops working.
-  A new share always gets new keys and a new code.
-- **Always-on VPN with "Block connections without VPN"** stops this phone's own
-  connection while the VPN is off, so turn it off while sharing.
-- A guest's device gets a new identity each time it connects, so a reconnect
-  needs a new approval.
-
-Not measured yet: battery drain and heat over long sessions, and a physical
-phone as the host for a long run (the 1.7 checks used an emulator host with a
-real phone as the guest over mobile data).
+- Guests leave through your internet connection, so sites see your IP address and traffic counts against your data plan and battery. Share only with people you trust.
+- Guests are blocked from reaching loopback, private LAN (RFC 1918), CGNAT, link-local, and multicast addresses on your phone or local network.
+- Sharing and the client VPN cannot run at the same time. Disconnect the VPN first, and turn off Android's "Block connections without VPN" while sharing or Android will block this app's outbound traffic.
+- Sharing runs as a foreground service and does not survive Android killing the app. Stopping or process death discards the keys, so the old code stops working.
+- Guests generate a fresh client key on each connection, so reconnecting requires a new approval.
 
 ## Install
 
-1. Download the latest APK from the repository's **Releases** page on GitHub.
-   Per-version details are in [docs/releases/](docs/releases/).
-2. Pick the build for your device:
-   - **Phone:** `OpenTailcat-<version>-arm64-v8a.apk`
-   - **Emulator:** `OpenTailcat-<version>-x86_64.apk`
-3. Optionally verify it against the matching `SHA256SUMS.txt` from the release.
-4. Allow installs from your browser or file manager when Android asks.
-5. Open the app, tap the gateway chip, choose **Pair another gateway**, and
-   paste your token.
-6. Recommended: enable **Always-on VPN** and **Block connections without VPN**
-   in Android settings.
+1. Grab the latest APK from **Releases** (see [docs/releases/](docs/releases/) for changelogs and SHA-256 checksums):
+   - Phones: `OpenTailcat-<version>-arm64-v8a.apk`
+   - Emulators: `OpenTailcat-<version>-x86_64.apk`
+2. Verify against `OpenTailcat-<version>-SHA256SUMS.txt` if you want, then install.
+3. Open the app, tap the gateway selector, choose **Pair another gateway**, and paste or import your token.
+4. For the client VPN, turning on **Always-on VPN** and **Block connections without VPN** in Android settings is recommended.
 
-Releases are development-signed for now, so very old installs may need to be
-uninstalled before upgrading. See [docs/signing.md](docs/signing.md).
+Pre-1.0/preview builds are signed with the development key; see [docs/signing.md](docs/signing.md) if Android refuses an upgrade from a very old install.
 
 ## Privacy
 
-OpenTailcat has no accounts, advertising, analytics, or crash reporting. Saved
-gateways and tokens are encrypted with a key held by Android Keystore; backup
-and device-to-device transfer are disabled for app data.
+OpenTailcat has no accounts, ads, analytics, or crash reporting. Saved profiles and tokens are encrypted with AES-256-GCM using a key in Android Keystore, and Android backup / device transfer is disabled.
 
-The app contacts only what it needs: your gateway and its relays, Cloudflare
-`1.1.1.1` for the public-egress-IP card and the tunnel exit-IP audit,
-`speed.cloudflare.com` when you start a speed test, and GitHub when you check
-for updates. The F-Droid flavor has no updater. Apps you exclude from the
-tunnel bypass it.
+Network traffic the app initiates itself:
 
-When you share this phone, a guest's traffic leaves through your connection, so
-the sites they visit see your IP address. The app keeps only live counters in
-memory (devices, bytes, open flows); it stores no guest traffic, destinations,
-or keys, and a session's keys are discarded when sharing stops. The sharing
-code is shown on screen in a window Android will not screenshot, and it is
-copied only if you press Copy.
+- Your gateway and DERP relays (including `https://tailcat.dev/derpmap.json` when using public relays).
+- Cloudflare `1.1.1.1` (TLS-pinned) for the device IP readout and the in-tunnel exit-IP check.
+- `speed.cloudflare.com` (TLS-pinned) when you run a speed test.
+- GitHub Releases when you check for or download updates (`github` flavor only).
 
-Full detail: [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
+See [PRIVACY_POLICY.md](PRIVACY_POLICY.md) for full details on permissions, logging, and gateway/host visibility.
 
 ## Project status
 
-Development preview. The data plane runs and connects with a live token, but it
-is still test-routing (`testRouting: true`) and is **not accepted for
-privacy-sensitive traffic**:
+OpenTailcat is a development preview (`testRouting: true`). It connects and passes traffic with a live gateway, but it is **not ready for privacy-sensitive traffic**:
 
-- Physical dual-capture leak acceptance and roaming evidence are still open.
-- Release builds use the development key; production signing and migration are
-  future work.
-- Reconnects briefly have no TUN, so keep Always-on VPN with lockdown on if that
-  matters.
-- Split-tunnel apps bypass the tunnel, and the gateway operator can see the
-  traffic that exits through it.
-- **Share this phone** is new in 1.7. A guest phone connecting through an
-  emulator host, with approval, forwarding over mobile data, has been verified
-  by hand. Not yet measured: battery and heat over long sessions, and a
-  physical phone as the host for a long run. The host cannot verify who is
-  asking to connect, so approve only a device you watched connect.
+- Physical dual-capture leak testing on ARM64 and real-device roaming/doze validation are still open.
+- Release APKs currently use the development signing key.
+- Reconnects briefly drop the TUN between attempts unless Android's Always-on lockdown ("Block connections without VPN") is enabled.
+- Split-tunnel apps bypass the VPN, and the gateway operator can see decrypted exit traffic.
+- **Share this phone** has been tested on an emulator host with a physical guest phone over mobile data, but long-session battery/heat behavior and physical-phone hosting haven't been measured yet. The host also cannot cryptographically verify which person is behind a pending device key, so only approve devices you expect.
 
-The engineering contract, invariants, and remaining work live in
-[AGENTS.md](AGENTS.md).
-
-## Documentation
-
-| Document | For | Answers |
-| --- | --- | --- |
-| [AGENTS.md](AGENTS.md) | contributors, LLMs | architecture, safety invariants, build, test, release |
-| [docs/README.md](docs/README.md) | everyone | which document to read |
-| [docs/releases/](docs/releases/) | users, maintainers | what changed in each version (historical record) |
-| [docs/signing.md](docs/signing.md) | release managers | keys, certificate pins, migration |
-| [PRIVACY_POLICY.md](PRIVACY_POLICY.md) | users | what is stored, sent, and visible |
-| [SECURITY.md](SECURITY.md) | security reporters | how to report and the controls in place |
-| [scripts/emulator/README.md](scripts/emulator/README.md) | testers | emulator and live-gateway test suites |
-| [third_party/PROVENANCE.md](third_party/PROVENANCE.md) | maintainers | the pinned upstream Tailcat commit |
+See [AGENTS.md](AGENTS.md) for architecture, invariants, and the full list of open work.
 
 ## Build from source
 
@@ -203,11 +92,19 @@ git submodule update --init
 ./gradlew assembleGithubDebug
 ```
 
-Kotlin-only work builds against the checked-in native library; Go and the NDK
-are needed only when changing `core-engine/`. Full commands, flavors, and the
-AAR rebuild step are in [AGENTS.md](AGENTS.md#build-and-verify).
+Kotlin changes build against the checked-in `libtailcat.aar` and don't need Go or the NDK. Full build, test, and AAR rebuild instructions are in [AGENTS.md](AGENTS.md#build-and-verify).
+
+## Documentation
+
+- [AGENTS.md](AGENTS.md): architecture, invariants, build/test/release, open work
+- [docs/README.md](docs/README.md): full documentation index
+- [docs/releases/](docs/releases/): release notes and checksums
+- [docs/signing.md](docs/signing.md): signing keys and rotation notes
+- [PRIVACY_POLICY.md](PRIVACY_POLICY.md): data storage, network requests, permissions
+- [SECURITY.md](SECURITY.md): reporting issues and security controls
+- [scripts/emulator/README.md](scripts/emulator/README.md): emulator test scripts
+- [third_party/PROVENANCE.md](third_party/PROVENANCE.md): pinned upstream Tailcat commit
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE). OpenTailcat is an independent
-project and is not affiliated with Tailscale Inc.
+Apache License 2.0 ([LICENSE](LICENSE)). OpenTailcat is an independent project and is not affiliated with Tailscale Inc.

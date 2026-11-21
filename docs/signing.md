@@ -1,25 +1,19 @@
-# Signing and key migration
+# Signing and Key Migration
 
-Operator note for release signing: which key signs previews, which
-certificates the in-app updater accepts, and what must happen before production
-signing.
+Notes on how OpenTailcat APKs are signed, which certificates the in-app updater accepts, and how to move from the development key to a production release key.
 
 ## Current builds
 
-Development previews are signed by `assembleGithubDevelopment` with the
-build machine's Android debug key. The updater accepts only APKs whose signing
-certificate matches one of these SHA-256 digests:
+Preview builds (`assembleGithubDevelopment`) are signed with the build machine's Android debug keystore. `UpdatePolicy.kt` pins two accepted signing certificate SHA-256 digests:
 
-| Certificate | Digest |
+| Key | SHA-256 digest |
 | --- | --- |
-| Existing development key | `dd767011a3d1223c6145cec024dccb02730e73607fc39544b2fac93adeafa8d6` |
-| Future release key | `e22881801806e9809b325e40746536098add8a5902fb4c9bc9134474fa7f69d7` |
+| Development key (active) | `dd767011a3d1223c6145cec024dccb02730e73607fc39544b2fac93adeafa8d6` |
+| Future release key (pinned, not yet used) | `e22881801806e9809b325e40746536098add8a5902fb4c9bc9134474fa7f69d7` |
 
-The second digest pins a future release key; current artifacts are not signed
-with it. Pinning a digest does not rotate a signature: an installed app only
-accepts a new key when the APK carries a verified signing lineage.
+Having the second digest pinned prepares for future rotation, but Android only permits an in-place upgrade to a new key when the APK includes a verified v3 signing lineage from the old key.
 
-Check a built APK with:
+Verify an APK's signer with:
 
 ```bash
 apksigner verify --print-certs <apk>
@@ -27,9 +21,7 @@ apksigner verify --print-certs <apk>
 
 ## Building with the release key
 
-The release keystore lives outside the repo (owner-only directory, alias
-`opentailcat`, password in a separate mode-600 file). Back it up in protected
-storage and never commit or print it. Set the environment variables and build:
+Keep the release keystore outside the repository (owner-only directory, alias `opentailcat`, password stored separately with `0600` permissions) and back it up securely. Never commit or print the keystore or passwords.
 
 ```bash
 export OPENTAILCAT_RELEASE_STORE_FILE=/path/to/keystore.jks
@@ -39,19 +31,12 @@ export OPENTAILCAT_RELEASE_KEY_PASSWORD='...'
 ./gradlew assembleGithubRelease
 ```
 
-Without these variables, release artifacts are unsigned.
+Without these environment variables set, `assembleGithubRelease` produces unsigned artifacts.
 
-## Switching keys
+## Rotating to the release key
 
-1. Finish [the remaining work](../AGENTS.md#remaining-work) first. Keep
-   development and production artifacts distinct.
-2. Verify the backup recovers the key and its certificate matches the pin.
-3. Create a signing lineage with `apksigner rotate` (a pin alone does not prove
-   upgradeability).
-4. Test updater migration on API 26/27 and current Android, including data
-   retention and rejected untrusted APKs. API 26/27 cannot use v3 rotation.
-5. Verify with `apksigner verify --verbose --print-certs`, then retire the
-   development pin.
-
-The current development previews continue to use the existing development key
-for update compatibility. Production signing and migration remain future work.
+1. Complete the prerequisites in [AGENTS.md#remaining-work](../AGENTS.md#remaining-work), keeping preview and production artifacts separate.
+2. Confirm the backup restores the keystore and matches the pinned digest above.
+3. Generate a signing lineage with `apksigner rotate`.
+4. Test in-app updater migration on both Android 8–8.1 (API 26/27, which don't support v3 rotation) and current Android versions, checking profile retention and rejection of untrusted APKs.
+5. Verify the rotated APK with `apksigner verify --verbose --print-certs`, then remove the development pin once migration is complete.

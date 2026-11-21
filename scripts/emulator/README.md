@@ -1,33 +1,25 @@
 # Emulator test scripts
 
-Live checks against a connected OpenTailcat on an emulator or test device.
-These are for contributors validating the tunnel, not an end-user guide. They
-need `adb`, `python3` and (for the probe) Go on PATH. No script prints a token;
-`pair.sh` reads one from `OTC_LIVE_TOKEN`. Otherwise, add the profile in the app
-once and the scripts reuse it. Build output and logs go to the git-ignored
-`build/`.
+Contributor scripts for testing OpenTailcat on an Android emulator or connected test device. Requires `adb`, `python3`, and Go (for `probe/`). None of the scripts print tokens; `pair.sh` reads from `OTC_LIVE_TOKEN`, or you can pair a profile once manually in the app and let the scripts reuse it. Logs and build output go into `build/`.
 
-| Script | What it does |
+| Script | Purpose |
 | --- | --- |
-| `start.sh` | Boots the `OpenTailcat_API35` AVD headless (override with `AVD=`), waits for boot, installs the debug APK if built. |
-| `connect.sh` | Taps Connect and waits for CONNECTED. |
-| `ui.sh` | Prints the visible UI nodes with bounds (tokens redacted). |
-| `roam-test.sh` | Wi-Fi off/on while connected: expects a Magicsock rebind in the engine log and TCP still through the VPN (P1-9). |
-| `gateway-loss-test.sh` | Blocks the app uid with iptables, then unblocks: DEGRADED, reconnect with backoff, recovery (P1-13a/13b). Needs `adb root`. |
-| `lockscreen-disconnect-test.sh` | Disconnect from the lock-screen notification must ask for the PIN first (P1-12). |
-| `log-privacy-check.sh` | Reconnects with Debug failure reports off and fails if the engine's logcat lines hold an IP address other than the probed Cloudflare services or tunnel-internal ones. |
-| `probe.sh ARGS` | Builds `probe/` for the device and runs it from the shell uid: `burst N`, `stun SIZE...`, `halfclose HOST`, `http HOST`. |
-| `pair.sh` | Pairs the gateway from `OTC_LIVE_TOKEN` through `PairGatewayInstrumentedTest` (token never printed) and grants VPN consent. |
-| `ci-smoke.sh` | CI, no secrets: VPN startup, service start-id ordering, QR image import, Keystore preference migration and a home-screen check. |
-| `native-protect-test.sh` | Offline Android Go tests: initial transport protection, ordinary-socket isolation, and rejection on protection failure. Uses only synthetic keys and loopback; requires the pinned `ANDROID_NDK_HOME`. |
-| `ci-live.sh` | CI, live gateway: pair, connect, then every check above; fails if any check fails. |
+| `start.sh` | Boots the `OpenTailcat_API35` AVD headless (override with `AVD=`), waits for boot, and installs the debug APK if built. |
+| `connect.sh` | Taps Connect and waits until the app reaches `CONNECTED`. |
+| `ui.sh` | Dumps visible UI nodes and bounds (token strings redacted). |
+| `roam-test.sh` | Toggles Wi-Fi off and on while connected; checks for a Magicsock rebind in engine logs and verifies TCP still routes through the VPN. |
+| `background-test.sh` | Backgrounds the app and then turns the screen off, probing real TCP forwarding over the TUN every 15 s and checking that the screen stays asleep. |
+| `gateway-loss-test.sh` | Blocks the app UID with `iptables`, then unblocks it; checks `DEGRADED`, reconnect backoff, and recovery. Requires `adb root`. |
+| `lockscreen-disconnect-test.sh` | Verifies that tapping Disconnect from the lock-screen notification prompts to unlock first. |
+| `log-privacy-check.sh` | Reconnects with Debug failure reports off and fails if engine logcat lines leak unexpected IP addresses. |
+| `probe.sh ARGS` | Cross-compiles `probe/` for the device and runs it from the shell UID (`burst N`, `stun SIZE...`, `halfclose HOST`, `http HOST`). |
+| `pair.sh` | Pairs a gateway from `OTC_LIVE_TOKEN` via `PairGatewayInstrumentedTest` and grants VPN consent. |
+| `ci-smoke.sh` | No-secret CI suite: VPN startup, `stopSelf(startId)` ordering, QR image import, Keystore preference migration, and home-screen render check. |
+| `native-protect-test.sh` | Offline Android Go tests for creation-time socket protection, ordinary-socket isolation, and protection-failure rejection (synthetic keys and loopback only; needs pinned `ANDROID_NDK_HOME`). |
+| `ci-live.sh` | Full live-gateway CI suite: provisions emulator mobile data, pairs (if `OTC_LIVE_TOKEN` is set), connects, and runs all live checks above. |
 
 ## CI
 
-`emulator.yml` runs `ci-smoke.sh` on every push/PR; the `live` job runs
-`ci-live.sh` on `main`/nightly/dispatch when secret `OTC_LIVE_TOKEN` is set
-(`gh secret set OTC_LIVE_TOKEN < <token file>`). `roam-test.sh` exits 77 without
-mobile data. Passes rely on routes/logs/counters (exit IP may equal host IP);
-they are emulator evidence, not physical-device acceptance (see AGENTS.md).
-The full live suite provisions the disposable emulator's mobile network and
-fails if it is unavailable, so a skipped roaming check cannot be labelled PASS.
+`.github/workflows/emulator.yml` runs `ci-smoke.sh` and `native-protect-test.sh` on every push and PR. The `live` job runs `ci-live.sh` on `main`, nightly, and manual dispatch when the `OTC_LIVE_TOKEN` repository secret is set (`gh secret set OTC_LIVE_TOKEN < <token-file>`).
+
+`roam-test.sh` exits 77 if mobile data is unavailable; `ci-live.sh` provisions the emulator's cellular network first and fails if it cannot come up so roaming is never silently skipped. Because the emulator's exit IP may match the CI runner's IP, checks verify routes, logs, and counters. These runs validate emulator behavior only and do not replace physical-device leak testing (see [AGENTS.md](../../AGENTS.md)).

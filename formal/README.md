@@ -1,232 +1,111 @@
 # Lifecycle verification
 
-These are hand-written design models of the Android service and Go engine.
-They do not prove the implementation or establish that the VPN is secure.
-Results apply to each model's assumptions, bounds and enabled faults.
+Hand-written TLA+ design models of the Android VPN service and Go engine lifecycle. These check concurrency design properties within each model's assumptions and bounds; they are not formal proofs of the Kotlin/Go implementation or VPN leak resistance.
 
-## Run the checks
+## Running TLC
 
-Requires Java 21, Python 3.10+ and Bash. The script downloads sha256-pinned
-`tla2tools.jar` v1.7.4 into ignored `formal/.tools/`.
+Requires Java 21, Python 3.10+, and Bash. `check.sh` downloads SHA-256-pinned `tla2tools.jar` v1.7.4 into the git-ignored `formal/.tools/` directory.
 
 ```bash
 python3 -m unittest discover -s formal -p 'test_*.py'
-formal/check.sh --regressions     # baseline, counterexample replays, small models
-formal/check.sh --extended        # larger scenarios and exploratory sampling
-formal/check.sh                   # both sets
-formal/check.sh --quick           # omit configs tagged TIER: slow
+formal/check.sh --regressions     # baseline, counterexample replays, focused models
+formal/check.sh --extended        # larger scenarios and random simulation
+formal/check.sh                   # both
+formal/check.sh --quick           # skip configs tagged TIER: slow
 formal/check.sh --extended --shard 2/6
 formal/check.sh progress-fixed network-loss-fixed
 formal/check.sh --translate       # regenerate PlusCal -> TLA+ only
 ```
 
-Do not run two copies in the same checkout: they share generated files and
-scratch directories. Full exploration can take hours. `TLC_XMX` / `TLC_DIRECT`
-set heap / fingerprint memory (defaults 5g / 2g); CI uses smaller limits.
-`TLC_MIN_FREE_KB` defaults to 4 GiB and guards every run. Optional
-`TLC_CHECK_TIMEOUT` is a hard failure deadline for non-sampling runs.
+Do not run two instances in the same checkout because they share generated files and scratch directories. Full exploration can take hours. `TLC_XMX` and `TLC_DIRECT` control heap and fingerprint memory (defaults `5g` / `2g`; CI uses smaller limits), `TLC_MIN_FREE_KB` defaults to 4 GiB, and `TLC_CHECK_TIMEOUT` sets a hard deadline for non-sampling runs.
 
-## Models and checked properties
+## Models
 
-| Model | Scope | Checks |
+| Model | Scope | Checked properties |
 | --- | --- | --- |
-| `Lifecycle.tla` | Full connect / warm attach / routed attach / reconnect / stop design across Kotlin and Go; PlusCal source plus generated TLA+ | Safety within individual exhaustive configurations; random simulation for larger configurations; historical counterexample replays |
-| `Shutdown.tla` | One in-flight start, one Disconnect, one session and one TUN; no retries or younger start | Exhaustive safety and **liveness** checks of cancellation cleanup and call completion under explicit fairness assumptions |
-| `NetworkCallback.tla` | Network loss racing `onVpnStopped` | Exhaustive check that a late callback cannot restore RECONNECTING after stop; old split read/write is rejected |
+| `Lifecycle.tla` | Full connect, warm attach, routed attach, reconnect, and stop flow across Kotlin and Go (PlusCal + generated TLA+) | Exhaustive safety in smaller configs, random simulation in larger configs, and historical counterexample replays |
+| `Shutdown.tla` | Single in-flight start, single Disconnect, one session, and one TUN (no retries or younger start) | Exhaustive safety and liveness for cancellation cleanup and call completion under explicit fairness assumptions |
+| `NetworkCallback.tla` | Network-loss callback racing `onVpnStopped` | Exhaustive check that a late callback cannot set `RECONNECTING` after stop (reproduces failure for the old split read/write) |
 
-### Full lifecycle model
+### Full lifecycle model (`Lifecycle.tla`)
 
-Actors: start jobs (serialized across service instances), inline shutdown,
-posted finish, main-thread intent dispatch / destruction, asynchronous native
-stop, poll loop and its post-lock tail, network restore, pump callbacks,
-asynchronous session close, clock, environment and user.
+Models start jobs (serialized across service instances), inline shutdown, posted `finish()`, main-thread intent dispatch and destruction, asynchronous native stop, the stats poll loop and post-lock tail, network restore, pump callbacks, async session close, clock ticks, environment, and user actions.
 
-Tracked state includes engine/session/bridge identity, duplicated TUN ownership,
-shutdown epochs and start generations, job cancellation/predecessors, UI session
-generation, health age, intent queue and `vpnWanted`. Native procedures split at
-mutex release points. Kotlin lock regions are atomic actions, rather than
-blocking locks. Cancellation is cooperative; JNI calls are not interrupted.
+Tracked state covers engine/session/bridge identity, duplicated TUN ownership, shutdown epochs and start generations, job cancellation/predecessors, UI session generation, health age, intent queue, and `vpnWanted`. Native calls split at mutex release points; Kotlin synchronized blocks are modeled as atomic actions; cancellation is cooperative (blocking JNI calls are not interrupted).
 
-The safety checks include:
+Key safety checks:
 
-- Routed-interface installation requires a PREPARED session that previously
-  proved live pumps on the warm TUN (`Act1_RoutedInstallNeedsProven`, now enabled
-  in every passing full-model configuration). The state invariant alone is
-  weaker: it is conditional on a current session and excludes pending adoption.
-- RUNNING has a current, uncancelled session with the correct bridge ownership.
-- An older start cannot stop a younger start's session.
-- At quiescence (`Rest`), UI, user intent, native session and TUN ownership agree;
-  Disconnect leaves no session/TUN, and a wanted Connect is not silently lost.
-- Timed configurations check a bound on unjustified live UI claims. Health
-  windows are scaled ticks, not a verification of Android wall-clock latency.
+- Installing default routes requires a `PREPARED` session that proved live pumps on the warm TUN (`Act1_RoutedInstallNeedsProven`, enabled in all passing full-model configs).
+- `RUNNING` requires a current, uncancelled session with matching bridge ownership.
+- An older start job can never stop a younger start's session.
+- At quiescence (`Rest`, when no jobs, calls, intents, runnables, callbacks, or closes are active), UI state, `vpnWanted`, native session, and TUN ownership agree; Disconnect leaves no session or TUN, and a wanted Connect is not lost.
+- Timed configs bound unjustified live UI claims using scaled ticks (not real Android wall-clock latency).
 
-`Rest` means no job, native call, intent, posted runnable, callback, poll tail or
-pending close is in flight. **These conditional invariants do not prove that
-Rest is eventually reached.** A deadlock check does not establish termination
-while another actor can keep taking steps. The full model's `Live3_*` through
-`Live6_*` remain defined but are not checked. Its `SpecQ` has no fairness;
-`Spec` has weak process fairness, but simulation is not a fairness proof.
-The untimed pump-failure simulation uses `NEXT NextQ`, so a completely stopped
-quiescent state can stutter; deadlock checking remains enabled outside `Rest`.
+Note that conditional invariants on `Rest` do not prove `Rest` is eventually reached. Full-model temporal properties (`Live3_*`..`Live6_*`) are defined but unchecked, and larger two-start restart configs use random simulation rather than exhaustive search. Bounds per `.cfg` cap starts, disconnects, faults, sessions, bridges, TUNs, jobs, and instances (`BoundsOK` catches exhausted allocation bounds). The model permits the known no-TUN gap between reconnect attempts (Always-on lockdown is outside its scope).
 
-The clock records `Unjustified(hAge)` after assigning the new health age. Using
-`NextH` again there would age health twice in the same PlusCal step.
+### Focused progress model (`Shutdown.tla`)
 
-Bounds are per `.cfg`: maximum starts, Disconnects, faults, sessions, bridges,
-TUNs, jobs and instances. `BoundsOK` detects exhausted allocation bounds;
-it does not lift the explicit user/fault budgets. Single-start cases can be
-exhaustive, while the larger two-start cases remain sampled. A TUN is alive
-while either Android or a bridge retains its descriptor. The model permits the
-known gap without a TUN between reconnect attempts; Android lockdown is outside
-its scope. It does not assert that routed installation and attachment have no
-intervening window.
+`progress-fixed` exhaustively checks four temporal properties under fair scheduling and bounded-call assumptions (one session/TUN, no retries or newer starts, background close eventually runs once requested):
 
-### Focused progress model
-
-`progress-fixed` exhaustively checks these temporal properties in `Shutdown`:
-
-- `LiveDisconnectObserved`: the fair Disconnect actually occurs, guarding
-  against a vacuous conditional cleanup check.
-- `LiveCleanup`: after cancellation, Android and bridge descriptors close,
-  the session clears, native Stop ends, both callers finish and live UI clears.
-- `LiveStopReturns`: each invoked Stop eventually returns, including a caller
-  waiting behind another Stop.
+- `LiveDisconnectObserved`: the Disconnect action actually fires (prevents vacuous cleanup checks).
+- `LiveCleanup`: after cancellation, Android and bridge fds close, the session clears, native Stop finishes, both callers return, and live UI clears.
+- `LiveStopReturns`: every invoked Stop eventually returns, including callers waiting behind another Stop.
 - `LiveStartReturns`: the cancelled start eventually returns.
 
-It includes the late-Prepare race: a job that passed its last Kotlin check can
-create a session after shutdown's Stop has already returned. The job's
-`abandonStaleStart` must stop that session. It also separates bridge duplication
-from publication, so Stop can miss a locally owned duplicate that AttachTun
-must close itself. Stop can return before background descriptor close completes.
-A continuously enabled heartbeat keeps the system moving even if cleanup fails.
+This covers both the late-`Prepare` race (requiring `abandonStaleStart` to stop a session created after shutdown's Stop returned) and separate bridge fd duplication vs. publication. Four mutant configs (`progress-mutant-abandon`, `-dup`, `-close`, `-stop`) verify temporal violations while a heartbeat keeps running.
 
-Assumptions: no younger start/retry; one session and TUN; fair scheduling of
-continuously enabled operations; handshake/probe/error-cleanup calls eventually
-return; background bridge close eventually runs once requested. Native timeout
-and close implementation internals, upstream Client.Close hangs, lock blocking,
-Android scheduling latency and wall-clock bounds are not proved. The warm/routed
-rebind and multiple service instances remain the full model's responsibility.
-This is a focused abstraction, not a mechanically checked refinement of that
-model or the code.
+## Code mapping
 
-Four fault switches demonstrate non-vacuity. `progress-mutant-abandon`, `-dup`
-and `-close` must violate **LiveCleanup** by omitting late-session Stop, local
-fd cleanup or a background-close request respectively. `progress-mutant-stop`
-must violate **LiveStopReturns** by leaving the shared Stop gate closed. These
-are temporal counterexamples, not merely terminal deadlocks.
-
-## Implementation mapping and regressions
-
-| Model action | Implementation |
+| Model action | Code |
 | --- | --- |
-| Full `P1..P5`, focused check/prepare/handshake | `core-engine/lifecycle.go`: `Prepare`, final identity/cancellation check |
-| Full `A1..A8`, focused dup/publish | `AttachTun`: local bridge ownership, locked publication and stale-bridge `Stop` |
-| Full `S1..SWait`, focused StopEnter/Return/Wait | `Stop`: `stopping`, `stopWait`, deferred release; `closeSession` timeout/background work |
-| Full Abandon, focused cleanup | `TailcatVpnService.abandonStaleStart`: native Stop even after shutdown already stopped |
-| WarmEst / RoutedEst / SetHandler | `establishAndAdopt`, CONNECTED publication under `interfaceLock` after epoch check |
-| SHc..SH4, FNw | `shutdown`: scoped CAS, cancellation, TUN close, native stop; `finish` generation check and `stopSelf(lastStartId)` |
-| MS / MS2 | `onStartCommand`, `handleStopIntent`, start generation and serialized launch |
-| PR / PA / PRc / PRe, NR1..NR3 | `TunnelController`: session generation check, poll/listener publication and post-lock failure handler |
-| Environment loss, focused Loss | NetworkMonitor listener NONE branch: `MutableStateFlow.compareAndSet(CONNECTED, RECONNECTING)` |
+| `P1..P5`, check/prepare/handshake | `core-engine/lifecycle.go`: `Prepare` and final identity/cancellation check |
+| `A1..A8`, dup/publish | `core-engine/lifecycle.go`: `AttachTun` local bridge ownership, locked publish, stale-bridge `Stop` |
+| `S1..SWait`, StopEnter/Return/Wait | `core-engine/lifecycle.go`: `Stop` (`stopping`, `stopWait`, deferred release) and `closeSession` |
+| `Abandon` | `TailcatVpnService.abandonStaleStart` |
+| `WarmEst` / `RoutedEst` / `SetHandler` | `TailcatVpnService.establishAndAdopt` and `CONNECTED` publish under `interfaceLock` |
+| `SHc..SH4`, `FNw` | `TailcatVpnService.shutdown` scoped CAS, TUN close, native stop, `finish` generation check, `stopSelf(lastStartId)` |
+| `MS` / `MS2` | `TailcatVpnService.onStartCommand`, `handleStopIntent`, `startGeneration`, `launchSerializedStart` |
+| `PR` / `PA` / `PRc` / `PRe`, `NR1..NR3` | `TunnelController`: `sessionGeneration` checks, poll/listener publication, failure handler |
+| Environment loss (`NetworkCallback.tla`) | `TunnelController` network listener `NetworkType.NONE` branch (`compareAndSet(CONNECTED, RECONNECTING)`) |
 
-The former NONE branch read CONNECTED and wrote RECONNECTING separately; a stop
-could intervene. The implementation now uses CAS, matching the atomic model.
-`network-loss-mutant` restores the split transition and violates
-`NoResurrection`; `network-loss-fixed` explores both callback/stop orderings.
+`ServiceStartIdInstrumentedTest` validates the Android `stopSelf(startId)` assumption using a debug-only non-VPN service (`StartIdProbeService`) in CI's emulator smoke suite. Full VPN flows for queued starts and failed-start/quick-Connect still need device verification (see [AGENTS.md](../AGENTS.md#remaining-work)).
 
-`ServiceStartIdInstrumentedTest` uses a debug-only ordinary Service to test the
-Android platform assumption behind PendingStart: an older `stopSelf(startId)`
-preserves both queued and delivered newer starts, while the latest id stops the
-service. This follows the [Android Service contract](https://developer.android.com/reference/android/app/Service#stopSelfResult(int)).
-The probe never runs a VPN or needs a gateway. CI's emulator smoke runs it;
-compiling the APK alone is not platform validation. Testing the actual VPN's
-queued-start and failed-start/quick-Connect paths on a device remains outstanding.
+## Historical counterexample replays
 
-## Historical counterexamples
+Mutation configs restore previously fixed bugs. Saved action schedules in `replays/*.json` (action names and process IDs only, with no injected states) let `replay.py` run the current model's actual guards along each schedule and verify TLC still finds the named property violation.
 
-Full-model mutation configs restore previous behaviour. Saved schedules in
-`replays/*.json` now replace time-budget searches for simulated mutation
-regressions. They contain only action names and process ids. `replay.py` builds
-an ignored wrapper that calls the **current model's actions and guards** in
-that order, exhaustively exploring nondeterministic choices along the schedule.
-It never injects saved states. A schedule incompatible with the current model
-cannot count as a reproduced violation. Deadlock checking is disabled only for
-these restricted schedules: an incompatible branch is not a deadlock of the
-unrestricted design. A replay passes only if the specifically named property
-is actually violated with a TLC model-error exit status.
-
-Replays prove that a counterexample exists in the mutant. They do not establish
-absence of other bugs in the fixed model, which is checked separately.
-
-| Mutation | Reintroduced behaviour |
+| Mutation | Reintroduced bug |
 | --- | --- |
-| F1 | Old warm-bridge callback fails the newer routed bridge |
-| F2 | Cancelled start leaves a session created after shutdown's Stop |
-| F3a | Interface establishment/adoption races shutdown |
-| F3b (redundant scenario) | Detach without a session returns success |
-| F4 | Stale start changes current UI/intent/session state |
-| F5 | CONNECTED publication races shutdown |
-| F6 | Stale poll/network-restore snapshot publishes after session end |
-| F7 | Delayed STOP overwrites a newer Connect's vpnWanted |
-| N1 / N1b | Early DISCONNECTED / unscoped STOP or finish loses Connect |
-| N2 | Catch-path stale check and effects occur in separate lock regions |
-| Serial | Jobs run without joining all earlier starts |
-| Identity | Attach omits native session-identity checks |
+| `F1` | Warm-bridge pump callback fails the newer routed bridge |
+| `F2` | Cancelled start leaks a session created after shutdown's Stop |
+| `F3a` | Interface establishment/adoption races shutdown |
+| `F3b` (redundant) | `DetachTun` without a session returns success |
+| `F4` | Stale start mutates current UI, `vpnWanted`, or session state |
+| `F5` | `CONNECTED` publication races shutdown |
+| `F6` | Stale poll or network-restore snapshot publishes after session end |
+| `F7` | Delayed STOP overwrites a newer Connect's `vpnWanted` |
+| `N1` / `N1b` | Early `DISCONNECTED` or unscoped STOP/`finish` drops a new Connect |
+| `N2` | Catch-path staleness check and failure handler run in separate lock blocks |
+| `Serial` | Start jobs run without joining earlier starts |
+| `Identity` | `AttachTun` skips native session-identity checks |
 
-Some historical configurations deliberately restore **multiple** old behaviours;
-read their `Mutants` constants. In particular N1's original witness also restores
-N1b. The old `mutant-dup-guard` config wrongly expected Dup alone to reproduce a
-pre-N1 failure against the final fixed model. It is replaced by
-`mutant-n1-old-dup-guard`: explicitly restore N1 and Dup, then reproduce the lost
-Connect. This makes no claim that Dup alone violates the fixed design.
-
-Schedules were extracted from commit 4473b37's CI counterexamples (run
-43328682874), with a local F2 witness and fresh identity witness. F7, network
-restore and the N1+Dup schedules were composed from the same action definitions
-and validated by TLC. To extract another recorded counterexample:
+Some historical configs intentionally enable multiple mutants together (check their `Mutants` constants; e.g., `mutant-n1-old-dup-guard` pairs `N1` with the old duplicate guard). Extract new schedules from a TLC counterexample log with:
 
 ```bash
 python3 formal/replay.py --extract path/to/tlc.log --output formal/replays/name.json
 ```
 
-Add `\* REPLAY: replays/name.json` to the corresponding config and an exact
-`EXPECT: violation` property. A new replay does not replace the fixed-design
-checks or widen their claimed scope.
+Then reference it via `\* REPLAY: replays/name.json` and an exact `EXPECT: violation` line in the config.
 
-## Result handling and CI
+## Result classification and CI
 
-- **CHECKED** requires exit 0 and TLC's positive completed-model-check message.
-- **expected counterexample** requires the named property and a TLC safety,
-  liveness or deadlock exit code; crashes cannot satisfy this expectation.
-- **SAMPLED** means a depth-300 random walk reached the runner's own sampling
-  deadline with positive progress and no error. It is evidence, not exhaustive
-  checking. The JVM records its random seed in the log.
-- SIGKILL/exit 137, external termination, OOM, exceptions, disk guards, absent
-  progress, forced kills and incomplete searches fail. No generic signal code
-  is converted into success. OffHeapDiskFPSet avoids a known TLC statistics
-  exception, but any exception still fails rather than being ignored.
+- **CHECKED**: TLC exits 0 with its completed-model-check message.
+- **expected counterexample**: TLC reports the exact named property violation with a safety/liveness/deadlock exit code.
+- **SAMPLED**: depth-300 random simulation reached its time limit with positive progress and no errors (evidence, not exhaustive verification; random seed logged).
+- Crashes, OOMs, SIGKILL/137, exceptions, low-disk aborts, zero progress, or incomplete non-sampling runs all fail the gate.
 
-`test_tlc_runner.py` exercises real subprocess termination/resource handling as
-well as classification; `test_replay.py` checks extraction and wrapper generation.
-CI checks these, translation freshness and the fast regressions first, then
-runs the extended suite in six shards. Logs are uploaded even on failure.
-The authoritative result is the workflow for the exact commit, not an earlier
-run or the EXPECT comments in configs.
+`formal.yml` runs `test_*.py`, PlusCal translation freshness, and `--regressions`, followed by 6 shards of `--extended`.
 
-Local validation of this revision (2026-11-12): all 22 fast configurations
-behaved as expected with CI's 2g heap / 256m direct-memory limits; the 11 harness
-tests passed, and empty selections, empty shards and all-skipped runs correctly
-failed. The timed-pump and ui-races 180-second samples found no violation.
-Both Android flavors passed 155 JVM tests each and lint; debug and instrumented
-test APK builds passed. The full extended suite was not rerun locally. No
-Android emulator was available to execute the new platform probe locally.
+## Scope limits
 
-## Remaining scope limits
-
-No packet/data-plane model, cryptographic proof, DNS/MTU/UDP-table verification,
-token-parser proof, split-tunnel/lockdown proof, fd-number reuse, process-death
-model, blocking-lock or JVM-memory-model proof. Full-model temporal properties
-and exhaustive coverage of larger restart scenarios remain open. Telemetry
-read exceptions and several Android callback/rejection paths are abstracted.
-Physical ARM64 dual-capture leak acceptance and actual VPN lifecycle/device
-validation remain separate requirements; see `AGENTS.md`.
+Out of scope for these models: packet data plane, cryptography, DNS/MTU/UDP-table behavior, token parsing, split tunneling, Always-on lockdown, fd-number reuse, process death, lock blocking, JVM memory model, full-model liveness, and exhaustive exploration of large restart scenarios.

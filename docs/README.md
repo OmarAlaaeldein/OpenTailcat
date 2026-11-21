@@ -1,37 +1,21 @@
 # Documentation
 
-Start with the [README](../README.md) if you want to know what OpenTailcat is,
-what it needs, and how to install it. [AGENTS.md](../AGENTS.md) is the
-engineering contract: architecture, safety invariants, build, test, and
-release.
-
-| If you want to… | Read |
+| Topic | File |
 | --- | --- |
-| Understand the product, install it, or check its limits | [README.md](../README.md) |
-| Change the app, engine, or build | [AGENTS.md](../AGENTS.md) |
-| Understand or change Share this phone (exit node) | [AGENTS.md](../AGENTS.md#exit-node) |
-| Know what changed between versions | [releases/](releases/) |
-| Cut or sign a release | [signing.md](signing.md), [AGENTS.md](../AGENTS.md#release-process) |
-| Understand what data is stored or sent | [PRIVACY_POLICY.md](../PRIVACY_POLICY.md) |
-| Report a vulnerability | [SECURITY.md](../SECURITY.md) |
-| Run emulator or live-gateway tests | [scripts/emulator/README.md](../scripts/emulator/README.md) |
-| Check the pinned upstream Tailcat commit | [third_party/PROVENANCE.md](../third_party/PROVENANCE.md) |
+| Product overview, setup, and limitations | [README.md](../README.md) |
+| Architecture, safety invariants, build, test, and open work | [AGENTS.md](../AGENTS.md) |
+| Exit-node mode ("Share this phone") engineering details | [AGENTS.md#exit-node](../AGENTS.md#exit-node) |
+| Release history and APK checksums | [releases/](releases/) |
+| Release signing keys and rotation | [signing.md](signing.md), [AGENTS.md#release-process](../AGENTS.md#release-process) |
+| Data storage, network requests, and permissions | [PRIVACY_POLICY.md](../PRIVACY_POLICY.md) |
+| Security reporting and controls | [SECURITY.md](../SECURITY.md) |
+| Emulator and live-gateway test scripts | [scripts/emulator/README.md](../scripts/emulator/README.md) |
+| Pinned upstream Tailcat commit | [third_party/PROVENANCE.md](../third_party/PROVENANCE.md) |
+| Tailcat Android integration patch | [core-engine/integration/README.md](../core-engine/integration/README.md) |
+| TLA+ lifecycle models | [formal/README.md](../formal/README.md) |
 
 ## Release notes
 
-`releases/` is a historical record, one file per version, named after the
-version. The newest is [1.7.3](releases/1.7.3.md). Each note describes what
-changed, what was verified at the time, and the published artifact hashes.
-Verification lines are evidence for that release, not a promise about later
-builds.
+`releases/` keeps one file per published version (latest: [1.7.3](releases/1.7.3.md)), listing changes, what was tested for that build, and SHA-256 checksums. Treat old release notes as immutable: add a new file for each release instead of editing past notes or hashes.
 
-Do not rewrite an old note when behaviour changes; add a new one. Do not edit a
-published note's artifact hashes.
-
-## Keeping these docs useful
-
-- Lead with the audience and the answer; detail comes after.
-- Product-facing explanation belongs in the README, engineering detail in
-  AGENTS.md, history in `releases/`.
-- Never put tokens, live captures, signing secrets, or personal account names
-  in documentation.
+Never commit live tokens, signing secrets, traffic captures, or personal account names to documentation.

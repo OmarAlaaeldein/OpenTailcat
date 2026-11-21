@@ -1,26 +1,22 @@
-# Security policy
+# Security Policy
 
 ## Reporting a vulnerability
 
-Report privately through the repository's **Security** tab →
-**Report a vulnerability**. Do not open a public issue. Never include a live
-gateway token, signing key, or traffic capture; describe how to reproduce
-instead.
+Use GitHub's **Security** tab -> **Report a vulnerability** to report issues privately instead of opening a public issue. Do not include live gateway tokens, signing keys, or raw traffic captures; reproduction steps are enough.
 
-Build status and known limitations: see the
-[README](README.md#project-status). Design and safety invariants are in
-[AGENTS.md](AGENTS.md).
+For current development-preview status and open limitations, see [README.md](README.md#project-status) and [AGENTS.md](AGENTS.md).
 
-## Security controls
+## Implemented controls
 
-- `TunnelEngine` requires API v2 and the full capability set before creating a TUN; unknown fields fail closed.
-- Host-only TUN first, pumps proven, then `0.0.0.0/0` + `::/0`. `CONNECTED` requires native `RUNNING` plus fresh `healthUnixSec`.
-- One strict token contract in Kotlin and Go (no synthetic disco keys, duplicate keys, padding, expired or legacy tokens); embedded DERP maps reject test and non-routable addresses. Shared fixture corpus.
-- TCP/UDP proxied through Tailcat WireGuard/Magicsock; `core-engine` opens no direct destination sockets. Transport sockets protected with `VpnService.protect`.
-- Profiles/tokens in AES-256 Keystore prefs; backup and device transfer disabled.
-- GitHub flavor verifies update digest, restricts hosts, pins signing certificates with lineage checks. F-Droid has no updater.
-- Cleartext disabled; release builds R8-shrunk.
-- Share this phone (exit node): the code is a bearer credential, so a new device is refused until the host approves its key; open admission is an explicit, always time-limited mode, and a share without a time limit requires approval (enforced in Go and Kotlin). Every session uses fresh keys discarded at stop, so stopping revokes every code, and the node enforces its own expiry rather than trusting the client's.
-- Guests cannot reach the host's own network: loopback, private, CGNAT, link-local, multicast and reserved destinations are refused (`core-engine/exitnode/policy.go`); the test-only override is not reachable from the bridge.
-- Sharing and the client VPN never run together (the node's dials would loop through the tunnel); refused natively, in the Android start paths, and by a backstop poll. Forwarding sockets exist only in `core-engine/exitnode/dial.go`, enforced by a test, so the engine package keeps its no-OS-socket rule.
-- The sharing code is shown only in a `FLAG_SECURE` window, is never logged, and reaches the clipboard only through Copy. Known gap: the host cannot verify who is asking to connect; see [AGENTS.md](AGENTS.md#exit-node).
+- **Fail-closed engine checks:** `TunnelEngine` requires capability API v2 with all required dual-stack data-plane flags enabled, and rejects unknown fields.
+- **Two-phase VPN start:** Android establishes a host-only TUN first, confirms native packet pumps are running, and only then installs `0.0.0.0/0` + `::/0`. The UI reports `CONNECTED` only when native state is `RUNNING` with a fresh heartbeat.
+- **Strict token parsing:** Go and Kotlin share one strict CBOR/Base64URL token parser (rejecting padding, whitespace, duplicate/unknown keys, expired or legacy tokens, synthetic disco keys, and unsafe embedded DERP endpoints), verified against shared fixtures and a differential mutation corpus.
+- **No direct app sockets in the client engine:** `core-engine` proxies tunneled TCP/UDP through Tailcat WireGuard/Magicsock (`no_os_socket_test.go` enforces this). Only native transport sockets receive creation-time `VpnService.protect`.
+- **Encrypted local storage:** Profiles and tokens use AES-256-GCM preferences backed by Android Keystore with no plaintext fallback. Backups and device-to-device transfer are disabled, cleartext HTTP is disabled, and release/development builds are R8-minified.
+- **Pinned HTTPS & verified updates:** Cloudflare audit/speed-test endpoints use SPKI certificate pinning. In the `github` flavor, the self-updater restricts download hosts to GitHub, checks APK SHA-256 digests, and verifies signing certificate pins (including v3 rotation lineage). The `fdroid` flavor omits the updater.
+- **Exit-node isolation ("Share this phone"):**
+  - Mutually exclusive with the client VPN (enforced in Go under `globalCore.mu`, in `TunnelController`, and via a poll check).
+  - Outbound OS sockets live only in `core-engine/exitnode/dial.go` (`TestOSSocketsConfinedToDial`).
+  - Default admission requires per-device host approval; open admission always has a time limit (max 24 h), and no-limit shares require approval. Session keys are ephemeral and discarded on stop.
+  - `exitnode/policy.go` blocks loopback, RFC 1918, CGNAT, link-local, multicast, reserved, 4-in-6, and standard/RFC 8215 NAT64-mapped private addresses.
+  - Sharing screens use `FLAG_SECURE`, codes are never logged, and clipboard writes happen only on explicit Copy. Known limitation: guests don't display a matching device ID yet, so the host cannot verify identity beyond watching who connects (see [AGENTS.md](AGENTS.md#exit-node)).

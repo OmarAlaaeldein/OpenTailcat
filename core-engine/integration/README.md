@@ -1,24 +1,17 @@
-# Application-owned Tailcat integration
+# Tailcat Android integration
 
-Upstream currently exposes neither its network monitor nor an Android-safe
-engine initialization policy. This integration is maintained by OpenTailcat;
-its additional API is **not an upstream-supported API**.
+`core-engine/tailcat-integration` is a generated local Go module replacement for `github.com/tailscale/tailcat`, built from the unmodified `third_party/tailcat` submodule plus the small patch in `tailcat.patch`.
 
-`../tailcat-integration` contains only the root library sources and license
-from the unmodified `third_party/tailcat` pin, plus the small changes shown in
-`tailcat.patch`. It is a local Go module replacement, not a runtime overlay.
-Ordinary `go test`, static analysis and gomobile all compile the same sources.
+What the patch changes:
 
-The patch keeps netns enabled throughout Android engine initialization and
-region selection, so transport sockets receive the registered protect hook
-before bind/connect. Other platforms keep upstream behavior. A typed
-`Client.NetworkMonitor()` accessor replaces reflection and `unsafe.Pointer`.
+- Keeps `netns.SetEnabled(true)` on Android during engine initialization and DERP region selection (`opentailcat_android.go` / `opentailcat_other.go`), so STUN, DERP, and Magicsock sockets run the registered `VpnService.protect` callback at creation before bind/connect. Non-Android builds keep upstream behavior.
+- Adds a typed `Client.NetworkMonitor()` method so `core-engine` can trigger Magicsock link-change rebinds without reflection or `unsafe.Pointer`.
 
-Regenerate with `python3 integration/sync_tailcat.py` from `core-engine`.
-`python3 integration/sync_tailcat.py --check` verifies every copied source and
-the reviewable patch. The engine tests and AAR builder require this check.
-An upstream update requires explicit regeneration, patch review, tests and a
-rebuilt AAR; it cannot silently change the private-field runtime access.
+Regenerate and check from `core-engine/`:
 
-Remove this module replacement once a reviewed upstream version supplies
-equivalent APIs. Do not edit files in the pinned submodule or generated copy.
+```bash
+python3 integration/sync_tailcat.py         # regenerate tailcat-integration/ and tailcat.patch
+python3 integration/sync_tailcat.py --check # verify files match submodule + patch
+```
+
+Both `go test` and `core-engine/build-aar.sh` run `--check`. Do not edit `third_party/tailcat` or `tailcat-integration/` directly; update `sync_tailcat.py`, regenerate, and rebuild the AAR. Once upstream Tailcat exposes these hooks natively, this module replacement can be removed.

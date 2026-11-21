@@ -1,34 +1,26 @@
 # OpenTailcat engineering guide
 
-OpenTailcat is an Android client for **self-hosted Tailcat exit gateways**.
-Paste a `tc...` token and the phone sends IPv4/IPv6 TCP, UDP, and DNS through
-that gateway. There is no account, control plane, or server component in this
-repo: the user runs the gateway. Since 1.7 the app can also *be* the gateway:
-"Share this phone" (exit-node mode) mints a one-session code and forwards a
-guest's traffic out through the phone's own connection.
+OpenTailcat is an Android app for self-hosted Tailcat exit gateways. It runs in one of two mutually exclusive roles:
 
-This file is the working contract for anyone, human or LLM, changing the
-project: how the pieces fit, which invariants must hold, and how to build,
-test, and release. It is the single source for project status and remaining
-work; other docs link here.
+- **Client VPN**: takes a `tc...` token, captures device traffic on an Android TUN interface, terminates packets in gVisor, and proxies IPv4/IPv6 TCP, UDP, and DNS over WireGuard/Magicsock/DERP to the gateway.
+- **Exit node ("Share this phone")**: runs `tailcat.Server` in an ordinary `specialUse` foreground service (no `VpnService` or TUN), mints a one-session `tc...` code, and forwards guests' TCP/UDP out over the phone's own network.
 
-- Android: min API 26, compile API 37, target API 35; application id
-  `com.tailcat.vpn`
-- Toolchain: Kotlin 2.4.21, Gradle 9.9.1, JDK 21, Go 1.27.4
-- Versions: `gradle/libs.versions.toml`, `core-engine/go.mod`
-- Current version: 1.7.3; notes in `docs/releases/`
+Project metadata:
+
+- Android: `com.tailcat.vpn`, min API 26, target API 35, compile API 37
+- Toolchain: Kotlin 2.4.21, Gradle 9.9.1, JDK 21, Go 1.27.4, NDK `29.0.14206865`
+- Dependency versions: `gradle/libs.versions.toml`, `core-engine/go.mod`
+- Current version: 1.7.3 (`docs/releases/`)
 
 ## Status
 
-Dual-stack test-routing development preview (`testRouting: true` in the
-capability payload). It connects with a live token but is not a
-release-accepted data plane. Do not rely on it for privacy-sensitive traffic.
+The client tunnel is a dual-stack test-routing development preview (`testRouting: true` in the capability payload). It connects with a live token, but physical leak acceptance is still pending. Do not treat it as a hardened privacy VPN.
 
-Share this phone (exit node) shipped in 1.7.0 as a second role of the same app.
-It is separate from the client data plane and has its own status under "Exit
-node" below; nothing about the client's maturity changed with it.
+Exit-node mode ("Share this phone") shipped in 1.7.0 and is separate from the client data plane; see [Exit node](#exit-node) and [Remaining work](#remaining-work).
 
 ## Architecture
+
+Client mode:
 
 ```text
  Compose UI (MainActivity, screens, ViewModels)
@@ -44,22 +36,9 @@ node" below; nothing about the client's maturity changed with it.
  self-hosted Tailcat exit gateway ──► Internet
 ```
 
-- **Kotlin** owns the UI, profile storage, `VpnService` lifecycle,
-  notifications, split tunnel, updater, and speed-test orchestration
-  (including the device-route measurement path).
-- **Go** owns the tunnel: it terminates TUN packets in a gVisor userspace
-  stack, proxies flows with `Client.DialTCP`/`DialUDP`, applies DNS, MTU, and
-  IPv6 policy, and reports stats.
-- gomobile exposes the engine as `com.tailcat.golib.engine.Engine`, checked in
-  as `app/libs/libtailcat.aar`.
+Packet flow: app -> TUN fd -> Go `TunBridge` reader -> gVisor TCP/IP stack -> `Client.DialTCP`/`DialUDP` -> WireGuard/Magicsock -> gateway -> Internet. Application flows never use an OS socket, and OpenTailcat does not exclude its own UID from the VPN.
 
-A packet's path: app → TUN fd → engine reader → gVisor TCP/IP stack →
-`Client.DialTCP`/`DialUDP` → WireGuard/Magicsock → gateway → Internet. Return
-traffic reverses. Application flows never use an OS socket, and the app does
-not exclude its own UID from the tunnel.
-
-The exit-node role is the inverse, and runs only while the client tunnel is
-off:
+Exit-node mode (only while the client tunnel is stopped):
 
 ```text
  ShareScreen / ShareViewModel
@@ -73,74 +52,61 @@ off:
                                          Internet
 ```
 
-There is no VpnService, consent dialog, or TUN in this role.
+Kotlin owns the UI, encrypted profile storage, `VpnService` and `ExitNodeService` lifecycles, notifications, split-tunnel exclusions, the GitHub self-updater, and speed-test UI/device-route measurement. Go owns the packet engine, token authority, gVisor stack, DNS/IPv6/MTU policy, telemetry, in-tunnel speed test, and exit-node forwarding. gomobile binds the Go package as `com.tailcat.golib.engine.Engine`, checked in at `app/libs/libtailcat.aar`.
 
 ## Repository map
 
 | Path | Contents |
 | --- | --- |
-| `app/src/main/java/com/tailcat/vpn/ui/` | Compose UI: `MainActivity`, home (connect ring, profiles, telemetry), settings, speed test, share (`screens/share/`: setup, code, devices, traffic), theme |
-| `app/src/main/java/com/tailcat/vpn/service/` | `TailcatVpnService` (VpnService, TUN, notifications), `TunnelController` (UI-facing state machine and reconnect), `TunnelEngine` (gomobile impl of `NativeEngine`), health and split-tunnel helpers; sharing: `ExitNodeService` (foreground service), `ExitNodeController` (UI-facing state, polling, expiry), `NativeExitNode`/`TunnelExitNode` (interface and gomobile impl), `ExitNodeNotifications` |
-| `app/src/main/java/com/tailcat/vpn/core/` | Token parsing, DNS validation, egress-IP audit, speed test, updater, TLS/SPKI pins; `exitnode/` is the stats model parsed from the node's JSON |
-| `app/src/main/java/com/tailcat/vpn/data/` | AES-256-GCM sealed preferences (Android Keystore) and profile repository |
-| `core-engine/` | Go engine. Start at `main.go` (engine + capabilities), `lifecycle.go`, `netstack_proxy.go` (data plane), `tunnel_dns.go`, `token.go`; `bridge.go` holds gomobile exports, `exitnode_bridge.go` the exit-node ones |
-| `core-engine/exitnode/` | Exit-node (sharing) package: admission, destination policy, TCP/UDP forwarding, stats. The only Go code allowed to dial out over device routes; see "Exit node" |
-| `core-engine/testdata/` | Token, capability and exit-node stats fixtures read by both test suites |
-| `core-engine/build-aar.sh` | Reproducible AAR build; writes `app/libs/libtailcat.aar` and `.sourcehash` |
-| `third_party/tailcat` | Upstream Tailcat base, pinned and unmodified |
-| `core-engine/integration/`, `core-engine/tailcat-integration/` | Explicit Android integration patch/generator and generated library module |
-| `app/src/test/`, `app/src/androidTest/` | JVM unit tests, instrumented tests |
-| `scripts/emulator/`, `scripts/phase8/` | adb emulator suites; dual-capture leak tooling |
-| `formal/` | TLA+ lifecycle model, focused exhaustive cleanup/liveness and network-callback models, and deterministic counterexample replays, checked with TLC by `formal/check.sh` |
-| `.github/workflows/` | `ci.yml` gates; `emulator.yml` smoke and live-gateway suites; `formal.yml` TLC model check |
-| `docs/` | Documentation index, release notes, signing notes, screenshots |
+| `app/src/main/java/com/tailcat/vpn/ui/` | Compose UI (`MainActivity`, `DisconnectActivity`, `screens/{home,settings,share,speedtest}/`, `theme/`) |
+| `app/src/main/java/com/tailcat/vpn/service/` | `TailcatVpnService`, `TunnelController`, `TunnelEngine`/`NativeEngine`, health/split-tunnel/retry/lockdown helpers; exit node: `ExitNodeService`, `ExitNodeController`, `TunnelExitNode`/`NativeExitNode`, `ExitNodeNotifications` |
+| `app/src/main/java/com/tailcat/vpn/core/` | `token/TokenParser.kt`, `dns/DnsValidator.kt`, `ip/IpAuditor.kt`, `speedtest/`, `update/`, `tls/` (SPKI pins), `net/AppHttp.kt`, `qr/`, `metrics/`, `exitnode/ExitNodeStats.kt`, `NetworkMonitor.kt` |
+| `app/src/main/java/com/tailcat/vpn/data/` | `SealedPreferences.kt` (AES-256-GCM via Android Keystore), `PreferencesStore.kt`, `ProfileRepository.kt` |
+| `core-engine/` | Go client engine: `main.go` (init, network state, capabilities), `lifecycle.go` (state machine and lifecycle exports), `bridge.go` (`TunBridge` pumps, ICMP errors, RTT/stats), `netstack_proxy.go` (gVisor TCP/UDP proxy), `tunnel_dns.go`, `token.go`, `cbor_strict.go`, `derp_filter.go`, `egress.go`, `ipv6_egress.go`, `udp_probe.go`, `speedtest.go`, `protect*.go`, `exitnode_bridge.go` |
+| `core-engine/exitnode/` | Exit-node package (`node.go`, `policy.go`, `dial.go`, `stats.go`) |
+| `core-engine/testdata/` | Shared fixtures (`token_fixtures.json`, `token_differential.json`, `capabilities.json`, `exitnode_stats.json`, fuzz seeds) read by both Go and Kotlin tests |
+| `core-engine/build-aar.sh` | Reproducible AAR builder; updates `app/libs/libtailcat.aar`, `.sha256`, and `.sourcehash` |
+| `third_party/tailcat` | Unmodified pinned upstream Tailcat submodule |
+| `core-engine/integration/`, `core-engine/tailcat-integration/` | Android integration patch (`tailcat.patch`), sync script (`sync_tailcat.py`), and generated local replacement module |
+| `app/src/test/`, `app/src/androidTest/` | JVM unit tests and Android instrumented tests |
+| `scripts/emulator/`, `scripts/phase8/` | adb emulator test scripts and host dual-capture leak analyzer |
+| `formal/` | TLA+ lifecycle/shutdown/network-callback models, counterexample replays, and `check.sh` runner |
+| `.github/workflows/` | `ci.yml`, `emulator.yml`, `formal.yml` |
+| `docs/` | Docs index, release notes, signing notes, screenshots |
 
-### Start here by task
+### Where to look first
 
-| Change | Read first |
+| Area | Files |
 | --- | --- |
-| Pairing, QR, saved profiles | `ui/screens/home/ProfileSelector.kt`, `AddProfileDialog.kt`, `data/ProfileRepository.kt` |
-| Connect/disconnect, reconnect, errors | `service/TunnelController.kt`, `service/TailcatVpnService.kt`, `core-engine/lifecycle.go` |
-| TUN configuration, DNS, routes | `service/VpnInterfaceSpec.kt` and its test, `attachTun` in `lifecycle.go` |
-| Packet handling, UDP table, MTU | `core-engine/netstack_proxy.go`, `tunnel_dns.go`, and the `_test.go` files beside them |
-| Token format or validation | `core-engine/token.go`, `core/TokenParser.kt`, `testdata/token_fixtures.json` |
-| Capabilities / fail-closed parsing | `routeReady()` in `core-engine/main.go`, `testdata/capabilities.json`, `service/TunnelEngine.kt` |
-| Telemetry, stats, speed test | `core-engine/speedtest.go`, `core/speedtest/`, `ui/screens/home/components/TelemetryCard.kt` |
+| Pairing, QR, profiles | `ui/screens/home/ProfileSelector.kt`, `AddProfileDialog.kt`, `core/qr/`, `data/ProfileRepository.kt` |
+| Connect, disconnect, reconnect | `service/TunnelController.kt`, `service/TailcatVpnService.kt`, `core-engine/lifecycle.go` |
+| TUN config, DNS, routes | `service/VpnInterfaceSpec.kt`, `AttachTun` in `core-engine/lifecycle.go` |
+| Packets, UDP table, MTU | `core-engine/bridge.go`, `core-engine/netstack_proxy.go`, `core-engine/tunnel_dns.go` |
+| Token parsing | `core-engine/token.go`, `core-engine/cbor_strict.go`, `core/token/TokenParser.kt`, `testdata/token_fixtures.json` |
+| Capabilities | `routeReady()` in `core-engine/main.go`, `testdata/capabilities.json`, `service/TunnelEngine.kt` |
+| Telemetry, speed test | `core-engine/speedtest.go`, `core/speedtest/`, `ui/screens/home/components/TelemetryCard.kt` |
 | In-app updater | `core/update/`, `UpdatePolicy.kt`, `docs/signing.md` |
-| Settings surfaces | `ui/screens/settings/`, `data/PreferencesStore.kt` |
-| Sharing this phone (exit node) | "Exit node" below, `core-engine/exitnode/`, `core-engine/exitnode_bridge.go`, `service/ExitNodeController.kt`, `ui/screens/share/` |
-| Release | "Release process" below, `app/build.gradle.kts`, `docs/releases/` |
+| Settings | `ui/screens/settings/`, `data/PreferencesStore.kt` |
+| Exit node (sharing) | `core-engine/exitnode/`, `core-engine/exitnode_bridge.go`, `service/ExitNodeController.kt`, `service/ExitNodeService.kt`, `ui/screens/share/` |
 
 ## Safety invariants
 
 1. Never install `0.0.0.0/0` or `::/0` for an engine that has not proven live pumps.
-2. Never use ordinary OS sockets for traffic claimed to be tunneled
-   (`core-engine/no_os_socket_test.go` enforces this for the engine package).
-3. Never report `CONNECTED` until authenticated transport and all pumps are live and native health is fresh.
+2. Never use ordinary OS sockets for traffic claimed to be tunneled (`core-engine/no_os_socket_test.go` enforces this for `package engine`).
+3. Never report `CONNECTED` until authenticated transport and all required pumps are live and native health is fresh.
 4. Never synthesize telemetry, reachability, handshake, speed, or egress values.
 5. A local ICMP reply or public Internet probe is not a gateway test.
 6. Close the TUN immediately after startup, pump, or health failure.
 7. Reject invalid or expired tokens in both Android and native code.
-8. Development preview releases use the existing development key for upgrade compatibility; production signing and migration remain future work.
-9. The app does not exclude its own UID. Only native transport sockets are
-   protected with `VpnService.protect`, at creation before bind/connect.
-   Tailcat's application-owned integration preserves Android netns hooks
-   during engine initialization and region selection; native metadata HTTP
-   and transport DNS also use explicit creation-time protection. Missing or
-   failed Android protection fails the socket operation. Never enumerate
-   process FDs or protect Kotlin app HTTP sockets. App HTTP continues to use
-   `core/net/AppHttp` with conservative no-reuse behavior across transitions.
-10. Keep secrets, live tokens, signing keys, and captures out of the repo and public logs.
+8. Development preview releases use the existing development key for upgrade compatibility; production signing and migration are separate future work.
+9. The app does not exclude its own UID. Only native transport sockets are protected with `VpnService.protect`, at creation before bind/connect. The local Tailcat integration keeps Android `netns` hooks enabled during engine initialization and region selection, and native metadata HTTP and transport DNS also protect sockets at creation. Missing or failed Android protection fails the socket operation. Never enumerate process FDs or protect Kotlin app HTTP sockets. App HTTP goes through `core/net/AppHttp` with connection reuse disabled.
+10. Keep secrets, live tokens, signing keys, and traffic captures out of the repo and public logs.
 
 ## Build and verify
 
-Prerequisites: JDK 21 and the Android SDK (platform 37, matching build-tools,
-NDK `29.0.14206865`); Go 1.27.4 only for `core-engine/`. A fresh clone needs
-`git submodule update --init`; point Gradle at the SDK with `local.properties`
-(`sdk.dir=...`) or `ANDROID_HOME`. Kotlin-only work builds against the
-checked-in AAR and needs neither Go nor the NDK.
+Prerequisites: JDK 21 and Android SDK (platform 37, matching build-tools, NDK `29.0.14206865`). Go 1.27.4 is only needed for `core-engine/`. On a fresh clone run `git submodule update --init` and point Gradle at the SDK via `local.properties` (`sdk.dir=...`) or `ANDROID_HOME`. Kotlin-only changes build against the checked-in AAR.
 
-Fast inner loop (one flavor, no device):
+Quick loop (one flavor, no device):
 
 ```bash
 cd core-engine && go test ./...
@@ -148,10 +114,10 @@ cd .. && ./gradlew testGithubDebugUnitTest lintGithubDebug
 ./gradlew assembleGithubDebug
 ```
 
-Full gate (CI plus the release build checks):
+Full gate (matches CI + release builds):
 
 ```bash
-cd core-engine && go test ./... && go test -race ./... && go vet ./... \
+cd core-engine && go test -race ./... && go vet ./... \
   && go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./... \
   && go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./... && gofmt -l .
 cd .. && ./gradlew testGithubDebugUnitTest testFdroidDebugUnitTest \
@@ -160,505 +126,212 @@ cd .. && ./gradlew testGithubDebugUnitTest testFdroidDebugUnitTest \
 ./gradlew assembleFdroidRelease -PnoAbiSplits && ./gradlew bundleGithubRelease
 ```
 
-Rules that trip people up:
+`scripts/phase8/run-host-gates.sh` runs Go race/vet, the Phase 8 analyzer self-check, GitHub unit tests and lint, and AAR hash/sourcehash verification in one script.
 
-- **Always name the flavor.** `testDebugUnitTest`, `assembleRelease`, and
-  `lint` alone are ambiguous across `github` and `fdroid`.
-- `-PnoAbiSplits` builds one APK with both ABIs; ABI splits cannot be combined
-  with `bundleRelease` (AGP issue 402800800). F-Droid releases need it.
-- The AAR is **checked in**. After any change under `core-engine/`, rebuild it
-  and commit `app/libs/libtailcat.aar` with
-  `app/libs/libtailcat.aar.sourcehash`; CI fails when the hash does not match
-  the source tree.
-- Do not add a Gradle toolchain auto-provisioning plugin (e.g.
-  `org.gradle.toolchains.foojay-resolver-convention`): F-Droid's source
-  scanner rejects it because it downloads JDK binaries from a third party.
-  JDK 21 is a documented prerequisite, and
-  `gradle/gradle-daemon-jvm.properties` pins the daemon JVM.
+Build gotchas:
+
+- Always include the flavor name (`github` or `fdroid`). Bare tasks like `testDebugUnitTest`, `assembleRelease`, or `lint` are ambiguous.
+- Pass `-PnoAbiSplits` to build a single universal APK for F-Droid. ABI splits cannot be combined with `bundleRelease` (AGP issue 402800800), so `app/build.gradle.kts` disables splits automatically when a task name contains `bundle`.
+- `app/libs/libtailcat.aar` is checked in. After any change under `core-engine/` or `third_party/`, rebuild it and commit `app/libs/libtailcat.aar`, `app/libs/libtailcat.aar.sha256`, and `app/libs/libtailcat.aar.sourcehash`. CI fails if either hash does not match.
+- Do not add a Gradle toolchain auto-provisioning plugin such as `org.gradle.toolchains.foojay-resolver-convention`. F-Droid's scanner rejects plugins that download JDK binaries from third parties. `gradle/gradle-daemon-jvm.properties` pins the daemon JVM instead.
+
+Rebuilding the AAR:
 
 ```bash
 env GOTOOLCHAIN=go1.27.4 core-engine/build-aar.sh && unzip -l app/libs/libtailcat.aar
 ```
 
-The AAR requires Go 1.27.4, NDK r29 (`29.0.14206865`), 16 KB ELF alignment,
-`-javapkg=com.tailcat.golib`, androidapi 26, and arm64 + amd64 targets.
-Cross-host CI compares the module list, Java API, and source hash.
-
-`scripts/phase8/run-host-gates.sh` bundles most host-side gates in one run:
-Go race/vet, the Phase 8 analyzer self-check, GitHub unit tests and lint, and
-the AAR hash plus sourcehash checks.
+`build-aar.sh` enforces Go 1.27.4, NDK `29.0.14206865`, 16 KB ELF LOAD alignment, `-javapkg=com.tailcat.golib`, `-androidapi=26`, `arm64` + `amd64` targets, expected Java API methods, and consumer ProGuard rules. Cross-host CI compares module lists, Java API, and source hash.
 
 ## Release process
 
-Development previews are signed with the build machine's Android debug
-keystore (`~/.android/debug.keystore`), whose certificate is pinned as
-`dd767011...afa8d6` in `UpdatePolicy.kt` and `docs/signing.md`.
-`assembleGithubDevelopment` uses it automatically, so releases must be built on
-a machine whose debug key matches that pin; otherwise Android rejects the
-upgrade as a different signer.
+Development previews are signed with the build machine's `~/.android/debug.keystore`, whose SHA-256 certificate pin (`dd767011...afa8d6`) is checked by `UpdatePolicy.kt` and documented in `docs/signing.md`. `assembleGithubDevelopment` uses that keystore automatically, so publishable builds must come from a machine with that key or Android will reject upgrades.
 
-1. Bump `versionName` in `app/build.gradle.kts`, and `versionCode` with it (Android
-   needs a rising integer inside the APK). Releases are identified by the version
-   name only: never put the version code in a release title, notes, or docs.
-2. Add `docs/releases/<version>.md` and
-   `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` (F-Droid
-   names changelogs by version code). Release notes list changes, verification
-   and hashes only; the development-preview caveat lives in `README.md`, not
-   in every release. Also move the "newest" link in `docs/README.md`, and
-   check that `PRIVACY_POLICY.md` (permissions, network requests, "Last
-   updated") and the Fastlane `full_description.txt` still match what the
-   release does; both drift unless checked every time.
-3. Build the publishable APKs with the real repository slug. The slug is
-   deployment configuration; the tracked default is a neutral placeholder.
+1. Bump `versionName` and `versionCode` in `app/build.gradle.kts`. Identify releases by `versionName` only; keep `versionCode` out of release titles, notes, and docs (except F-Droid's changelog filename).
+2. Add `docs/releases/<version>.md` (changes, verification, artifact hashes) and `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`. Update the latest-release link in `docs/README.md`, and verify that `PRIVACY_POLICY.md` and `fastlane/metadata/android/en-US/full_description.txt` still match the app.
+3. Build publishable APKs with the real repository slug (the tracked default `opentailcat/OpenTailcat` is a placeholder):
 
    ```bash
    ./gradlew assembleGithubDevelopment -PopentailcatRepoSlug=<owner>/<repo>
    ```
 
-4. Verify before publishing:
+4. Check the built APKs before uploading:
 
    ```bash
    BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
-   "$ANDROID_HOME/build-tools/$BT/aapt2" dump badging <apk> | head -1   # version name
+   "$ANDROID_HOME/build-tools/$BT/aapt2" dump badging <apk> | head -1   # versionName
    "$ANDROID_HOME/build-tools/$BT/apksigner" verify --print-certs <apk>  # dd7670... pin
    unzip -p <apk> 'classes*.dex' | strings | rg -o '[A-Za-z0-9_.-]+/OpenTailcat'
    ```
 
-   The last check must print the real slug, not `opentailcat/OpenTailcat`;
-   otherwise the in-app updater points at a nonexistent repository.
+   Confirm the last line prints the real slug, not `opentailcat/OpenTailcat`.
 
-5. Name assets `OpenTailcat-<version>-<abi>.apk`, write
-   `OpenTailcat-<version>-SHA256SUMS.txt`, and fill the hashes into the
-   release notes.
-6. Commit, tag `v<version>` (annotated), push `main` and the tag, then create
-   the release:
+5. Rename APKs to `OpenTailcat-<version>-<abi>.apk`, generate `OpenTailcat-<version>-SHA256SUMS.txt`, and record the hashes in `docs/releases/<version>.md`.
+6. Commit, create an annotated tag `v<version>`, push `main` and the tag, and publish:
 
    ```bash
    gh release create v<version> --title "OpenTailcat <version>" \
      --notes-file docs/releases/<version>.md <apks> <sums>
    ```
 
-7. After every release, stop all JVM instances and shut down any running
-   emulators or simulators used for the release. Verify they have exited.
+7. Stop all JVM daemons and shut down any emulators/simulators used during the release, and confirm they have exited.
 
-The `github` flavor self-updates from GitHub Releases and pins accepted signer
-certificates in `UpdatePolicy.kt`; `fdroid` compiles the updater out. Never
-embed personal account names or tokens in tracked sources.
+The `github` flavor enables the self-updater (`UPDATER_ENABLED = true`) and adds `REQUEST_INSTALL_PACKAGES`; `fdroid` compiles it out. Never put personal account names or tokens in tracked files.
 
 ## Conventions and pitfalls
 
-**UI**
+### UI and theme
 
-- Compose + Material3 with the dark theme tokens in `ui/theme` (`AccentCyan`,
-  `BgDark`, `SurfaceElevated`, ...). One package per screen under
-  `ui/screens/`, with a `ViewModel` where state outlives composition.
-- **No black or near-black text.** Every `on*` role in `Theme.kt` is a light
-  text token (`TextPrimary` or `TextSecondary`). `BgDark` is a background
-  only, including the Android theme's text colors. Filled buttons use
-  `TailcatButtons.filled()`: `TextPrimary` on the deeper teal `AccentFill`.
-  Checkboxes use `TailcatButtons.checkbox()`: the same light mark on
-  `AccentFill`. `AccentCyan` is the accent for text, outlines, radios and
-  field focus; it is too bright to carry light text, so never put dark text
-  on a fill. Material3 container roles (chips, dialogs, menus, snackbars,
-  and the fixed roles) are mapped in `Theme.kt`; add a role there before
-  relying on a default, which is the stock purple/gray or dark-on-bright.
-  `ThemeContrastTest` pins WCAG AA text contrast, light content roles, and
-  that fills stand out. QR modules stay black pixels on white so a scanner
-  can read them; that is ink, not a font.
-- Dialogs that show or accept credentials must set
-  `DialogProperties(securePolicy = SecureFlagPolicy.SecureOn)`; token fields
-  use `KeyboardType.Password`. The QR dialog relies on the secure flag because
-  the code itself contains the token.
-- No camera permission. QR display and image import use ZXing `core`.
-  Import uses the system image picker URI grant and decodes in memory, with
-  a 16 MiB encoded-size bound and 2048-pixel decoded dimension bound. No
-  external QR scanner receives the decoded token; paste remains available.
+- Dark Material3 Compose UI using tokens in `ui/theme/` (`AccentCyan`, `BgDark`, `SurfaceDark`, `SurfaceElevated`, etc.), with one package per screen under `ui/screens/`.
+- Never use black or near-black text. Every `on*` role in `Theme.kt` uses `TextPrimary` or `TextSecondary`, and `BgDark` is background-only (including in `themes.xml`). Filled buttons use `TailcatButtons.filled()` (`TextPrimary` on `AccentFill`), checkboxes use `TailcatButtons.checkbox()`. `AccentCyan` is for text, outlines, radios, and focus indicators, not as a fill behind light text. Map Material3 container roles explicitly in `Theme.kt` before using them. `ThemeContrastTest` enforces WCAG AA contrast and light content roles. QR code rendering uses black modules on white so scanners can read it.
+- Dialogs showing or accepting credentials must set `DialogProperties(securePolicy = SecureFlagPolicy.SecureOn)` and token inputs must use `KeyboardType.Password`.
+- No camera permission. QR generation and image import use ZXing `core` in memory via the system image picker URI grant, capped at 16 MiB encoded size and 2048 px per side.
 
-**Tokens and storage**
+### Tokens, storage, and native boundaries
 
-- Treat every `tc...` string as a secret: no logs, notifications, clipboard
-  side effects, crash reports, or tests with live tokens.
-- Profiles are stored in sealed preferences (AES-256-GCM, Android Keystore).
-  Do not add a plaintext fallback; a value that cannot be sealed is not
-  written.
-
-**Engine**
-
-- Every exported bridge function recovers panics as errors; do the same for
-  any new export.
-- No application-flow `net.DialUDP`/OS sockets. Traffic goes through TUN,
-  gVisor, and `Client`.
-- Never fake counters or freshness. WireGuard counters stay 0 until upstream
-  exposes a status API; health and `CONNECTED` follow invariant 3.
-
-**Contracts**
-
-- Token or capability changes require updating
-  `core-engine/testdata/*.json`, both parsers, and both test suites. The
-  capability fixture is a pinned contract.
-- Do not patch `third_party/tailcat`. Re-pin to a signed tag instead; see
-  "Dependencies and provenance".
-- Dependency updates are manual (Dependabot is disabled). A bump that changes
-  native code lands with a rebuilt AAR and test output.
-
-**Docs**
-
-- This file is the source of truth. When status, commands, versions, or
-  remaining work change, update it here; keep `README.md` product-facing,
-  `docs/README.md` the reader-facing index, and `docs/releases/` historical.
-- Screenshots live in `docs/screenshots/` and must never show a live token or
-  code. Android blanks `adb screencap` for the sharing screen (it sets
-  `FLAG_SECURE`), so capture it with the emulator's own screenshot
-  (`adb emu screenrecord screenshot <dir>`), then blur the QR beyond recovery
-  and crop or paint out the emulator's camera cutout before committing. Stop
-  the share afterwards: that discards the keys.
+- Treat every `tc...` string as a secret: keep it out of logs, notifications, automatic clipboard writes, crash reports, and tests.
+- Profiles live in AES-256-GCM Keystore-backed preferences (`SealedPreferences.kt`). Never add a plaintext fallback; if sealing fails, skip the write.
+- Every gomobile-exported Go function must recover panics as errors (`recoverExported`).
+- Never fake counters or freshness. WireGuard peer counters (`txBytes`/`rxBytes`) stay 0 until upstream exposes a status API.
+- Token or capability schema changes must update `core-engine/testdata/*.json`, both Go and Kotlin parsers, and both test suites.
+- Do not edit `third_party/tailcat` directly; update the submodule pin and regenerate `tailcat-integration` with `core-engine/integration/sync_tailcat.py`.
+- Dependency updates are manual (Dependabot is off). Any Go/native bump requires rebuilding the AAR.
+- Screenshots in `docs/screenshots/` must not contain live tokens or codes. Because the share screen sets `FLAG_SECURE`, `adb screencap` returns a blank frame; use `adb emu screenrecord screenshot <dir>`, blur the QR completely, remove any emulator cutout, and stop the share afterward to discard its keys.
 
 ## Data plane
 
-The engine terminates TUN packets in a gVisor userspace stack and carries
-them to the gateway with Tailcat's `Client`. No application-flow
-`net.DialUDP` exists in `core-engine`; the only OS sockets are upstream
-Magicsock/DERP transport and the gateway's own egress.
-
-| Input | Handling | Egress |
+| Traffic | Handling | Egress |
 | --- | --- | --- |
-| IPv4 TCP | gVisor terminates, proxies via `Client.DialTCP`; half-close forwarded; max 512 connections | WireGuard/Magicsock |
-| UDP/53 | To TUN destination (`PROFILE_RESOLVER`) or `ForcedDNS` (`FORCED_RESOLVER`); with `tcpOnly`, DNS-over-TCP, TC header above EDNS size (or 512 B) | Gateway |
-| Other IPv4 UDP | `Client.DialUDP`, one device-wide table of 1024 flows (LRU eviction); 30 s idle pre-reply, 2 min after | Gateway |
-| UDP > 1232 B | Dropped, counted in `mtuExceeded`; unfragmented gets local ICMP Frag-Needed (1260) / Packet Too Big (1280); local ICMP capped at 100/s | No request |
-| IPv6 TCP/UDP | Same dial budget as IPv4 (15 s TCP / 10 s UDP); public IPv6 rejected pre-dial when `ipv6Egress` is false (NAT64 `64:ff9b::/96` exempt) | Gateway if it has IPv6 WAN, else RST/drop |
-| ICMPv4/v6 echo | Dropped, counted in `policyRejections` | No request |
-| Over-MTU | ICMPv6 Packet Too Big; IPv4 Frag-Needed if DF set, else dropped | No request |
-| Speed test | `Client.DialTCP` when CONNECTED; otherwise device routes | Gateway when CONNECTED |
+| IPv4 TCP | Terminated by gVisor, proxied via `Client.DialTCP`, half-close forwarded, max 512 active connections | Gateway |
+| UDP/53 & TCP/53 | Forwarded to TUN destination (`PROFILE_RESOLVER`) or `ForcedDNS` (`FORCED_RESOLVER`). When `tcpOnly` is set, UDP/53 switches to pipelined DNS-over-TCP with EDNS-aware TC truncation (512 B classic fallback) | Gateway |
+| Other IPv4 UDP | `Client.DialUDP`, device-wide 1024-flow LRU table; idle timeouts: 2 s answered DNS / 10 s unanswered DNS / 30 s unreplied UDP / 2 min replied UDP | Gateway |
+| UDP payload > 1232 B | Dropped (`mtuExceeded`); unfragmented packets get local ICMP Frag-Needed (1260) or Packet Too Big (1280), rate-limited to 100/s | None |
+| IPv6 TCP/UDP | Same 15 s TCP / 10 s UDP dial timeouts; public IPv6 rejected pre-dial when `ipv6Egress` is false (NAT64 `64:ff9b::/96` exempt) | Gateway if IPv6 WAN works, else RST/drop |
+| ICMPv4 / ICMPv6 echo | Dropped (`policyRejections`) | None |
+| Over-MTU packets | ICMPv6 Packet Too Big; IPv4 Frag-Needed if DF is set, otherwise dropped | None |
+| Speed test | `Client.DialTCP` when `CONNECTED`; normal app HTTP sockets otherwise (follow device routes, which enter the TUN if up) | Gateway when `CONNECTED` |
 
-Notes: TCP buffers 128 KiB default / 1 MiB max. `GATEWAY_RESOLVER` is legacy
-for `PROFILE_RESOLVER`. Exit-IP audit runs through `Client.DialTCP`; the
-in-app public-IP card is a separate device-route request. `updateNetworkState`
-forwards LinkProperties through the typed `Client.NetworkMonitor()` integration
-API. Missing monitor support fails preparation; no reflection or unsafe
-private-field access is used. Telemetry is
-schema 2: RTT from `DiscoPing` ~5 s, jitter null until 3 samples, DERP region
-from `Client.DERPRegion()`; WireGuard counters stay 0 (no upstream API),
-`tunTxBytes`/`tunRxBytes` are the IP bytes that cross the TUN: upload is every
-byte read from it, download every byte written to it, headers included, whether or
-not the engine forwards the packet (refused packets and local TCP ACKs / ICMP
-errors count too). That is the kernel's own tun interface count, so it can be
-checked against `/proc/net/dev`; it is not gateway payload. Rates are those bytes
-per second as decimal kilobits, rounded to the nearest. The UI shows decimal units
-throughout (`kB`/`MB`/`GB`, `kb/s`/`Mb/s`/`Gb/s`) so a rate and a total agree
-(100 Mb/s for 10 s = 125.0 MB). `counters_exact_test.go` checks the totals against
-independently counted bytes. Tokens are validated twice
-(Kotlin UX, Go authority, shared fixtures). GitHub flavor has the updater;
-F-Droid compiles it out.
+Other details:
+
+- Local gVisor TCP buffers: 128 KiB default, 1 MiB max. `GATEWAY_RESOLVER` migrates to `PROFILE_RESOLVER`.
+- In-tunnel exit-IP audit runs in Go via `Client.DialTCP` (pinned TLS to `1.1.1.1/cdn-cgi/trace`). `IpAuditor` on the home card uses normal unprotected app HTTP sockets (pinned TLS to `1.1.1.1/cdn-cgi/trace`), so it queries the physical network while disconnected and is hidden while the tunnel is live.
+- `UpdateNetworkState` feeds Android `LinkProperties` into `Client.NetworkMonitor()` to trigger Magicsock rebinds. Missing monitor support fails `Prepare`.
+- Telemetry is schema v2: RTT comes from `DiscoPing` (~5 s interval), jitter is null until 3 samples exist, and DERP region comes from `Client.DERPRegion()` (falling back to the token's embedded map until sampled).
+- `tunTxBytes` and `tunRxBytes` count all IP bytes read from / written to the TUN, headers included (matching `/proc/net/dev`), including refused packets and local TCP ACKs / ICMP errors. Rates (`txRateKbps`/`rxRateKbps`) use decimal kilobits/sec, and UI totals/rates use decimal units (`kB`/`MB`/`GB`, `kb/s`/`Mb/s`/`Gb/s`) so rates and totals match (`counters_exact_test.go`).
 
 ## Lifecycle
 
-Native engine states: `STOPPED` -> `PREPARING` -> `PREPARED` -> `ATTACHING` ->
-`RUNNING`, plus `STOPPING` and `FAILED`. The UI shows a coarser state machine
-(`DISCONNECTED`, `CONNECTING`, `CONNECTED`, `RECONNECTING`, `DEGRADED`) and
-only shows `CONNECTED` after native `RUNNING` plus fresh health.
+Native engine states: `STOPPED` -> `PREPARING` -> `PREPARED` -> `ATTACHING` -> `RUNNING`, plus `STOPPING` and `FAILED`. UI states: `DISCONNECTED`, `CONNECTING`, `CONNECTED`, `RECONNECTING`, `DEGRADED`.
 
-- `prepare` validates the token, completes the handshake, may latch `tcpOnly`
-  when UDP probing fails. Session context lets `stop` cancel a blocked
-  prepare; a second prepare closes the previous client. The engine mutex is
-  short-lived (no network I/O or pump wait under it).
-- Android attaches a host-only TUN (no VPN DNS), detaches, then installs
-  `0.0.0.0/0` + `::/0` with VPN DNS and attaches again. `attachTun` returns
-  only after TUN reader, gVisor writer, UDP loop, and health loop entered.
-- Unexpected pump exit sets `FAILED` and clears `healthUnixSec`. Kotlin
-  requires native `RUNNING` + fresh health before showing CONNECTED.
-- Health-triggered reconnects log only a fixed reason category and heartbeat
-  or gateway-silence age after accepting the current session generation;
-  never log raw stats, gateway addresses, or credentials.
-- `stop` is idempotent and bounded; TUN closes before native stop.
-  `detachTun` returns to `PREPARED`; `disarmPumps` clears a pump failure
-  without stopping.
-- On mid-session failure the service closes the TUN, stops the engine, and
-  reconnects with backoff while `vpnWanted` is set. Between attempts there is
-  no TUN; Always-on VPN with Block connections without VPN closes that gap.
-- Concurrency rules (from the TLA+ model in `formal/`; keep them when editing
-  the service or `lifecycle.go`):
-  - Start jobs are serialized across service instances
-    (`launchSerializedStart`) and scoped to a shutdown epoch. A job that
-    `shutdown()` superseded never touches the controller, `vpnWanted`, or a
-    newer session; it only stops the native session it may have created.
-  - `shutdown()` sets `shuttingDown` and bumps the epoch under
-    `interfaceLock`. `establish()` + adopting the TUN, and publishing
-    CONNECTED, happen under the same lock after an epoch check, so no TUN or
-    CONNECTED state outlives a shutdown.
-  - A start job ends the service only through `failStart` /
-    `abandonStaleStart`: the staleness check and `onVpnStartFailed` share
-    one `interfaceLock` region, and `shutdown(epoch)` checks the epoch in the
-    CAS step. `onVpnStartFailed(serviceStopping = true)` leaves the UI state
-    to `onVpnStopped`, so Connect is not offered while that shutdown runs.
-  - A STOP intent stops only the starts its instance accepted before it
-    (`startGeneration`, checked in `shutdown()`'s CAS step), is ignored when
-    `vpnWanted` is set again, and only calls `stopSelf(startId)` on an idle
-    instance. `finish()` skips when a START was accepted after its CAS and
-    ends the service with `stopSelf(lastStartId)`, never plain `stopSelf()`,
-    so a start Android already queued is not dropped.
-  - `markFailed` acts only for the session's current bridge, so a pump
-    callback from the warm bridge cannot fail the routed attach.
-    `DetachTun` without a session is an error.
-  - `TunnelController` publishes poll/listener results only for the session
-    generation they observed (`stateLock`, `sessionGeneration`).
-    Its network-loss transition uses `StateFlow.compareAndSet`, so a stopped
-    session cannot be put back into RECONNECTING by a split read/write.
+- `Prepare` validates the token, runs `Ping`/`DiscoPing`, probes gateway UDP via STUN (latching `tcpOnly` on failure, with 30 s re-probe and auto-relatch after 8 unanswered flows), and probes IPv6 WAN egress. Session context lets `Stop` cancel an in-flight `Prepare`. Keep `globalCore.mu` short-lived (no network I/O or pump waits under it).
+- Two-phase TUN attach: Android establishes a host-only TUN (no VPN DNS), calls `AttachTun` to prove live pumps, calls `DisarmPumps` + `DetachTun`, then establishes the routed TUN (`0.0.0.0/0` + `::/0` + DNS) and attaches again. `AttachTun` returns only after the TUN reader, gVisor writer, UDP GC, and health/rate loops are running.
+- Unexpected pump exit moves native state to `FAILED` and zeros `healthUnixSec`. Kotlin requires native `RUNNING` plus fresh health before showing `CONNECTED`.
+- Health-triggered reconnects log only a fixed reason category and heartbeat/silence age (`PUMP_FAILED`, `HEALTH_STALE`, `GATEWAY_LOST`, `STATS_UNAVAILABLE`), never raw stats, addresses, or tokens.
+- `Stop` is idempotent and bounded (`stopWaitTimeout` = 3 s). Android closes the TUN before calling native `stop()`.
+- On mid-session failure while `vpnWanted` is true, `TailcatVpnService` drops the TUN, stops the engine, and reconnects with `StartRetry` backoff (2 s to 30 s). There is no TUN between attempts; Always-on VPN with lockdown closes that gap.
+
+Concurrency rules (checked by the TLA+ models in `formal/`; preserve these when touching `TailcatVpnService`, `TunnelController`, or `lifecycle.go`):
+
+- Start jobs are serialized across service instances (`launchSerializedStart`) and scoped to `shutdownEpoch`. A superseded start never touches the controller, `vpnWanted`, or a newer session; it only stops any native session it may have created.
+- `shutdown()` sets `shuttingDown` and increments `shutdownEpoch` under `interfaceLock`. `establishAndAdopt` and publishing `CONNECTED` run under `interfaceLock` after checking the epoch, so neither a TUN nor `CONNECTED` can outlive a shutdown.
+- Failed starts only tear down through `failStart` / `abandonStaleStart`. The staleness check and `onVpnStartFailed` share one `interfaceLock` block, and `shutdown(epoch)` checks the epoch in the CAS step. `onVpnStartFailed(serviceStopping = true)` leaves transitioning to `DISCONNECTED` to `onVpnStopped` so Connect cannot race an active shutdown.
+- `ACTION_STOP_VPN` only stops starts accepted by that instance before it (`startGeneration`, verified in `shutdown`'s CAS), is ignored if `vpnWanted` is true again, and calls `stopSelf(startId)` only when idle. `finish()` skips if a newer `START` arrived after the CAS and calls `stopSelf(lastStartId)`, never plain `stopSelf()`.
+- `markFailed` acts only for the session's current `TunBridge` so a warm-bridge pump callback cannot fail the routed attach. `DetachTun` returns an error if no session exists.
+- `TunnelController` publishes poll and network-restore results only when `sessionGeneration` still matches under `stateLock`. The `NetworkType.NONE` transition uses `StateFlow.compareAndSet(CONNECTED, RECONNECTING)`.
 
 ## Token contract
 
-`"tc" + Base64URL(CBOR({p, k, q?, i?, r?}))` — `p`/`k` 32-byte server node/
-disco keys, optional `q` 32-byte PSK, optional DERP region `i` or structured
-`r`. Optional `exp`/`iat` (identical Kotlin/Go semantics). Both parsers
-reject whitespace, padding, duplicate CBOR keys, aliases, unknown fields,
-trailing objects, oversized/indefinite structures, fractional/overflowing
-timestamps, `exp < iat`, and expired tokens. Legacy numeric-`r` returns
-`LEGACY_REISSUE_REQUIRED` and is never dialed. Disco key is never derived
-from the node key. Embedded DERP maps allow region `i`/`c`/`m`/`N` and node
-`n`/`i`/`h`/`t`/`4`/`6`/`s`/`d`; node `x` (`InsecureForTests`) and
-loopback/unspecified/link-local/multicast addresses are rejected.
+Format: `"tc" + Base64URL(CBOR({p, k, q?, i?, r?, exp?, iat?}))` with 32-byte `p` (node key) and `k` (disco key), optional 32-byte `q` (PSK), DERP region `i` or structured `r`, and optional integer `exp`/`iat`.
 
-`core-engine/testdata/token_fixtures.json` (90 cases, `go run
-./cmd/generate-fixtures`) is read by both test suites.
-`core-engine/testdata/token_differential.json` pins Go's verdict on ~2,600
-deterministic mutations of those fixtures; `TokenDifferentialTest` requires
-Kotlin to agree on classification, error code, keys, and region. Fields are
-validated in encoded order and invalid UTF-8 text is rejected while decoding,
-in both parsers. After an intended parser change, regenerate with
-`OTC_UPDATE_FIXTURES=1 go test -run TestTokenDifferentialCorpus .` and run both
-suites.
+Both Go (`core-engine/token.go`, `cbor_strict.go`) and Kotlin (`core/token/TokenParser.kt`) reject whitespace, `=` padding, duplicate CBOR keys, aliases, unknown fields, trailing bytes, oversized or indefinite-length CBOR, floats, invalid UTF-8 text strings, overflowing timestamps, `exp < iat`, expired tokens, and `k == p`. Legacy numeric `r` returns `LEGACY_REISSUE_REQUIRED` and is never dialed. Embedded DERP regions allow region fields `i`/`c`/`m`/`N` and node fields `n`/`i`/`h`/`t`/`4`/`6`/`s`/`d`, rejecting `x` (`InsecureForTests`), loopback/metadata hostnames, hostnames with embedded IPv4 literals, and loopback/unspecified/link-local/multicast IPs. Fields are validated in encoded order on both sides.
+
+Shared corpora in `core-engine/testdata/`:
+
+- `token_fixtures.json` (90 cases, generated by `go run ./cmd/generate-fixtures`)
+- `token_differential.json` (2,654 deterministic mutations; `TokenDifferentialTest` checks Go/Kotlin agreement on classification, error code, keys, and region)
+
+After an intentional parser change, regenerate with:
+
+```bash
+cd core-engine && OTC_UPDATE_FIXTURES=1 go test -run TestTokenDifferentialCorpus .
+```
+
+Then run both Go and Kotlin test suites.
 
 ## Capabilities
 
-API v2. `dataPlane` is derived via `routeReady()` from the flags below,
-pinned by `core-engine/testdata/capabilities.json` (parsed by both suites;
-changing the contract requires updating the fixture and both sides). Kotlin
-fails closed on unknown fields, missing/older API version, or any required
-flag false. `testRouting` is display-only.
-
-Flags: `ipv4` (default route, egress, teardown), `ipv6` (`::/0`, proxied
-v6, fail-closed without WAN), `tcp`, `udp` (QUIC, bounds, MTU), `dns`
-(policy, UDP/TCP fallback), `wireGuard`, `magicsock` (direct/DERP, roaming),
-`twoPhaseStart`, `liveStats`, `cancelSafeLifecycle`, `dataPlane` (AND of all).
+API v2, pinned by `core-engine/testdata/capabilities.json` (parsed by both Go and Kotlin tests). `dataPlane` is computed by `routeReady()` as the AND of `ipv4`, `ipv6`, `tcp`, `udp`, `dns`, `wireGuard`, `magicsock`, `twoPhaseStart`, `liveStats`, and `cancelSafeLifecycle`. `testRouting` is display-only. Kotlin (`EngineCapabilities.fromJson`) fails closed on unknown fields, `apiVersion < 2`, or any false required flag.
 
 ## Native API
 
-`com.tailcat.golib.engine.Engine`: `getCapabilitiesJSON()`, `prepare(token)`,
-`attachTun(tunFd)`, `detachTun()`, `disarmPumps()`, `getStatsJSON()`,
-`stop()`, `updateNetworkState(json)`, `parseToken(token)`,
-`measureTunnelPingMS()`, `measureTunnelDownloadMbps(SpeedProgress)`,
-`measureTunnelUploadMbps(SpeedProgress)`, `setSocketProtector(SocketProtector)`,
-`ensureTransportProtect()`, and the exit-node set `startExitNode(configJSON)`,
-`exitNodeStatsJSON()`, `exitNodeApprove(key)`, `exitNodeDeny(key)`,
-`exitNodeRevoke(key)`, `stopExitNode()`. Every exported function recovers panics as
-errors. Go duplicates the TUN fd (non-blocking); Android owns the original.
+gomobile exports on `com.tailcat.golib.engine.Engine` (spread across `main.go`, `lifecycle.go`, `token.go`, `speedtest.go`, `protect.go`, and `exitnode_bridge.go`):
 
-Kotlin talks to it through the `NativeEngine` interface so tests can fake the
-engine (`TunnelEngineTest`); the gomobile implementation is `TunnelEngine`.
+- Client tunnel: `getCapabilitiesJSON()`, `prepare(token)`, `attachTun(tunFd)`, `detachTun()`, `disarmPumps()`, `getStatsJSON()`, `stop()`, `updateNetworkState(json)`, `parseToken(token)`, `measureTunnelPingMS()`, `measureTunnelDownloadMbps(SpeedProgress)`, `measureTunnelUploadMbps(SpeedProgress)`, `setSocketProtector(SocketProtector)`, `ensureTransportProtect()`.
+- Exit node: `startExitNode(configJSON)`, `exitNodeStatsJSON()`, `exitNodeApprove(key)`, `exitNodeDeny(key)`, `exitNodeRevoke(key)`, `stopExitNode()`.
+
+Go duplicates the TUN fd and sets it non-blocking; Android keeps ownership of the original fd. Kotlin accesses the engine via `NativeEngine` (`TunnelEngine`) and `NativeExitNode` (`TunnelExitNode`) interfaces so unit tests can use fakes.
 
 ## Testing
 
-- **JVM unit tests** (`app/src/test/`) cover token parsing, DNS validation,
-  profile storage, reconnect/backoff, notification throttling, split tunnel,
-  update policy, telemetry formatting, and QR round-trip.
-- **Shared fixtures**: the `test` source set reads `core-engine/testdata/`, so
-  a fixture change is a contract change exercised by both languages.
-- **Exit node tests.** Go: `core-engine/exitnode/*_test.go` (policy, admission,
-  caps, expiry including `NoExpiry`, `TestOSSocketsConfinedToDial`, and an
-  end-to-end client-to-node test over an in-process DERP relay in
-  `e2e_test.go`), `exitnode_bridge_test.go` (config parsing, mutual exclusion,
-  panic recovery), `dns_rotation_test.go` (resolver failover). Kotlin:
-  `ExitNodeControllerTest`, `ExitNodeNotificationTextTest`,
-  `ExitNodeStatsTest`, `TunnelExitNodeTest`. The stats JSON fixture is read by
-  both suites.
-- **Fuzzing** (`core-engine/fuzz_test.go`): property-checking targets for the
-  token parser, strict CBOR, DNS parsing/truncation, the DERP map filter,
-  IPv6 extension headers, and the outbound packet path. `go test ./...` runs
-  their seed corpora (`testdata/fuzz/`, including past failures); run one for
-  longer with `go test -run '^$' -fuzz '^FuzzParseToken$' -fuzztime 5m .` and
-  commit any new failing input it writes (then rebuild the AAR: the corpus is
-  part of the native source hash).
-- **Model checking** (`formal/`, Java 21 + Python 3.10+): `formal/check.sh`
-  downloads a pinned `tla2tools.jar` into ignored `formal/.tools/`. Run
-  `python3 -m unittest discover -s formal -p 'test_*.py'` and
-  `formal/check.sh --regressions` for the baseline, saved counterexample
-  schedules and focused exhaustive progress/network-loss models. The focused
-  shutdown model checks eventual cleanup and Start/Stop completion under
-  documented fairness/call-completion assumptions; four temporal mutants
-  demonstrate failures while a heartbeat keeps running. The full lifecycle
-  model's temporal properties remain unchecked, and larger restart scenarios
-  remain random samples. `formal/check.sh --extended` runs the larger checks;
-  CI shards these six ways after the fast regressions. CHECKED, reproduced
-  counterexamples and SAMPLED evidence are distinct results; crashes, resource
-  failures and external kills fail the gate. `formal/README.md` maps actions
-  to code and states the scope. Update the models with lifecycle changes. Full
-  exploration can take hours; do not run concurrent checkers in one checkout.
-- **Instrumented tests** (`app/src/androidTest/`) cover VPN consent/startup,
-  pairing, bounded QR image decoding, preference storage, and Android's queued/newer-start
-  `stopSelf(startId)` contract using a debug-only ordinary Service probe.
-  They need a device or emulator; the emulator smoke suite runs the probe.
-- **Emulator suites** (AVD `OpenTailcat_API35`; `start.sh` boots it headless
-  when no device is attached):
+- **JVM unit tests** (`app/src/test/`): read shared fixtures from `core-engine/testdata/` directly. Cover token parsing & differential corpus, DNS validation, sealed preferences & profiles, health/reconnect/retry, notification throttling, split tunnel, updater policy & lineage, traffic formatting, QR round-trips, theme contrast, and exit-node controller/stats/notifications.
+- **Go unit tests** (`core-engine/` and `core-engine/exitnode/`): data plane, counters, DNS failover/TCP fallback, IPv6/UDP probing, TLS pins, `no_os_socket_test.go`, exit-node policy/admission/caps/expiry, `TestOSSocketsConfinedToDial`, end-to-end exit-node test over an in-process DERP relay (`exitnode/e2e_test.go`), and bridge mutual exclusion/panic recovery.
+- **Fuzzing** (`core-engine/fuzz_test.go`): targets for token parsing, strict CBOR, DNS parsing/truncation, DERP map filtering, IPv6 extension headers, and outbound packets. `go test ./...` runs the seed corpus under `testdata/fuzz/`. Run longer sessions with `go test -run '^$' -fuzz '^FuzzParseToken$' -fuzztime 5m .` and commit any new corpus file (then rebuild the AAR since `testdata/` is inside the source hash).
+- **TLA+ model checking** (`formal/`, JDK 21 + Python 3.10+):
+  - `python3 -m unittest discover -s formal -p 'test_*.py'`
+  - `formal/check.sh --regressions` (baseline, saved counterexample replays, focused progress/network-loss models)
+  - `formal/check.sh --extended` (larger scenarios and sampling; sharded 6 ways in `formal.yml`)
+  - See `formal/README.md` for model scope and code mapping. Do not run two TLC processes concurrently in one checkout.
+- **Instrumented tests** (`app/src/androidTest/`): VPN startup/consent, pairing, QR image import, Keystore preference migration, and Android `stopSelf(startId)` behavior via debug-only `StartIdProbeService`.
+- **Emulator suites** (AVD `OpenTailcat_API35`; `scripts/emulator/start.sh` boots headless if no device is connected):
 
   ```bash
   ./gradlew assembleGithubDebug assembleGithubDebugAndroidTest
-  scripts/emulator/ci-smoke.sh          # no gateway, no secrets
-  OTC_LIVE_TOKEN=... scripts/emulator/ci-live.sh   # live gateway; token is never printed
+  scripts/emulator/ci-smoke.sh
+  OTC_LIVE_TOKEN=... scripts/emulator/ci-live.sh
   adb emu kill && ./gradlew --stop
   ```
 
-`scripts/emulator/lib.sh` redacts token-shaped strings from logs; keep it that
-way. CI runs the smoke suite on pull requests and the live suite on `main` and
-on the nightly schedule when the gateway token secret is set; the live job
-never runs on a PR.
-The live suite keeps the emulator's cellular network active for roaming;
-unavailable roaming exits 77 and fails the full suite instead of reporting PASS.
-The live suite also checks real TCP forwarding with the UI backgrounded and
-the screen off at 15-second intervals, reading notification health without
-bringing the app forward and checking that the screen stays asleep.
-
-Offline native socket-protection regressions also run on Android with
-`ANDROID_NDK_HOME=<pinned-ndk> scripts/emulator/native-protect-test.sh` after
-booting the device. They use synthetic keys and loopback sockets only and
-check initial transport socket protection, ordinary-socket isolation, later
-socket creation, and failed-protection rejection. They are not packet-leak or
-live-gateway acceptance. The smoke suite includes QR image import tests.
-
-`scripts/phase8/` holds host capture and analysis tooling (`e2e-analyze.sh` is
-a synthetic harness). It is not physical leak acceptance; that evidence is
-still outstanding.
+  `ci-smoke.sh` runs on PRs; `ci-live.sh` runs on `main` and nightly when `OTC_LIVE_TOKEN` is configured (never on PRs) and requires mobile data for roaming (`roam-test.sh` exits 77 and fails the suite if unavailable). `scripts/emulator/lib.sh` redacts token-like strings from logs. Offline Android native socket-protection tests run via `ANDROID_NDK_HOME=<pinned-ndk> scripts/emulator/native-protect-test.sh`.
+- **Phase 8 capture tooling** (`scripts/phase8/`): host-side pcap analyzer and synthetic self-test (`e2e-analyze.sh`). Real ARM64 physical dual-capture testing is still open.
 
 ## Dependencies and provenance
 
-`third_party/tailcat` is pinned to upstream `e00cdde6` (untagged/unsigned,
-18 commits after signed `v0.7.0`; carries `Client.DERPRegion()` and UDP
-forwarding). Re-pin to the next signed tag; do not patch the submodule. See
-`third_party/PROVENANCE.md`. Dependency updates are manual (a bump changes
-the AAR, so it lands with a rebuild + test output); Dependabot is disabled.
+`third_party/tailcat` is pinned to unmodified upstream commit `e00cdde6` (18 commits past signed tag `v0.7.0`, bringing `Client.DERPRegion()`, UDP forwarding, and server hooks used by `exitnode`). Re-pin to the next signed tag when available. See `third_party/PROVENANCE.md`.
 
-The Go module is `com.tailcat.vpn/engine` and replaces `github.com/tailscale/tailcat`
-with the application-owned `./tailcat-integration` module. It is reproduced
-from the unmodified upstream base by `integration/sync_tailcat.py`, with the
-small patch in `integration/tailcat.patch`; tests and the AAR builder verify
-this correspondence. The added API is maintained by OpenTailcat, not yet
-supported upstream. See `core-engine/integration/README.md`. Remove this
-replacement when upstream supplies equivalent reviewed APIs. The AAR embeds
-this integration, and its sources are covered by the native source hash.
+`core-engine/go.mod` replaces `github.com/tailscale/tailcat` with `./tailcat-integration`, generated from `third_party/tailcat` plus `core-engine/integration/tailcat.patch` via `core-engine/integration/sync_tailcat.py`. Both tests and `build-aar.sh` verify the copy with `sync_tailcat.py --check`. See `core-engine/integration/README.md`.
 
 ## Exit node
 
-The phone can be the gateway instead of the client: it mints a `tc...` code,
-shows it as a QR or copy, and forwards guests' TCP/UDP through its own network.
-Open items are under "Remaining work". Rules that must hold:
+Rules and behavior for "Share this phone":
 
-- **Separate package.** `core-engine/exitnode/` may open OS sockets because
-  forwarding to the Internet is its job; `package engine` still may not
-  (invariant 2). `exitnode`'s own sockets live only in `dial.go`
-  (`TestOSSocketsConfinedToDial`). Never move forwarding code into `engine`.
-- **Never alongside the client tunnel.** With the VPN's default route up, the
-  node's dials would be captured and loop. Enforced three ways: native
-  `Prepare` refuses while the node runs and `StartExitNode` refuses unless the
-  engine is STOPPED/FAILED (both decided under `globalCore.mu`,
-  `exitnode_bridge.go`); `TunnelController.startBlocker` makes every Android
-  start path (including Always-on) refuse; `ExitNodeController.refresh` ends a
-  session if both ever overlap.
-- **A code is a bearer credential.** Default admission is host approval: an
-  unknown device key is parked as pending and refused until approved. Open
-  admission is an explicit, labelled mode. Sessions use fresh keys, discarded
-  at stop, so stopping revokes every code. The node enforces expiry itself.
-  A share may have no time limit (`NoExpiry`) only with approval admission;
-  open admission is always timed (24 h cap), enforced natively and in Kotlin.
-- **The relay is configurable.** By default the node picks the nearest public
-  DERP region. The host can name their own relay in the share screen (host
-  name plus DERP/STUN ports); the bridge turns that into the `tailcat.Server`
-  region, so no DERP map is fetched, and the region is embedded in the minted
-  code, so the guest needs no matching setting. The name must be a bare DNS
-  name with a valid TLS certificate (an IP or loopback is refused, and
-  `InsecureForTests` stays off); ports default to 443 and 3478. Relay
-  configuration is per session and is not persisted.
-- **Guests never reach the host's network.** Loopback, private, CGNAT,
-  link-local, multicast and reserved destinations are refused
-  (`exitnode/policy.go`); 4-in-6 and the well-known (`64:ff9b::/96`) and RFC
-  8215 local-use (`64:ff9b:1::/48`) NAT64 forms are judged by the IPv4 address
-  they embed. Carrier-specific NAT64 prefixes are a known limitation: the node
-  does not read the active network's prefix yet. `AllowLocalDestinations` is
-  test-only and is not reachable from the bridge config
-  (`TestBridgeConfigCannotAllowLocalDestinations`).
-- **Transport protection while sharing.** No VPN of ours exists, so the bridge
-  installs a permissive socket protector for the node's lifetime and restores
-  the previous one at the end. Sockets are still created through the protect
-  hook; they are just never refused.
-- Keys, codes and device keys stay out of logs. Stats JSON is a pinned
-  contract (`testdata/exitnode_stats.json`, `TestStatsContract`,
-  `ExitNodeStatsTest`); regenerate with `OTC_UPDATE_FIXTURES=1 go test -run
-  TestStatsContract ./exitnode`.
+- **Package boundary**: `core-engine/exitnode/` is separate from `package engine` so `package engine` keeps its no-OS-socket rule (invariant 2). All OS dials in `exitnode` stay in `exitnode/dial.go`, enforced by `TestOSSocketsConfinedToDial`.
+- **Mutual exclusion with client VPN**: a running client VPN would capture the exit node's outbound dials and loop them. Blocked in three places: natively under `globalCore.mu` (`Prepare` refuses while `exitNodeClaim` is set; `StartExitNode` refuses unless client state is `STOPPED`/`FAILED` and not stopping), in Android (`TunnelController.startBlocker` blocks every VPN start including Always-on), and as a poll backstop in `ExitNodeController.refresh`.
+- **Admission and session lifetime**: default mode is host approval (`AdmitApproval`), parking unknown device keys as pending until approved. Open mode (`AdmitOpen`) always requires a TTL (max 24 h). `NoExpiry` ("Until I stop") is only allowed with `AdmitApproval`, checked in both Kotlin and Go. Every session generates fresh node and preshared keys in memory, discarded on stop or process death, and the node enforces expiry itself.
+- **Custom relay**: defaults to the nearest public DERP region. Users can optionally enter a self-hosted relay hostname plus DERP/STUN ports (defaults 443 / 3478); the bridge builds a private region (ID 900) so no public DERP map is fetched and embeds it in the minted token. IP literals, URLs, and loopback/metadata names are rejected, and `InsecureForTests` is never enabled. Not persisted across sessions.
+- **Destination filtering**: `exitnode/policy.go` blocks loopback, RFC 1918, CGNAT, link-local, multicast, unspecified, documentation, and reserved ranges, unmapping 4-in-6 and decoding well-known (`64:ff9b::/96`) and RFC 8215 (`64:ff9b:1::/48`) NAT64 addresses. Carrier-specific NAT64 prefixes are not yet read from `LinkProperties`. `AllowLocalDestinations` is test-only and unreachable via bridge JSON (`TestBridgeConfigCannotAllowLocalDestinations`).
+- **Socket protector swap**: while the exit node runs (no VPN active), `exitnode_bridge.go` installs `allowAllProtector` so `netns` socket creation succeeds, and restores the previous protector on exit.
+- **Stats contract and privacy**: never log keys, codes, or guest destinations. Stats JSON schema v1 is pinned by `core-engine/testdata/exitnode_stats.json` (`TestStatsContract`, `ExitNodeStatsTest`); regenerate with `OTC_UPDATE_FIXTURES=1 go test -run TestStatsContract ./exitnode`.
+- **Approval UX**: product code never auto-approves guests. Because guests don't show a device ID, the host cannot independently verify who is asking; the UI warns if more than one pending device appears at once.
+- **Android service and UI**: `ExitNodeService` is `START_NOT_STICKY` with `foregroundServiceType="specialUse"` (`PROPERTY_SPECIAL_USE_FGS_SUBTYPE`), `stopWithTask="false"`, and a `PARTIAL_WAKE_LOCK` (TTL + 60 s for timed shares, or 1 h chunks renewed by the poll loop for no-limit shares). `ShareScreen` sets `FLAG_SECURE` while showing the code, Copy marks clipboard data `EXTRA_IS_SENSITIVE` on API 33+, and notifications show only counts, bytes, and time left.
+- **Engine DNS failover**: `net.DefaultResolver` in `core-engine/main.go` rotates past timed-out Android DNS servers so fetching the public DERP map still works when the first configured resolver is dead. One timeout from a flaky server can still bump preference back onto a dead one; hedged queries remain on the backlog.
 
-- **Approval is the host's decision.** Product code never approves a device on
-  the host's behalf, and the guest app shows no device id, so the host cannot
-  verify who is asking. The UI warns when more than one device asks at once.
-  Test automation may tap Approve on an emulator it owns; never ship that.
-- **Android surface.** `ExitNodeService` is a foreground service of type
-  `specialUse` (with the `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` explanation),
-  `stopWithTask=false`, not sticky. It holds a `PARTIAL_WAKE_LOCK` for the
-  session: timeout TTL + 60 s for timed shares, one-hour chunks renewed by the
-  poll loop for no-limit shares. `FOREGROUND_SERVICE_SPECIAL_USE` and
-  `WAKE_LOCK` are in the manifest; keep the permission list in
-  `PRIVACY_POLICY.md` in step with it.
-- **The code is never exposed.** The share screen sets `FLAG_SECURE` while it
-  shows the code (screenshots and recents are blank), the notification shows
-  device count and bytes only, and Copy is the only clipboard write.
-
-Status: shipped in 1.7.0. Native engine, bridge, UI and `ExitNodeService`
-exist. Sharing is not resumed if Android kills the process: the keys die with
-it. The share screen offers 15 min, 1 h, 4 h, 24 h or "Until I stop" (approval
-only), and approval or open admission, plus an optional self-hosted relay
-instead of the nearest public DERP region. The engine resolver now fails over
-between Android DNS servers (needed to fetch the relay map on networks whose
-first DNS server never answers). It is still partial: one timeout from a
-flaky-but-working server can move the preference back to a dead one, costing
-one more timeout; hedged queries are the complete fix. Verified: on an
-emulator, start, foreground service, notification, interlock and stop; by
-hand, a real guest phone connecting through an emulator host over mobile data
-with approval and real traffic (about 170 flows, 11 MB in one capture). Not
-verified: a physical phone as the host, battery and doze over long sessions
-(especially no-limit shares), and the interlock in the TLA+ model.
-
-## Glossary
-
-- **Exit gateway** — a `tailcat serve exit-node` host that owns the public egress.
-- **Token** (`tc...`) — self-contained credential with node/disco keys, optional PSK, DERP region, and expiry; no account or API key.
-- **Profile** — saved gateway: token, name, DNS resolver and policy, MTU.
-- **Exit node / Share this phone** — the app acting as the gateway: it mints a session code and forwards guests' traffic through the phone's own network.
-- **Host / guest** — the phone that shares, and a device using its code (any OpenTailcat client).
-- **Approval** — the host tapping Approve for a pending device key; the default admission mode.
-- **TUN** — Android virtual interface handed to the engine; the only source of tunneled packets.
-- **gVisor** — userspace TCP/IP stack inside the engine that terminates those packets.
-- **DERP / Magicsock / WireGuard** — Tailcat transport: encrypted links, NAT traversal, and relay fallback.
-- **Egress IP** — public address the Internet sees; audited through `Client.DialTCP`, not the device-route card.
-- **Test routing** — the current data-plane maturity flag (`testRouting`), shown in the UI and not accepted for privacy-sensitive traffic.
-- **Phase 8** — the physical dual-capture leak-acceptance stage, still
-  outstanding; `scripts/phase8/` has the host capture and analysis tooling.
+Current verification state: emulator start/stop, foreground service, notification, and VPN interlock are verified; a physical guest phone connected through an emulator host over mobile data with approval and forwarded real traffic (~170 flows, ~11 MB). Physical phone hosting, long-session battery/doze behavior, and TLA+ modeling of the interlock are still open.
 
 ## Remaining work
 
-- Physical dual-capture leak acceptance on ARM64 (split tunnel, forced pump failure).
-- Wi-Fi/cellular roaming and captives/doze evidence.
-- Gateway with IPv6 WAN, or a documented translation policy.
-- Production signing, lineage migration, and artifact verification.
-- Upstream status API for WireGuard counters (they stay 0 until then).
-- Reconnect TUN gap: recommend Always-on lockdown.
-- Exit node: battery/doze measurement (a long no-limit session first), a
-  physical phone as the host, a stable per-profile client key (each guest
-  reconnect needs a new approval today), TLA+ coverage of the interlock, a TCP
-  idle timeout, per-peer caps, hedged DNS queries in the engine resolver, a
-  warning in the share UI when a third-party VPN is active (the node's
-  egress is then that VPN's, which the host may not intend), and the active
-  network's NAT64 prefix (from `LinkProperties.getNat64Prefix()`) so guests
-  cannot encode blocked IPv4 addresses through carrier-specific translation
-  prefixes, a per-guest direct-or-relayed path indicator (the node knows
-  `CurAddr` vs `Relay`), and remembering the relay choice across sessions.
-- Confirm the service-lifecycle fixes from the TLA+ model on a device
-  (`stopSelf(startId)` with a queued start, STOP after a failed start then a
-  quick Connect; see `formal/README.md`). The new instrumented platform probe
-  passed on API 35 ARM64 locally and x86_64 in CI. It covers start-id ordering,
-  not these full VPN flows.
+- Physical ARM64 dual-capture leak acceptance (including split tunnel and forced pump failure).
+- Real-device Wi-Fi/cellular roaming, captive portal, and doze testing.
+- Testing against a gateway with IPv6 WAN, or documenting a translation policy.
+- Production release signing, v3 key-rotation lineage, and upgrade migration testing.
+- Upstream WireGuard peer counter API (counters remain 0 until available).
+- Device verification of the TLA+ VPN lifecycle fixes (`stopSelf(startId)` with queued starts, STOP after a failed start followed by a quick Connect; the non-VPN `StartIdProbeService` passed on API 35 ARM64 and x86_64 CI, but full VPN flows still need device tests).
+- Exit node:
+  - Physical phone as host and battery/doze measurements (especially for "Until I stop" sessions).
+  - Stable per-profile client key so guest reconnects don't require re-approval.
+  - TLA+ coverage of the client/exit-node interlock.
+  - TCP idle timeout and per-peer flow caps.
+  - Hedged DNS queries in the Go engine resolver.
+  - Warning in the share UI when a third-party VPN is active.
+  - Reading the active network's NAT64 prefix (`LinkProperties.getNat64Prefix()`) for destination filtering.
+  - Per-guest direct vs. relayed indicator (`CurAddr` vs. `Relay`).
+  - Optional persistence for custom relay settings across sessions.
