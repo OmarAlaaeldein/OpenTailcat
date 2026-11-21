@@ -51,19 +51,45 @@ reconnect() {
 # Keep the emulator's cellular network provisioned while Wi-Fi is the default.
 # Otherwise Google APIs images can tear it down and the roaming check silently
 # exercises nothing. This fixture is confined to the disposable emulator.
-if [ "$(adb shell getprop ro.kernel.qemu | tr -d '\r')" = 1 ]; then
-  adb shell settings put global mobile_data_always_on 1
-  adb shell svc data enable
-  adb emu gsm data home >/dev/null
-  for _ in $(seq 1 30); do
-    has_mobile_data && break
+#
+# A cold boot can report the modem home (IN_SERVICE) while Android never
+# places a data call: mDataConnectionState stays unknown and the only
+# NetworkAgent is Wi-Fi. Another "gsm data home" is a no-op in that state.
+# Drop the registration and bring it back so the data call is placed again.
+wait_for_mobile() {
+  local tries=$1
+  local _
+  for _ in $(seq 1 "$tries"); do
+    has_mobile_data && return 0
     sleep 2
   done
+  return 1
+}
+
+kick_mobile_radio() {
+  adb emu gsm data off >/dev/null || true
+  sleep 2
+  adb emu gsm voice home >/dev/null || true
+  adb emu gsm data home >/dev/null || true
+  adb shell svc data enable >/dev/null || true
+}
+
+if [ "$(adb shell getprop ro.kernel.qemu | tr -d '\r')" = 1 ]; then
+  adb shell settings put global mobile_data_always_on 1
+  adb shell settings put global mobile_data 1
+  adb shell svc data enable || true
+  if ! wait_for_mobile 10; then
+    echo "cellular network was not up; cycling the emulator radio"
+    for _ in 1 2 3; do
+      kick_mobile_radio
+      wait_for_mobile 10 && break
+    done
+  fi
   if ! has_mobile_data; then
     echo "FAIL: emulator cellular network did not become available"
-    adb emu gsm status
-    adb shell settings get global mobile_data
-    adb shell settings get global mobile_data_always_on
+    adb emu gsm status || true
+    adb shell settings get global mobile_data || true
+    adb shell settings get global mobile_data_always_on || true
     adb shell dumpsys telephony.registry | grep -E 'mServiceState=|mDataConnectionState=|mDataConnectionNetworkType=|mSimState=' || true
     adb shell dumpsys connectivity | grep -E 'NetworkAgentInfo\{' || true
     exit 1
