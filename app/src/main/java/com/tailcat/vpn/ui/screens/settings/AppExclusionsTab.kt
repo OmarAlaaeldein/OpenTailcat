@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -35,7 +34,7 @@ import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.core.model.TunnelState
 import com.tailcat.vpn.service.SplitTunnelExclusions
 import com.tailcat.vpn.ui.theme.AccentCyan
-import com.tailcat.vpn.ui.theme.BorderSubtle
+import com.tailcat.vpn.ui.theme.TailcatButtons
 import com.tailcat.vpn.ui.theme.TailcatShapes
 import com.tailcat.vpn.ui.theme.panel
 import com.tailcat.vpn.ui.theme.TextMuted
@@ -203,10 +202,7 @@ internal fun AppExclusionsTab(
                                 }
                             )
                         },
-                        colors = CheckboxDefaults.colors(
-                            checkedColor = AccentCyan,
-                            uncheckedColor = TextMuted
-                        )
+                        colors = TailcatButtons.checkbox(uncheckedColor = TextMuted)
                     )
                 }
             }

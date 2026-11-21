@@ -6,7 +6,7 @@ import androidx.compose.ui.graphics.Color
 val BgTop = Color(0xFF0B1018)
 val BgBottom = Color(0xFF070A0F)
 
-/** Solid fallback / on-accent content color. */
+/** Page background. Never a text or icon color; content uses the Text* tokens. */
 val BgDark = Color(0xFF080C12)
 
 // Surfaces. Panels draw SurfaceDark with a translucent highlight on top

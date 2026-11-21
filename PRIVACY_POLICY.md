@@ -1,6 +1,6 @@
 # Privacy policy for OpenTailcat
 
-**Last updated:** November 17, 2026
+**Last updated:** November 21, 2026
 
 OpenTailcat has no accounts, advertising, analytics SDKs, remote crash
 reporting, or coordination service. This policy covers the current source
@@ -46,9 +46,11 @@ logs, and exported diagnostics.
 - **Check for updates** requests the GitHub Releases API; **Download** fetches
   the APK from GitHub and its release-asset hosts. The F-Droid flavor has no
   updater.
-- **Share this phone** (see below) fetches the relay map
-  (`https://tailcat.dev/derpmap.json`) and connects to a relay, and the phone
-  opens a connection to every destination a guest asks for.
+- **Share this phone** (see below) connects to a relay. With the default
+  relay it fetches the public relay map (`https://tailcat.dev/derpmap.json`)
+  and picks the nearest region. If you name your own relay, it connects to
+  that host instead and does not fetch the map. The phone opens a connection
+  to every destination a guest asks for.
 - After TUN attachment, the engine performs an exit-IP audit through Tailcat
   (authenticated TLS `GET /cdn-cgi/trace` to `1.1.1.1` via `Client.DialTCP`).
   Intercepted DNS is proxied through Tailcat under the profile or forced

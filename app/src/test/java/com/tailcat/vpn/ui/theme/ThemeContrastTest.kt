@@ -2,6 +2,7 @@ package com.tailcat.vpn.ui.theme
 
 import androidx.compose.ui.graphics.Color
 import kotlin.math.pow
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -74,5 +75,47 @@ class ThemeContrastTest {
     fun mutedTextIsStillQuieterThanSecondary() {
         assertTrue(luminance(TextMuted) < luminance(TextSecondary))
         assertTrue(luminance(TextSecondary) < luminance(TextPrimary))
+    }
+
+    @Test
+    fun contentRolesAreLightText() {
+        // Material's dark scheme uses dark text on bright accents. None of
+        // those roles may be a background color or darker than muted text.
+        val scheme = TailcatColorScheme
+        val roles = mapOf(
+            "onPrimary" to scheme.onPrimary,
+            "onSecondary" to scheme.onSecondary,
+            "onTertiary" to scheme.onTertiary,
+            "onBackground" to scheme.onBackground,
+            "onSurface" to scheme.onSurface,
+            "onSurfaceVariant" to scheme.onSurfaceVariant,
+            "onPrimaryContainer" to scheme.onPrimaryContainer,
+            "onSecondaryContainer" to scheme.onSecondaryContainer,
+            "onTertiaryContainer" to scheme.onTertiaryContainer,
+            "inverseOnSurface" to scheme.inverseOnSurface,
+            "onError" to scheme.onError,
+            "onErrorContainer" to scheme.onErrorContainer,
+            "onPrimaryFixed" to scheme.onPrimaryFixed,
+            "onPrimaryFixedVariant" to scheme.onPrimaryFixedVariant,
+            "onSecondaryFixed" to scheme.onSecondaryFixed,
+            "onSecondaryFixedVariant" to scheme.onSecondaryFixedVariant,
+            "onTertiaryFixed" to scheme.onTertiaryFixed,
+            "onTertiaryFixedVariant" to scheme.onTertiaryFixedVariant
+        )
+        val floor = luminance(TextMuted)
+        val backgrounds = setOf(BgDark, BgTop, BgBottom, SurfaceDark, SurfaceElevated)
+        val failures = buildList {
+            for ((name, color) in roles) {
+                if (luminance(color) + 1e-9 < floor) {
+                    add("$name is darker than muted text")
+                }
+                if (color in backgrounds) add("$name is a background color")
+            }
+        }
+        assertTrue(failures.joinToString("\n"), failures.isEmpty())
+        assertEquals(TextPrimary, scheme.onPrimary)
+        assertEquals(TextPrimary, scheme.onSecondary)
+        assertEquals(TextPrimary, scheme.onPrimaryFixed)
+        assertEquals(AccentFill, scheme.primaryFixed)
     }
 }

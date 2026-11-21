@@ -20,7 +20,7 @@ release.
 ## Release notes
 
 `releases/` is a historical record, one file per version, named after the
-version. The newest is [1.7.2](releases/1.7.2.md). Each note describes what
+version. The newest is [1.7.3](releases/1.7.3.md). Each note describes what
 changed, what was verified at the time, and the published artifact hashes.
 Verification lines are evidence for that release, not a promise about later
 builds.

@@ -16,7 +16,7 @@ work; other docs link here.
   `com.tailcat.vpn`
 - Toolchain: Kotlin 2.4.21, Gradle 9.9.1, JDK 21, Go 1.27.4
 - Versions: `gradle/libs.versions.toml`, `core-engine/go.mod`
-- Current version: 1.7.2; notes in `docs/releases/`
+- Current version: 1.7.3; notes in `docs/releases/`
 
 ## Status
 
@@ -252,12 +252,19 @@ embed personal account names or tokens in tracked sources.
 - Compose + Material3 with the dark theme tokens in `ui/theme` (`AccentCyan`,
   `BgDark`, `SurfaceElevated`, ...). One package per screen under
   `ui/screens/`, with a `ViewModel` where state outlives composition.
-- **Filled buttons use `TailcatButtons.filled()`**: light text (`TextPrimary`)
-  on the deeper teal `AccentFill`. Never put dark text on a bright fill in this
-  dark app. Material3 container roles (chips, dialogs, menus, snackbars) are
-  mapped to the app's own surfaces in `Theme.kt`; add a role there before
-  relying on a default, which is the stock purple/gray.
-  `ThemeContrastTest` pins WCAG AA text contrast and that fills stand out.
+- **No black or near-black text.** Every `on*` role in `Theme.kt` is a light
+  text token (`TextPrimary` or `TextSecondary`). `BgDark` is a background
+  only, including the Android theme's text colors. Filled buttons use
+  `TailcatButtons.filled()`: `TextPrimary` on the deeper teal `AccentFill`.
+  Checkboxes use `TailcatButtons.checkbox()`: the same light mark on
+  `AccentFill`. `AccentCyan` is the accent for text, outlines, radios and
+  field focus; it is too bright to carry light text, so never put dark text
+  on a fill. Material3 container roles (chips, dialogs, menus, snackbars,
+  and the fixed roles) are mapped in `Theme.kt`; add a role there before
+  relying on a default, which is the stock purple/gray or dark-on-bright.
+  `ThemeContrastTest` pins WCAG AA text contrast, light content roles, and
+  that fills stand out. QR modules stay black pixels on white so a scanner
+  can read them; that is ink, not a font.
 - Dialogs that show or accept credentials must set
   `DialogProperties(securePolicy = SecureFlagPolicy.SecureOn)`; token fields
   use `KeyboardType.Password`. The QR dialog relies on the secure flag because

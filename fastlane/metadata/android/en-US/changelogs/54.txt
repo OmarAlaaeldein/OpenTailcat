@@ -1,0 +1,1 @@
+Share this phone can use a relay you run. Name the host and ports before starting; the default is still the nearest public relay, and the guest needs no matching setting. Controls use light text, including check marks, which sit on the deeper teal fill.

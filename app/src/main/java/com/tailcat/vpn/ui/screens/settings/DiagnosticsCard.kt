@@ -8,15 +8,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.tailcat.vpn.ui.theme.AccentCyan
 import com.tailcat.vpn.ui.theme.BorderSubtle
+import com.tailcat.vpn.ui.theme.TailcatButtons
 import com.tailcat.vpn.ui.theme.TextPrimary
 import com.tailcat.vpn.ui.theme.TextSecondary
 
@@ -36,10 +35,7 @@ internal fun DiagnosticsCard(debugMode: Boolean, onDebugModeChange: (Boolean) ->
             Checkbox(
                 checked = debugMode,
                 onCheckedChange = onDebugModeChange,
-                colors = CheckboxDefaults.colors(
-                    checkedColor = AccentCyan,
-                    uncheckedColor = BorderSubtle
-                )
+                colors = TailcatButtons.checkbox(uncheckedColor = BorderSubtle)
             )
         }
         Spacer(Modifier.height(4.dp))

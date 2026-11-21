@@ -1,7 +1,7 @@
 <p>OpenTailcat is one Android app for both ends of a <a href="https://github.com/tailscale/tailcat">Tailcat</a> tunnel. As a client, paste a <code>tc…</code> token and connect to <b>your own</b> exit gateway over a WireGuard-encrypted tunnel, with peer-to-peer NAT traversal and DERP relays as a fallback. As an exit node, use <b>Share this phone</b> to hand another device a one-session code and let its traffic leave through your connection. There is no account and no control plane in the middle.</p>
 <p>Features:</p>
 <ul>
-<li>Share this phone as an exit node: per-device approval, a time limit or none, live device and traffic counters, and a one-tap stop</li>
+<li>Share this phone as an exit node: per-device approval, a time limit or none, the nearest public relay or one you name, live device and traffic counters, and a one-tap stop</li>
 <li>Whole-device IPv4 and IPv6 VPN through your own gateway</li>
 <li>Multiple gateway profiles, each with its own DNS resolver, DNS policy, and MTU</li>
 <li>Pair by pasting a token, import a QR image from storage, or share a saved profile as a QR code; no camera permission is needed</li>

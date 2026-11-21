@@ -89,6 +89,8 @@ abroad, or your own second device.
 The QR in the last image is blurred; a real one encodes the live code.*
 
 1. Pick how long to share: 15 minutes, 1, 4 or 24 hours, or **Until I stop**.
+   The relay is the nearest public DERP region unless you name your own
+   (a host name, plus DERP and STUN ports). The guest needs no matching setting.
 2. Pick who can connect. **Approve each device** (recommended) parks every new
    device until you tap Approve, so a leaked code is not enough. **Anyone with
    the code** skips approval and always has a time limit. "Until I stop" is
