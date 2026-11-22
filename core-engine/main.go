@@ -19,6 +19,8 @@ import (
 )
 
 func init() {
+	tailcat.DERPMapFilter = sanitizeFetchedDERPMap
+
 	if _, ok := http.DefaultTransport.(*derpFilterTransport); !ok {
 		base, ok := http.DefaultTransport.(*http.Transport)
 		if !ok {
@@ -55,7 +57,7 @@ func init() {
 				if _, _, err := net.SplitHostPort(target); err != nil {
 					target = net.JoinHostPort(target, "53")
 				}
-				c, err := d.DialContext(ctx, "udp", target)
+				c, err := d.DialContext(ctx, network, target)
 				if err != nil {
 					continue
 				}
@@ -198,7 +200,7 @@ func UpdateNetworkState(networkStateJSON string) (err error) {
 
 		var addrs []net.Addr
 		for _, addrStr := range ifInfo.Addresses {
-			addrStr = strings.TrimSpace(addrStr)
+			addrStr = stripIPZone(strings.TrimSpace(addrStr))
 			if addrStr == "" {
 				continue
 			}
@@ -265,6 +267,20 @@ func UpdateNetworkState(networkStateJSON string) (err error) {
 	return nil
 }
 
+func stripIPZone(addrStr string) string {
+	if slash := strings.IndexByte(addrStr, '/'); slash >= 0 {
+		ipPart, prefixPart := addrStr[:slash], addrStr[slash:]
+		if pct := strings.IndexByte(ipPart, '%'); pct >= 0 {
+			return ipPart[:pct] + prefixPart
+		}
+		return addrStr
+	}
+	if pct := strings.IndexByte(addrStr, '%'); pct >= 0 {
+		return addrStr[:pct]
+	}
+	return addrStr
+}
+
 func applyDNSPolicy(policyName string, forced *string) {
 	policy := "PROFILE_RESOLVER"
 	switch strings.ToUpper(strings.TrimSpace(policyName)) {
@@ -278,9 +294,9 @@ func applyDNSPolicy(policyName string, forced *string) {
 	var forcedAP netip.AddrPort
 	if policy == "FORCED_RESOLVER" && forced != nil && *forced != "" {
 		if ap, err := netip.ParseAddrPort(*forced); err == nil {
-			forcedAP = ap
+			forcedAP = netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())
 		} else if ip, err := netip.ParseAddr(*forced); err == nil {
-			forcedAP = netip.AddrPortFrom(ip, 53)
+			forcedAP = netip.AddrPortFrom(ip.Unmap(), 53)
 		}
 		if !forcedAP.IsValid() || !isSafeDNSAddr(forcedAP.Addr()) {
 			forcedAP = netip.AddrPort{}
@@ -300,10 +316,19 @@ func applyDNSPolicy(policyName string, forced *string) {
 	}
 }
 
+var (
+	dnsDiscardPrefix  = netip.MustParsePrefix("100::/64")
+	dnsDocIPv6Prefix  = netip.MustParsePrefix("2001:db8::/32")
+	dnsV4CompatPrefix = netip.MustParsePrefix("::/96")
+	dnsWellKnownNAT64 = netip.MustParsePrefix("64:ff9b::/96")
+	dnsLocalUseNAT64  = netip.MustParsePrefix("64:ff9b:1::/48")
+)
+
 func isSafeDNSAddr(addr netip.Addr) bool {
 	if !addr.IsValid() {
 		return false
 	}
+	addr = addr.Unmap()
 	if addr.IsUnspecified() || addr.IsLoopback() || addr.IsMulticast() ||
 		addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() ||
 		addr.IsInterfaceLocalMulticast() {
@@ -319,13 +344,24 @@ func isSafeDNSAddr(addr netip.Addr) bool {
 	}
 	if addr.Is4() {
 		a := addr.As4()
-		// Carrier-grade NAT shared space 100.64.0.0/10 (RFC 6598).
-		if a[0] == 100 && a[1]&0xC0 == 0x40 {
+		switch {
+		case a[0] == 0: // 0.0.0.0/8 ("this network")
 			return false
-		}
-		// IPv4 link-local 169.254.0.0/16 (defense in depth alongside
-		// IsLinkLocalUnicast).
-		if a[0] == 169 && a[1] == 254 {
+		case a[0] == 100 && a[1]&0xC0 == 0x40: // 100.64.0.0/10 (CGNAT, RFC 6598)
+			return false
+		case a[0] == 169 && a[1] == 254: // 169.254.0.0/16 (link-local)
+			return false
+		case a[0] == 192 && a[1] == 0 && a[2] == 0: // 192.0.0.0/24 (IETF protocol assignments)
+			return false
+		case a[0] == 192 && a[1] == 0 && a[2] == 2: // 192.0.2.0/24 (TEST-NET-1)
+			return false
+		case a[0] == 198 && (a[1]&0xFE) == 18: // 198.18.0.0/15 (benchmarking)
+			return false
+		case a[0] == 198 && a[1] == 51 && a[2] == 100: // 198.51.100.0/24 (TEST-NET-2)
+			return false
+		case a[0] == 203 && a[1] == 0 && a[2] == 113: // 203.0.113.0/24 (TEST-NET-3)
+			return false
+		case a[0] >= 240: // 240.0.0.0/4 (reserved / broadcast)
 			return false
 		}
 	} else if addr.Is6() {
@@ -337,6 +373,14 @@ func isSafeDNSAddr(addr netip.Addr) bool {
 		// Deprecated IPv6 site-local fec0::/10.
 		if b[0] == 0xFE && b[1]&0xC0 == 0xC0 {
 			return false
+		}
+		if dnsDiscardPrefix.Contains(addr) || dnsDocIPv6Prefix.Contains(addr) ||
+			dnsV4CompatPrefix.Contains(addr) || dnsLocalUseNAT64.Contains(addr) {
+			return false
+		}
+		if dnsWellKnownNAT64.Contains(addr) {
+			v4 := netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]})
+			return isSafeDNSAddr(v4)
 		}
 	}
 	return addr.IsGlobalUnicast()

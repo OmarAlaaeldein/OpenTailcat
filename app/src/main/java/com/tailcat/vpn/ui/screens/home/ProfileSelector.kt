@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tailcat.vpn.core.model.GatewayProfile
@@ -79,10 +80,13 @@ fun ProfileSelector(
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = activeProfile?.name ?: "No Gateway Paired",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodyMedium.copy(
                     color = if (activeProfile != null) TextPrimary else TextMuted,
                     fontWeight = FontWeight.Medium
-                )
+                ),
+                modifier = Modifier.weight(1f, fill = false)
             )
             Spacer(modifier = Modifier.width(4.dp))
             Icon(

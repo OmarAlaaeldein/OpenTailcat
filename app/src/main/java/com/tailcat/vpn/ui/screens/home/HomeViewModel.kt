@@ -39,7 +39,7 @@ class HomeViewModel : ViewModel() {
         .map { it is ExitNodeUiState.Starting || it is ExitNodeUiState.Sharing }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), app.exitNodeController.isActive)
 
-    private val _uiEvent = MutableSharedFlow<String>()
+    private val _uiEvent = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val uiEvent: SharedFlow<String> = _uiEvent.asSharedFlow()
 
     init {
@@ -51,6 +51,7 @@ class HomeViewModel : ViewModel() {
     }
 
     fun refreshIp() {
+        if (tunnelState.value != TunnelState.DISCONNECTED) return
         if (!networkMonitor.isOnline) {
             viewModelScope.launch {
                 _uiEvent.emit("Cannot refresh IP: Device is offline")
@@ -99,7 +100,10 @@ class HomeViewModel : ViewModel() {
     fun selectProfile(profile: GatewayProfile) {
         val changed = profile.id != activeProfile.value?.id
         profileRepository.setActiveProfile(profile)
-        if (changed) stopSessionForProfileChange()
+        if (changed) {
+            tunnelController.clearLastError()
+            stopSessionForProfileChange()
+        }
     }
 
     /**
@@ -140,8 +144,11 @@ class HomeViewModel : ViewModel() {
     }
 
     fun deleteProfile(id: String) {
-        if (activeProfile.value?.id == id && tunnelState.value != TunnelState.DISCONNECTED) {
-            tunnelController.stopTunnel()
+        if (activeProfile.value?.id == id) {
+            if (tunnelState.value != TunnelState.DISCONNECTED) {
+                tunnelController.stopTunnel()
+            }
+            tunnelController.clearLastError()
         }
         profileRepository.deleteProfile(id)
         showMessage("Gateway profile deleted")

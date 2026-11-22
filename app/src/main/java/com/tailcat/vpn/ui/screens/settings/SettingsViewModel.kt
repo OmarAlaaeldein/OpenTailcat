@@ -41,7 +41,7 @@ class SettingsViewModel : ViewModel() {
     private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
 
-    private val _uiEvent = MutableSharedFlow<String>()
+    private val _uiEvent = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val uiEvent: SharedFlow<String> = _uiEvent.asSharedFlow()
 
     private val downloader = ApkDownloader(app.cacheDir)
@@ -92,7 +92,11 @@ class SettingsViewModel : ViewModel() {
                 .onSuccess { file ->
                     collectJob.cancel()
                     val mismatch = withContext(Dispatchers.IO) {
-                        ApkInstaller.signatureMismatchReason(context, file)
+                        ApkInstaller.signatureMismatchReason(
+                            app,
+                            file,
+                            available.release.normalizedVersion()
+                        )
                     }
                     if (mismatch != null) {
                         file.delete()
@@ -110,6 +114,7 @@ class SettingsViewModel : ViewModel() {
     }
 
     fun openInstall(context: Context) {
+        if (!BuildConfig.UPDATER_ENABLED) return
         val ready = _updateState.value as? UpdateState.Ready ?: return
         val file = File(ready.apkPath)
         if (!file.exists()) {
@@ -135,6 +140,7 @@ class SettingsViewModel : ViewModel() {
     }
 
     fun openReleasePage(context: Context) {
+        if (!BuildConfig.UPDATER_ENABLED) return
         val url = when (val s = _updateState.value) {
             is UpdateState.Available -> UpdatePolicy.safeReleasePage(s.release.htmlUrl)
             is UpdateState.Ready -> UpdatePolicy.safeReleasePage(s.release.htmlUrl)
@@ -151,6 +157,7 @@ class SettingsViewModel : ViewModel() {
     }
 
     fun resetUpdate() {
+        if (!BuildConfig.UPDATER_ENABLED) return
         checkJob?.cancel()
         downloadJob?.cancel()
         downloader.reset()

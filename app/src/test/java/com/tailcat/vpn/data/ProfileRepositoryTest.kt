@@ -238,4 +238,27 @@ class ProfileRepositoryTest {
         assertTrue(reloadedRepo.profiles.value.isEmpty())
         assertEquals(null, reloadedRepo.activeProfile.value)
     }
+
+    @Test
+    fun deleteLastProfileClearsActiveProfileId() {
+        val added = repository.addOrUpdateFromToken("Only Gateway", validOfficialToken).getOrThrow()
+        assertEquals(added.id, fakeStorage.activeProfileId)
+
+        repository.deleteProfile(added.id)
+
+        assertTrue(repository.profiles.value.isEmpty())
+        assertEquals(null, repository.activeProfile.value)
+        assertEquals(null, fakeStorage.activeProfileId)
+    }
+
+    @Test
+    fun writeFailureDoesNotMutateInMemoryProfiles() {
+        val failingStorage = object : PreferencesStorage by FakePreferencesStorage() {
+            override fun saveProfilesJson(json: String?): Boolean = false
+        }
+        val repo = ProfileRepository(failingStorage)
+        val result = repo.addOrUpdateFromToken("Failing Store", validOfficialToken)
+        assertTrue(result.isFailure)
+        assertTrue(repo.profiles.value.isEmpty())
+    }
 }

@@ -1,6 +1,7 @@
 package com.tailcat.vpn.core.qr
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import java.io.ByteArrayOutputStream
@@ -12,6 +13,7 @@ import kotlinx.coroutines.withContext
 object QrImageImporter {
     private const val MAX_BYTES = 16 * 1024 * 1024
     private const val MAX_DIMENSION = 2048
+    private const val MAX_SOURCE_DIMENSION = 16384
 
     suspend fun read(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
         require(uri.scheme == "content") { "Choose an image using the image picker." }
@@ -32,12 +34,17 @@ object QrImageImporter {
         val bytes = output.toByteArray()
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "This file is not a supported image." }
+        require(bounds.outWidth in 1..MAX_SOURCE_DIMENSION && bounds.outHeight in 1..MAX_SOURCE_DIMENSION) {
+            "This file is not a supported image."
+        }
         var sample = 1
         while (bounds.outWidth / sample > MAX_DIMENSION || bounds.outHeight / sample > MAX_DIMENSION) {
             sample *= 2
         }
-        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
         val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
             ?: throw IllegalArgumentException("Could not decode the QR image.")
         try {

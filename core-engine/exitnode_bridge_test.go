@@ -478,3 +478,33 @@ func TestStopCancelsAnInFlightStart(t *testing.T) {
 type recordingProtector struct{}
 
 func (*recordingProtector) Protect(int) bool { return true }
+
+func TestExitNodeBridgeRejectsUnsafeRelayAndTrailingJSON(t *testing.T) {
+	badHostnames := []string{"localhost.", "foo..bar", "bad host", "none", "127.0.0.1.nip.io", "derp%eth0"}
+	for _, host := range badHostnames {
+		cfg := `{"ttlSeconds":3600,"admission":"approval","relay":{"hostname":"` + host + `"}}`
+		if _, err := StartExitNode(cfg); err == nil {
+			t.Errorf("StartExitNode accepted unsafe relay hostname %q", host)
+		}
+	}
+	if _, err := StartExitNode(approvalConfig + ` {"extra":true}`); err == nil {
+		t.Fatal("StartExitNode accepted trailing JSON object")
+	}
+}
+
+func TestStartExitNodeRefusesWhileClientSessionActive(t *testing.T) {
+	_ = Stop()
+	globalCore.mu.Lock()
+	globalCore.sess = &session{cancel: func() {}}
+	globalCore.mu.Unlock()
+	defer func() {
+		globalCore.mu.Lock()
+		globalCore.sess = nil
+		globalCore.mu.Unlock()
+	}()
+
+	_, err := StartExitNode(approvalConfig)
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "vpn engine is active") {
+		t.Fatalf("expected active client tunnel refusal, got %v", err)
+	}
+}

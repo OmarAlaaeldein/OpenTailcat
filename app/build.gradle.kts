@@ -18,6 +18,9 @@ val repoSlug = (System.getenv("OPENTAILCAT_REPO_SLUG")
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
     ?: "opentailcat/OpenTailcat"
+require(Regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$").matches(repoSlug)) {
+    "Invalid opentailcatRepoSlug: $repoSlug"
+}
 
 android {
     namespace = "com.tailcat.vpn"

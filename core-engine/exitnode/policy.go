@@ -2,7 +2,12 @@ package exitnode
 
 import (
 	"errors"
+	"net"
 	"net/netip"
+	"sync"
+	"time"
+
+	"tailscale.com/net/netmon"
 )
 
 // Destination policy.
@@ -32,7 +37,24 @@ var alwaysRejected = []netip.Prefix{
 	netip.MustParsePrefix("192.0.2.0/24"),    // documentation
 	netip.MustParsePrefix("198.51.100.0/24"), // documentation
 	netip.MustParsePrefix("203.0.113.0/24"),  // documentation
+	netip.MustParsePrefix("::ffff:0:0:0/96"), // RFC 2765 SIIT translated IPv4
+	netip.MustParsePrefix("2001::/32"),       // Teredo: embeds an IPv4 relay and client
+	netip.MustParsePrefix("2001:2::/48"),     // benchmarking
+	netip.MustParsePrefix("2002::/16"),       // 6to4: embeds an arbitrary IPv4 address
+	netip.MustParsePrefix("3fff::/20"),       // documentation (RFC 9637)
+	netip.MustParsePrefix("5f00::/16"),       // SRv6 SIDs
 }
+
+// ipv4Compatible is the deprecated IPv4-compatible IPv6 block ::/96. Apart
+// from ::1 (loopback, judged by localOnly) and :: (unspecified), every address
+// in it embeds an IPv4 address the IPv4 rules would otherwise have to judge,
+// so it is refused outright.
+var ipv4Compatible = netip.MustParsePrefix("::/96")
+
+// localUseNAT64 is the RFC 8215 local-use NAT64 prefix. Its translator is by
+// definition operated by the host's own network, so it is local whatever IPv4
+// address it embeds.
+var localUseNAT64 = netip.MustParsePrefix("64:ff9b:1::/48")
 
 // Rejected unless Config.AllowLocalDestinations is set. These are the host's
 // own machine and networks.
@@ -46,6 +68,7 @@ var localOnly = []netip.Prefix{
 	netip.MustParsePrefix("198.18.0.0/15"),  // benchmarking
 	netip.MustParsePrefix("::1/128"),        // loopback
 	netip.MustParsePrefix("fc00::/7"),       // unique local (also Tailcat's own range)
+	netip.MustParsePrefix("fec0::/10"),      // deprecated site-local
 }
 
 // Prefixes this policy can decode without knowing the active network: the
@@ -94,8 +117,13 @@ func checkDestination(dst netip.AddrPort, allowLocal bool) error {
 	if !ip.IsValid() || dst.Port() == 0 {
 		return errBadDestination
 	}
+	// A scoped address names an interface on the host, which is never an
+	// Internet destination.
+	if ip.Zone() != "" {
+		return errBadDestination
+	}
 	ip = ip.Unmap() // ::ffff:127.0.0.1 is 127.0.0.1
-	ip = ip.WithZone("")
+	orig := ip
 	// A NAT64-mapped address is judged by the IPv4 address it embeds, so
 	// 64:ff9b::7f00:1 or 64:ff9b:1:7f00:0:100:: cannot smuggle loopback past
 	// the IPv4 rules.
@@ -104,6 +132,12 @@ func checkDestination(dst netip.AddrPort, allowLocal bool) error {
 			ip = v4
 			break
 		}
+	}
+	if !allowLocal && localUseNAT64.Contains(orig) {
+		return errBlockedLocal
+	}
+	if ip.Is6() && ipv4Compatible.Contains(ip) && ip != netip.IPv6Loopback() {
+		return errBlockedAlways
 	}
 	for _, p := range alwaysRejected {
 		if p.Contains(ip) {
@@ -118,4 +152,97 @@ func checkDestination(dst netip.AddrPort, allowLocal bool) error {
 		}
 	}
 	return nil
+}
+
+// hostLocalRefresh bounds how stale the host's own address list may be. The
+// forwarding hooks run per flow, so the interface list is not re-read on
+// every dial.
+const hostLocalRefresh = 5 * time.Second
+
+// hostLocal remembers the host's own interface addresses and on-link LAN
+// prefixes. A public address on the phone itself (an IPv6 global address on
+// Wi-Fi, a public IPv4 on cellular) or on its LAN is not in any fixed range
+// above, but is just as much "the host's own network".
+type hostLocal struct {
+	source func() []netip.Prefix
+	now    func() time.Time
+
+	mu      sync.Mutex
+	fetched time.Time
+	have    bool
+	pfxs    []netip.Prefix
+}
+
+func (h *hostLocal) contains(ip netip.Addr) bool {
+	if h == nil || h.source == nil || !ip.IsValid() {
+		return false
+	}
+	ip = ip.Unmap().WithZone("")
+	var embedded netip.Addr
+	for _, p := range nat64Prefixes {
+		if v4, ok := embeddedIPv4(p, ip); ok {
+			embedded = v4
+			break
+		}
+	}
+	now := h.now()
+	h.mu.Lock()
+	if !h.have || now.Sub(h.fetched) >= hostLocalRefresh || now.Before(h.fetched) {
+		h.pfxs = h.source()
+		h.fetched = now
+		h.have = true
+	}
+	pfxs := h.pfxs
+	h.mu.Unlock()
+	for _, p := range pfxs {
+		if p.Contains(ip) || (embedded.IsValid() && p.Contains(embedded)) {
+			return true
+		}
+	}
+	return false
+}
+
+// interfacePrefixes lists the host's own addresses (as host prefixes) and,
+// for broadcast-style interfaces, the on-link prefix each address sits in.
+// Point-to-point links (cellular, tunnels) have no LAN neighbours, so only
+// their own address is listed. Very short prefixes are not widened: an
+// interface claiming a /4 must not turn the policy into "block everything".
+//
+// On Android the interface list comes from the LinkProperties the app pushes
+// (see core-engine/main.go); when no list is available nothing extra is
+// blocked and the fixed ranges above still apply.
+func interfacePrefixes() []netip.Prefix {
+	ifs, err := netmon.GetInterfaceList()
+	if err != nil {
+		return nil
+	}
+	var out []netip.Prefix
+	_ = ifs.ForeachInterface(func(i netmon.Interface, pfxs []netip.Prefix) {
+		if !i.IsUp() {
+			return
+		}
+		p2p := i.Interface != nil && i.Flags&net.FlagPointToPoint != 0
+		for _, p := range pfxs {
+			a := p.Addr().Unmap().WithZone("")
+			if !a.IsValid() {
+				continue
+			}
+			out = append(out, netip.PrefixFrom(a, a.BitLen()))
+			if p2p || i.IsLoopback() {
+				continue
+			}
+			minBits := 16
+			if a.Is6() {
+				minBits = 48
+			}
+			bits := p.Bits()
+			if a.Is4() && p.Addr().Is4In6() {
+				bits -= 96
+			}
+			if bits >= minBits && bits < a.BitLen() {
+				out = append(out, netip.PrefixFrom(a, bits).Masked())
+			}
+		}
+	})
+	return out
 }

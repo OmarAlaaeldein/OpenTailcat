@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import com.tailcat.vpn.core.tls.PinnedHttps
+import java.io.ByteArrayOutputStream
+import java.net.InetAddress
 
 /**
  * Resolves the app process' public IP over the device's current routes. The
@@ -37,15 +39,23 @@ class IpAuditor {
                     if (separator <= 0) null else line.substring(0, separator) to line.substring(separator + 1)
                 }
                 .toMap()
-            val ip = fields["ip"]?.takeIf { it.isNotBlank() }
-                ?: error("Cloudflare response did not contain an IP")
+            val ip = fields["ip"]?.trim()?.takeIf { isValidIpLiteral(it) }
+                ?: error("Cloudflare response did not contain a valid IP")
             EgressInfo(
                 ip = ip,
-                country = fields["loc"]?.takeIf { it.isNotBlank() },
+                country = fields["loc"]?.trim()?.takeIf { it.isNotBlank() && it.length <= 16 },
                 isChecking = false
             )
         }
     }.getOrNull()
+
+    private fun isValidIpLiteral(raw: String): Boolean {
+        if (raw.isEmpty() || raw.length > 64 || raw.any { it.isWhitespace() }) return false
+        val isV4 = raw.count { it == '.' } == 3 && raw.all { it.isDigit() || it == '.' }
+        val isV6 = raw.contains(':') && raw.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' || it == ':' || it == '.' }
+        if (!isV4 && !isV6) return false
+        return runCatching { InetAddress.getByName(raw) }.isSuccess
+    }
 
     private fun request(endpoint: String): String {
         val connection = PinnedHttps.open(endpoint)
@@ -61,7 +71,17 @@ class IpAuditor {
             check(connection.responseCode in 200..299) {
                 "Endpoint returned HTTP ${connection.responseCode}"
             }
-            connection.inputStream.bufferedReader().use { it.readText() }
+            connection.inputStream.use { input ->
+                val out = ByteArrayOutputStream()
+                val buf = ByteArray(2048)
+                while (out.size() < MAX_BODY_BYTES) {
+                    val toRead = minOf(buf.size, MAX_BODY_BYTES - out.size())
+                    val n = input.read(buf, 0, toRead)
+                    if (n <= 0) break
+                    out.write(buf, 0, n)
+                }
+                out.toString(Charsets.UTF_8.name())
+            }
         } finally {
             connection.disconnect()
         }
@@ -69,5 +89,6 @@ class IpAuditor {
 
     companion object {
         private const val REQUEST_TIMEOUT_MS = 4_000
+        private const val MAX_BODY_BYTES = 16 * 1024
     }
 }

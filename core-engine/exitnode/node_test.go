@@ -704,3 +704,28 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+func TestRevokedOpenGuestStaysDeniedAfterOtherDenies(t *testing.T) {
+	n, _ := testNode(t, func(c *Config) { c.Admission = AdmitOpen })
+	guest := k()
+	if !n.admit(guest) {
+		t.Fatal("expected initial guest admission in open mode")
+	}
+	if !n.Revoke(guest) {
+		t.Fatal("expected Revoke to report true for admitted guest")
+	}
+	if n.admit(guest) {
+		t.Fatal("revoked guest was re-admitted in open mode")
+	}
+	// Flooding bounded denied map must never evict explicit revocations.
+	for range maxDenied + 10 {
+		other := k()
+		if !n.admit(other) {
+			t.Fatal("expected unrelated guest to be admitted")
+		}
+		n.Deny(other)
+	}
+	if n.admit(guest) {
+		t.Fatal("revoked guest was re-admitted after denied-map eviction")
+	}
+}

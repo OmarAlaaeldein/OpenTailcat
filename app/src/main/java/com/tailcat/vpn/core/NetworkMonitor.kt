@@ -33,6 +33,7 @@ class NetworkMonitor(context: Context) : AutoCloseable {
     private val linkPropertiesByNetwork = mutableMapOf<Network, LinkProperties>()
     private var defaultNetwork: Network? = null
     private var bestMatchingNetwork: Network? = null
+    private var lastUnderlyingNetwork: Network? = null
     private var closed = false
 
     private val _activeNetworkType = MutableStateFlow(NetworkType.NONE)
@@ -178,7 +179,27 @@ class NetworkMonitor(context: Context) : AutoCloseable {
         val selected = selectUnderlyingNetwork(
             networks, defaultNetwork, bestMatchingNetwork, reportedTransport
         ) { transportOf(capabilitiesByNetwork.getValue(it)) }
-        val selectedCaps = selected?.let { capabilitiesByNetwork[it] }
+        val isVpnDefault = defaultNetwork?.let {
+            capabilitiesByNetwork[it]?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+        } ?: false
+        val effectiveSelected = when {
+            selected != null -> {
+                lastUnderlyingNetwork = selected
+                selected
+            }
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.S && isVpnDefault -> {
+                lastUnderlyingNetwork?.takeIf { it in networks }
+                    ?: networks.firstOrNull {
+                        capabilitiesByNetwork.getValue(it)
+                            .hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    }
+            }
+            else -> {
+                lastUnderlyingNetwork = null
+                null
+            }
+        }
+        val selectedCaps = effectiveSelected?.let { capabilitiesByNetwork[it] }
         val currentType = if (selectedCaps != null) {
             if (selectedCaps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
                 transportOf(selectedCaps)
@@ -207,7 +228,8 @@ class NetworkMonitor(context: Context) : AutoCloseable {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ifObj.put("mtu", lp.mtu)
             val addresses = JSONArray()
             for (linkAddr in lp.linkAddresses) {
-                addresses.put("${linkAddr.address.hostAddress}/${linkAddr.prefixLength}")
+                val host = linkAddr.address.hostAddress?.substringBefore('%') ?: continue
+                addresses.put("$host/${linkAddr.prefixLength}")
             }
             ifObj.put("addresses", addresses)
             ifArray.put(ifObj)
@@ -217,14 +239,14 @@ class NetworkMonitor(context: Context) : AutoCloseable {
         // Only the selected network supplies resolver/gateway metadata. A
         // carrier-private resolver from a background network may be unreachable
         // on the default underlay. Never substitute the VPN's own DNS servers.
-        val lp = selected?.let { linkPropertiesByNetwork[it] }
+        val lp = effectiveSelected?.let { linkPropertiesByNetwork[it] }
         root.put("defaultInterface", lp?.interfaceName?.takeIf { it.isNotBlank() } ?: "")
         val gateways = JSONArray()
-        lp?.routes?.mapNotNull { it.gateway?.hostAddress?.takeIf(String::isNotBlank) }
+        lp?.routes?.mapNotNull { it.gateway?.hostAddress?.substringBefore('%')?.takeIf(String::isNotBlank) }
             ?.distinct()?.forEach { gateways.put(it) }
         root.put("gateways", gateways)
         val dnsServers = JSONArray()
-        lp?.dnsServers?.mapNotNull { it.hostAddress?.takeIf(String::isNotBlank) }
+        lp?.dnsServers?.mapNotNull { it.hostAddress?.substringBefore('%')?.takeIf(String::isNotBlank) }
             ?.distinct()?.forEach { dnsServers.put(it) }
         root.put("dnsServers", dnsServers)
         return currentType to root.toString()
@@ -277,6 +299,7 @@ class NetworkMonitor(context: Context) : AutoCloseable {
             linkPropertiesByNetwork.clear()
             defaultNetwork = null
             bestMatchingNetwork = null
+            lastUnderlyingNetwork = null
             _activeNetworkType.value = NetworkType.NONE
         }
         registeredCallbacks.forEach { callback ->

@@ -143,7 +143,7 @@ fun PowerToggleRing(
             .clip(CircleShape)
             .semantics {
                 role = Role.Button
-                contentDescription = if (isConnected || isConnecting) "Disconnect VPN" else "Connect VPN"
+                contentDescription = if (state != TunnelState.DISCONNECTED) "Disconnect VPN" else "Connect VPN"
                 stateDescription = state.name.lowercase().replace('_', ' ')
             }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)

@@ -47,17 +47,20 @@ class TailcatApplication : Application() {
         notificationManager = VpnNotificationManager(this)
         networkMonitor = NetworkMonitor(this)
         tunnelEngine = TunnelEngine()
+        val roleInterlock = Any()
         tunnelController = TunnelController(
             this,
             profileRepository,
             networkMonitor,
             tunnelEngine,
-            preferencesStore
+            preferencesStore,
+            interlockLock = roleInterlock
         )
 
         exitNodeController = ExitNodeController(
             engine = TunnelExitNode(),
-            tunnelState = { tunnelController.tunnelState.value }
+            tunnelState = { tunnelController.tunnelState.value },
+            interlockLock = roleInterlock
         )
         tunnelController.startBlocker = exitNodeController::startBlockReason
 

@@ -1,7 +1,6 @@
 package com.tailcat.vpn.data
 
 import org.json.JSONArray
-import java.util.concurrent.ConcurrentHashMap
 
 /** Encrypts one preference value; [key] is bound to the ciphertext. */
 internal interface ValueCipher {
@@ -27,9 +26,10 @@ internal class SealedPreferences(
     }
 
     // Decrypted values, so a read does not reach the Keystore every time.
-    private val cache = ConcurrentHashMap<String, Any>()
+    private val lock = Any()
+    private val cache = HashMap<String, Any>()
 
-    fun getString(key: String): String? {
+    fun getString(key: String): String? = synchronized(lock) {
         cache[key]?.let { return it as? String }
         val value = backing.get(key)?.let { sealed ->
             runCatching { cipher.open(key, sealed) }.getOrNull()
@@ -46,14 +46,17 @@ internal class SealedPreferences(
      * Copies [values] (typed values from an older preferences file) for keys
      * that hold nothing yet, in one commit.
      */
-    fun importMissing(values: Map<String, Any?>): Boolean {
+    fun importMissing(values: Map<String, Any?>): Boolean = synchronized(lock) {
         val missing = values.filterKeys { backing.get(it) == null }
             .mapValues { (_, value) -> encode(value) }
             .filterValues { it != null }
-        return missing.isEmpty() || putAll(missing, commit = true)
+        missing.isEmpty() || putAllLocked(missing, commit = true)
     }
 
-    private fun putAll(values: Map<String, String?>, commit: Boolean): Boolean {
+    private fun putAll(values: Map<String, String?>, commit: Boolean): Boolean =
+        synchronized(lock) { putAllLocked(values, commit) }
+
+    private fun putAllLocked(values: Map<String, String?>, commit: Boolean): Boolean {
         val sealed = values.mapValues { (key, value) ->
             value?.let { runCatching { cipher.seal(key, it) }.getOrNull() ?: return false }
         }

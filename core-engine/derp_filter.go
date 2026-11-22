@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 
@@ -31,7 +32,7 @@ func (t *derpFilterTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		return res, err
 	}
 	path := strings.ToLower(req.URL.Path)
-	if !strings.Contains(path, "derpmap") {
+	if !strings.Contains(path, "derpmap") && req.Header.Get("Tailcat-Mode") == "" {
 		return res, err
 	}
 	body, readErr := io.ReadAll(io.LimitReader(res.Body, 8<<20))
@@ -93,6 +94,12 @@ func sanitizeFetchedDERPMap(dm *tailcfg.DERPMap) error {
 			}
 			if rejectUnsafeDERPEndpoint("IPv6", n.IPv6) != nil {
 				continue
+			}
+			if n.STUNTestIP != "" {
+				if _, err := netip.ParseAddr(n.STUNTestIP); err != nil ||
+					rejectUnsafeDERPEndpoint("STUNTestIP", n.STUNTestIP) != nil {
+					continue
+				}
 			}
 			kept = append(kept, n)
 		}

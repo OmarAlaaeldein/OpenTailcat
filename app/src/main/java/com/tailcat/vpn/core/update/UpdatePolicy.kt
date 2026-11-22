@@ -66,8 +66,23 @@ object UpdatePolicy {
     }
 
     /** Release pages opened in the browser must stay on this repository. */
-    fun safeReleasePage(url: String): String =
-        if (url.startsWith("$RELEASES_PAGE/")) url else "$RELEASES_PAGE/latest"
+    fun safeReleasePage(url: String): String {
+        val fallback = "$RELEASES_PAGE/latest"
+        val uri = runCatching { URI(url).normalize() }.getOrNull() ?: return fallback
+        val path = uri.path ?: return fallback
+        if (path.contains("..")) return fallback
+        val expectedPrefix = "/${BuildConfig.REPO_SLUG}/releases/"
+        return if (uri.scheme == "https" &&
+            uri.userInfo == null &&
+            (uri.port == -1 || uri.port == 443) &&
+            uri.host?.lowercase() == "github.com" &&
+            path.startsWith(expectedPrefix)
+        ) {
+            uri.toString()
+        } else {
+            fallback
+        }
+    }
 
     /**
      * Decides whether a downloaded APK can update the installed app.
@@ -95,7 +110,8 @@ object UpdatePolicy {
         val rotatesFromInstalled = installedCurrent.size == 1 &&
             archiveCurrent.size == 1 &&
             archiveHistory != null &&
-            installedCurrent.single() in archiveHistory
+            archiveHistory.lastOrNull() == archiveCurrent.single() &&
+            archiveHistory.indexOf(installedCurrent.single()) in 0 until archiveHistory.lastIndex
         return if (rotatesFromInstalled) {
             null
         } else {

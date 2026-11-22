@@ -41,15 +41,13 @@ object DnsValidator {
         val trimmed = rawInput.trim()
 
         if (trimmed.contains("/") || trimmed.contains("%") ||
+            trimmed.contains("[") || trimmed.contains("]") ||
             trimmed.startsWith("http://") || trimmed.startsWith("https://")
         ) {
-            return DnsValidationResult.Invalid("Enter a plain numeric IP without ports, paths, zones, or CIDR prefixes")
+            return DnsValidationResult.Invalid("Enter a plain numeric IP without brackets, ports, paths, zones, or CIDR prefixes")
         }
 
         // Reject explicit host:port forms. Do not treat IPv6 hextets like ::53 as a port.
-        if (trimmed.startsWith("[") && trimmed.contains("]:")) {
-            return DnsValidationResult.Invalid("Enter a plain numeric IP without ports, paths, zones, or CIDR prefixes")
-        }
         if (trimmed.count { it == '.' } == 3 && trimmed.contains(":") &&
             trimmed.substringAfterLast(':').all { it.isDigit() }
         ) {
@@ -64,14 +62,14 @@ object DnsValidator {
             return DnsValidationResult.Invalid("Domain names cannot be used as DNS server IPs")
         }
 
-        // Try IPv4 parsing first
-        if (trimmed.contains(".")) {
-            return validateIpv4(trimmed)
-        }
-
-        // Try IPv6 parsing
+        // Check IPv6 first so IPv4-mapped/embedded IPv6 (e.g. 64:ff9b::1.1.1.1)
+        // is not misrouted to IPv4 parsing.
         if (isPotentiallyIpv6) {
             return validateIpv6(trimmed)
+        }
+
+        if (trimmed.contains(".")) {
+            return validateIpv4(trimmed)
         }
 
         return DnsValidationResult.Invalid("Invalid IP address format")
@@ -103,51 +101,58 @@ object DnsValidator {
             octets[i] = num
         }
 
-        // Unspecified (0.0.0.0)
-        if (octets.all { it == 0 }) {
-            return DnsValidationResult.Invalid("0.0.0.0 cannot be used as a DNS server")
-        }
+        rejectUnusableIpv4Bytes(octets)?.let { return DnsValidationResult.Invalid(it) }
 
+        return DnsValidationResult.Valid(ip = ipStr, isIpv6 = false)
+    }
+
+    private fun rejectUnusableIpv4Bytes(octets: IntArray): String? {
+        // Unspecified / "this network" (0.0.0.0/8)
+        if (octets[0] == 0) {
+            return "0.0.0.0/8 cannot be used as a DNS server"
+        }
         // Loopback (127.0.0.0/8)
         if (octets[0] == 127) {
-            return DnsValidationResult.Invalid("Loopback address cannot be used as a tunnel DNS server")
+            return "Loopback address cannot be used as a tunnel DNS server"
         }
-
-        // Multicast (224.0.0.0/4 -> 224..239)
+        // Multicast (224.0.0.0/4) and reserved/broadcast (240.0.0.0/4)
         if (octets[0] in 224..239) {
-            return DnsValidationResult.Invalid("Multicast address cannot be used as a DNS server")
+            return "Multicast address cannot be used as a DNS server"
         }
-
-        // Broadcast (255.255.255.255)
-        if (octets.all { it == 255 }) {
-            return DnsValidationResult.Invalid("Broadcast address cannot be used as a DNS server")
+        if (octets[0] >= 240) {
+            return "Reserved IPv4 address cannot be used as a DNS server"
         }
-
         // Private/LAN ranges (RFC 1918): the live gateway's allowProxyDest
         // rejects private destinations, so a private forced resolver would
         // black out DNS entirely while CONNECTED.
         if (octets[0] == 10) {
-            return DnsValidationResult.Invalid("Private 10.0.0.0/8 address cannot be used as a tunnel DNS server (gateway rejects private destinations)")
+            return "Private 10.0.0.0/8 address cannot be used as a tunnel DNS server (gateway rejects private destinations)"
         }
         if (octets[0] == 172 && octets[1] in 16..31) {
-            return DnsValidationResult.Invalid("Private 172.16.0.0/12 address cannot be used as a tunnel DNS server (gateway rejects private destinations)")
+            return "Private 172.16.0.0/12 address cannot be used as a tunnel DNS server (gateway rejects private destinations)"
         }
         if (octets[0] == 192 && octets[1] == 168) {
-            return DnsValidationResult.Invalid("Private 192.168.0.0/16 address cannot be used as a tunnel DNS server (gateway rejects private destinations)")
+            return "Private 192.168.0.0/16 address cannot be used as a tunnel DNS server (gateway rejects private destinations)"
         }
-
-        // Carrier-grade NAT shared space (100.64.0.0/10, RFC 6598): not a
-        // public resolver reachable through the gateway.
+        // Carrier-grade NAT shared space (100.64.0.0/10, RFC 6598)
         if (octets[0] == 100 && octets[1] in 64..127) {
-            return DnsValidationResult.Invalid("Carrier-grade NAT 100.64.0.0/10 address cannot be used as a tunnel DNS server")
+            return "Carrier-grade NAT 100.64.0.0/10 address cannot be used as a tunnel DNS server"
         }
-
-        // IPv4 link-local (169.254.0.0/16): never a public resolver.
+        // IPv4 link-local (169.254.0.0/16)
         if (octets[0] == 169 && octets[1] == 254) {
-            return DnsValidationResult.Invalid("Link-local 169.254.0.0/16 address cannot be used as a DNS server")
+            return "Link-local 169.254.0.0/16 address cannot be used as a DNS server"
         }
-
-        return DnsValidationResult.Valid(ip = ipStr, isIpv6 = false)
+        // IETF protocol assignments (192.0.0.0/24), documentation (TEST-NET-1/2/3), benchmarking (198.18.0.0/15)
+        if (octets[0] == 192 && octets[1] == 0 && (octets[2] == 0 || octets[2] == 2)) {
+            return "Special-purpose IPv4 address cannot be used as a DNS server"
+        }
+        if (octets[0] == 198 && ((octets[1] and 0xFE) == 18 || (octets[1] == 51 && octets[2] == 100))) {
+            return "Special-purpose IPv4 address cannot be used as a DNS server"
+        }
+        if (octets[0] == 203 && octets[1] == 0 && octets[2] == 113) {
+            return "Documentation IPv4 address cannot be used as a DNS server"
+        }
+        return null
     }
 
     private fun validateIpv6(ipStr: String): DnsValidationResult {
@@ -172,14 +177,48 @@ object DnsValidator {
             return DnsValidationResult.Invalid("IPv6 link-local address cannot be used as a DNS server")
         }
 
-        // Unique-local (fc00::/7, RFC 4193) and deprecated site-local
-        // (fec0::/10): not public resolvers reachable through the gateway.
         val raw = parsed.address
-        if (raw.isNotEmpty() && (raw[0].toInt() and 0xFE) == 0xFC) {
+        if (raw.size != 16) {
+            return DnsValidationResult.Invalid("Invalid IPv6 address format")
+        }
+        // Unique-local (fc00::/7, RFC 4193) and deprecated site-local (fec0::/10)
+        if ((raw[0].toInt() and 0xFE) == 0xFC) {
             return DnsValidationResult.Invalid("IPv6 unique-local address cannot be used as a DNS server")
         }
-        if (raw.size >= 2 && raw[0] == 0xFE.toByte() && (raw[1].toInt() and 0xC0) == 0xC0) {
+        if (raw[0] == 0xFE.toByte() && (raw[1].toInt() and 0xC0) == 0xC0) {
             return DnsValidationResult.Invalid("IPv6 site-local address cannot be used as a DNS server")
+        }
+        // Deprecated IPv4-compatible IPv6 ::/96
+        if ((0 until 12).all { raw[it] == 0.toByte() }) {
+            return DnsValidationResult.Invalid("IPv4-compatible IPv6 address cannot be used as a DNS server")
+        }
+        // Discard-only 100::/64
+        if (raw[0] == 0x01.toByte() && raw[1] == 0x00.toByte() && (2 until 8).all { raw[it] == 0.toByte() }) {
+            return DnsValidationResult.Invalid("Discard-only 100::/64 address cannot be used as a DNS server")
+        }
+        // Documentation 2001:db8::/32
+        if (raw[0] == 0x20.toByte() && raw[1] == 0x01.toByte() && raw[2] == 0x0d.toByte() && raw[3] == 0xb8.toByte()) {
+            return DnsValidationResult.Invalid("Documentation 2001:db8::/32 address cannot be used as a DNS server")
+        }
+        // RFC 8215 local-use NAT64 64:ff9b:1::/48
+        if (raw[0] == 0x00.toByte() && raw[1] == 0x64.toByte() &&
+            raw[2] == 0xff.toByte() && raw[3] == 0x9b.toByte() &&
+            raw[4] == 0x00.toByte() && raw[5] == 0x01.toByte()
+        ) {
+            return DnsValidationResult.Invalid("Local-use NAT64 64:ff9b:1::/48 address cannot be used as a DNS server")
+        }
+        // Well-known NAT64 64:ff9b::/96: validate the embedded IPv4 address
+        if (raw[0] == 0x00.toByte() && raw[1] == 0x64.toByte() &&
+            raw[2] == 0xff.toByte() && raw[3] == 0x9b.toByte() &&
+            (4 until 12).all { raw[it] == 0.toByte() }
+        ) {
+            val v4Octets = intArrayOf(
+                raw[12].toInt() and 0xff,
+                raw[13].toInt() and 0xff,
+                raw[14].toInt() and 0xff,
+                raw[15].toInt() and 0xff
+            )
+            rejectUnusableIpv4Bytes(v4Octets)?.let { return DnsValidationResult.Invalid(it) }
         }
 
         return DnsValidationResult.Valid(ip = ipStr, isIpv6 = true)

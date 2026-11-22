@@ -48,19 +48,34 @@ data class ExitNodeRelay(
         fun validateHostname(hostname: String): String? {
             val host = hostname.trim()
             if (host.isEmpty()) return "Enter your relay's host name"
-            if (host.any { it in "/?#@: \t\\" }) {
+            if (host.any { it.isWhitespace() || it.code < 0x20 || it.code == 0x7f || it in "/?#@:\\%" }) {
                 return "Use a host name only, not a URL or host:port"
             }
             val lower = host.lowercase()
-            if (lower == "localhost" || lower.endsWith(".localhost") || lower == "ip6-localhost") {
+            if (lower == "none") {
+                return "Enter a valid DNS host name"
+            }
+            val withoutTrailingDot = host.removeSuffix(".")
+            if (withoutTrailingDot.isEmpty() || host.startsWith(".") || withoutTrailingDot.contains("..")) {
+                return "Enter a valid DNS host name"
+            }
+            val normalized = withoutTrailingDot.lowercase()
+            if (normalized == "localhost" || normalized.endsWith(".localhost") || normalized == "ip6-localhost") {
                 return "localhost cannot be used as a relay"
             }
-            if (lower == "metadata.google.internal" || lower == "metadata.internal") {
+            if (normalized == "metadata.google.internal" || normalized == "metadata.internal") {
                 return "That host cannot be used as a relay"
             }
-            val labels = host.split('.')
+            val labels = withoutTrailingDot.split('.')
             if (labels.size == 4 && labels.all(::isIpv4Label)) {
                 return "Use a DNS name, not an IP address"
+            }
+            if (labels.size >= 4) {
+                for (i in 0..labels.size - 4) {
+                    if (labels.subList(i, i + 4).all(::isIpv4Label)) {
+                        return "Relay host name cannot embed an IP address"
+                    }
+                }
             }
             return null
         }

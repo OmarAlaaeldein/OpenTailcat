@@ -59,3 +59,33 @@ func TestFilterFetchedDERPMapRejectsEmpty(t *testing.T) {
 		t.Fatal("expected empty unsafe map to fail")
 	}
 }
+
+func TestFilterFetchedDERPMapStripsUnsafeSTUNTestIP(t *testing.T) {
+	raw, err := json.Marshal(&tailcfg.DERPMap{
+		Regions: map[tailcfg.DERPRegionID]*tailcfg.DERPRegion{
+			1: {
+				RegionID: 1,
+				Nodes: []*tailcfg.DERPNode{
+					{Name: "badstun", HostName: "derp.example", STUNTestIP: "127.0.0.1"},
+					{Name: "badnat64", HostName: "derp.example", IPv6: "64:ff9b::127.0.0.1"},
+					{Name: "good", HostName: "derp.example", IPv4: "203.0.113.10", STUNTestIP: "203.0.113.10"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered, err := filterFetchedDERPMapJSON(raw)
+	if err != nil {
+		t.Fatalf("filter: %v", err)
+	}
+	var dm tailcfg.DERPMap
+	if err := json.Unmarshal(filtered, &dm); err != nil {
+		t.Fatal(err)
+	}
+	reg := dm.Regions[1]
+	if reg == nil || len(reg.Nodes) != 1 || reg.Nodes[0].Name != "good" {
+		t.Fatalf("expected only safe node kept, got %+v", reg)
+	}
+}

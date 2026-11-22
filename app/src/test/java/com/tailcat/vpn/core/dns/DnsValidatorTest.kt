@@ -16,8 +16,7 @@ class DnsValidatorTest {
             "1.0.0.1",
             "8.8.4.4",
             "149.112.112.112",
-            "208.67.222.222",
-            "192.0.2.1"
+            "208.67.222.222"
         )
 
         for (ip in validIps) {
@@ -38,7 +37,6 @@ class DnsValidatorTest {
             "2620:fe::fe",
             "2606:4700:4700::1001",
             "2001:4860:4860::8844",
-            "2001:db8::53",
             "2001:4860:4860::5353"
         )
 
@@ -222,5 +220,30 @@ class DnsValidatorTest {
         assertEquals(null, DnsValidator.gatewayRejection(v6, ipv6Egress = true))
         assertEquals(null, DnsValidator.gatewayRejection(v4, ipv6Egress = false))
         assertEquals(null, DnsValidator.gatewayRejection(v4, ipv6Egress = true))
+    }
+
+    @Test
+    fun reservedDocumentationNat64AndBracketsRejected() {
+        val rejected = listOf(
+            "0.0.0.1",
+            "192.0.0.1",
+            "192.0.2.1",
+            "198.18.0.1",
+            "198.51.100.1",
+            "203.0.113.1",
+            "240.0.0.1",
+            "100::1",
+            "2001:db8::53",
+            "::1.1.1.1",
+            "64:ff9b::127.0.0.1",
+            "64:ff9b:1::1",
+            "[1.1.1.1]",
+            "[2606:4700:4700::1111]",
+            "2606:4700:4700::1111%eth0"
+        )
+        for (ip in rejected) {
+            val result = DnsValidator.validate(ip)
+            assertTrue("Expected '$ip' to be rejected", result is DnsValidationResult.Invalid)
+        }
     }
 }

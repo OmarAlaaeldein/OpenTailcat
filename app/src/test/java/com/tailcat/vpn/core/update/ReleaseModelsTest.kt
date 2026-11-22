@@ -111,4 +111,14 @@ class ReleaseModelsTest {
         assertFalse(r.isNewerThan("1.3.8"))
         assertFalse(r.isNewerThan("1.4.0"))
     }
+
+    @Test
+    fun prereleaseAndLargeNumericSemverFollowsSemVer2() {
+        assertTrue(LatestRelease.isNewerVersion("1.7.3", "1.7.3-rc.1"))
+        assertFalse(LatestRelease.isNewerVersion("1.7.3-rc.1", "1.7.3"))
+        assertTrue(LatestRelease.isNewerVersion("1.7.3-rc.2", "1.7.3-rc.1"))
+        assertTrue(LatestRelease.isNewerVersion("1.7.3-rc.10", "1.7.3-rc.2"))
+        assertTrue(LatestRelease.isNewerVersion("1.7.10", "1.7.3"))
+        assertFalse(LatestRelease.isNewerVersion("1.7.3+build.2", "1.7.3+build.1"))
+    }
 }

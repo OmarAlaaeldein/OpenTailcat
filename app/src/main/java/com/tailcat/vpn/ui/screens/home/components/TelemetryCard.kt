@@ -116,7 +116,7 @@ fun TelemetryCard(
                     modifier = Modifier.size(16.dp)
                 )
             } else if (!tunnelActive) {
-                IconButton(onClick = onRefreshIp, modifier = Modifier.size(28.dp)) {
+                IconButton(onClick = onRefreshIp) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = "Refresh IP",

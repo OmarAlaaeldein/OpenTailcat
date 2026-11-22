@@ -3,6 +3,7 @@ package com.tailcat.vpn.service
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -59,6 +60,11 @@ class TunnelExitNodeTest {
         assertEquals(null, ExitNodeRelay.problem("derp.example.com", "443", "3478"))
         assertTrue(ExitNodeRelay.problem("derp.example.com", "0", "3478")!!.contains("DERP port"))
         assertTrue(ExitNodeRelay.problem("derp.example.com", "443", "70000")!!.contains("STUN port"))
+        assertNotNull(ExitNodeRelay.validateHostname("localhost."))
+        assertNotNull(ExitNodeRelay.validateHostname("foo..bar"))
+        assertNotNull(ExitNodeRelay.validateHostname("derp.example%eth0"))
+        assertNotNull(ExitNodeRelay.validateHostname("none"))
+        assertNotNull(ExitNodeRelay.validateHostname("127.0.0.1.nip.io"))
         assertThrows(IllegalArgumentException::class.java) {
             ExitNodeRelay("derp.example.com", derpPort = 0)
         }

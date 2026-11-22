@@ -33,12 +33,16 @@ class TunnelController(
     private val profileRepository: ProfileRepository,
     private val networkMonitor: NetworkMonitor,
     private val tunnelEngine: NativeEngine,
-    private val preferences: PreferencesStorage
+    private val preferences: PreferencesStorage,
+    private val interlockLock: Any = Any()
 ) {
+
+    internal val roleInterlock: Any get() = interlockLock
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val ipAuditor = IpAuditor()
     val egressInfo = ipAuditor.egressInfo
+    private var ipAuditJob: Job? = null
 
     private val _tunnelState = MutableStateFlow(TunnelState.DISCONNECTED)
     val tunnelState: StateFlow<TunnelState> = _tunnelState.asStateFlow()
@@ -114,7 +118,7 @@ class TunnelController(
     }
 
     init {
-        scope.launch { ipAuditor.fetchCurrentEgress() }
+        refreshPublicIp()
 
         networkMonitor.setOnNetworkStateChangedListener { networkType, stateJson ->
             // Never invoke JNI/Go on the NetworkCallback thread synchronously.
@@ -126,6 +130,7 @@ class TunnelController(
                     // Match the atomic transition in the lifecycle model. A
                     // separate read/write can restore RECONNECTING after stop.
                     _tunnelState.compareAndSet(TunnelState.CONNECTED, TunnelState.RECONNECTING)
+                    _tunnelState.compareAndSet(TunnelState.DEGRADED, TunnelState.RECONNECTING)
                 }
                 // Only a live session may return to CONNECTED; RECONNECTING also
                 // covers a service restart that has not finished its routed TUN.
@@ -136,6 +141,7 @@ class TunnelController(
                         runCatching { tunnelEngine.getStats() }
                             .onSuccess { metrics ->
                                 ifSessionCurrent(generation) {
+                                    if (!networkMonitor.isOnline) return@ifSessionCurrent
                                     _networkMetrics.value = metrics
                                     if (_tunnelState.value == TunnelState.RECONNECTING &&
                                         EngineHealth.shouldConnect(metrics, unixNow())
@@ -151,10 +157,23 @@ class TunnelController(
     }
 
     fun refreshPublicIp() {
-        scope.launch { ipAuditor.fetchCurrentEgress() }
+        if (_tunnelState.value != TunnelState.DISCONNECTED) return
+        ipAuditJob?.cancel()
+        ipAuditJob = scope.launch {
+            if (_tunnelState.value == TunnelState.DISCONNECTED) {
+                ipAuditor.fetchCurrentEgress()
+            }
+        }
+    }
+
+    fun clearLastError() {
+        _lastError.value = null
     }
 
     fun setTunnelState(state: TunnelState) {
+        if (state != TunnelState.DISCONNECTED) {
+            ipAuditJob?.cancel()
+        }
         _tunnelState.value = state
     }
 
@@ -219,28 +238,31 @@ class TunnelController(
      * validated network and report a failed handshake instead of retrying.
      */
     fun startTunnel(userInitiated: Boolean = true): Boolean {
-        val error = validateStartRequest(requireOnline = userInitiated)
-        if (error != null) {
-            reportError(error)
-            return false
-        }
-
-        return runCatching {
-            // Automatic restoration has no Activity to obtain consent. Do not
-            // enqueue a foreground-service start until Android has granted it.
-            check(VpnService.prepare(context) == null) { TailcatVpnService.VPN_PERMISSION_REQUIRED }
-            preferences.vpnWanted = true
-            _lastError.value = null
-            _tunnelState.value = TunnelState.CONNECTING
-            val intent = Intent(context, TailcatVpnService::class.java).apply {
-                action = TailcatVpnService.ACTION_START_VPN
-                putExtra(TailcatVpnService.EXTRA_USER_INITIATED, userInitiated)
+        synchronized(interlockLock) {
+            val error = validateStartRequest(requireOnline = userInitiated)
+            if (error != null) {
+                reportError(error)
+                return false
             }
-            ContextCompat.startForegroundService(context, intent)
-            true
-        }.getOrElse {
-            onVpnStartFailed(it.message ?: "Android could not start the VPN service")
-            false
+
+            return runCatching {
+                // Automatic restoration has no Activity to obtain consent. Do not
+                // enqueue a foreground-service start until Android has granted it.
+                check(VpnService.prepare(context) == null) { TailcatVpnService.VPN_PERMISSION_REQUIRED }
+                ipAuditJob?.cancel()
+                preferences.vpnWanted = true
+                _lastError.value = null
+                _tunnelState.value = TunnelState.CONNECTING
+                val intent = Intent(context, TailcatVpnService::class.java).apply {
+                    action = TailcatVpnService.ACTION_START_VPN
+                    putExtra(TailcatVpnService.EXTRA_USER_INITIATED, userInitiated)
+                }
+                ContextCompat.startForegroundService(context, intent)
+                true
+            }.getOrElse {
+                onVpnStartFailed(it.message ?: "Android could not start the VPN service")
+                false
+            }
         }
     }
 
@@ -250,6 +272,7 @@ class TunnelController(
 
     fun stopTunnel() {
         preferences.vpnWanted = false
+        _lastError.value = null
         stopPolling()
         val intent = Intent(context, TailcatVpnService::class.java).apply {
             action = TailcatVpnService.ACTION_STOP_VPN
@@ -312,10 +335,12 @@ class TunnelController(
                         if (reason == EngineHealth.TeardownReason.Healthy) {
                             // Pumps live but live DiscoPing is stale: degraded, still usable.
                             ifSessionCurrent(generation) {
-                                _tunnelState.value = if (metrics.discoStale) {
-                                    TunnelState.DEGRADED
-                                } else {
-                                    TunnelState.CONNECTED
+                                if (_tunnelState.value != TunnelState.RECONNECTING || networkMonitor.isOnline) {
+                                    _tunnelState.value = if (metrics.discoStale) {
+                                        TunnelState.DEGRADED
+                                    } else {
+                                        TunnelState.CONNECTED
+                                    }
                                 }
                             }
                         }

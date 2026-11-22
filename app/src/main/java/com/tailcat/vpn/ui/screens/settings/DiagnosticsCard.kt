@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material3.Checkbox
@@ -13,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.tailcat.vpn.ui.theme.BorderSubtle
 import com.tailcat.vpn.ui.theme.TailcatButtons
@@ -25,7 +27,13 @@ internal fun DiagnosticsCard(debugMode: Boolean, onDebugModeChange: (Boolean) ->
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .toggleable(
+                    value = debugMode,
+                    role = Role.Checkbox,
+                    onValueChange = onDebugModeChange
+                )
         ) {
             Text(
                 "Debug failure reports",
@@ -34,7 +42,7 @@ internal fun DiagnosticsCard(debugMode: Boolean, onDebugModeChange: (Boolean) ->
             )
             Checkbox(
                 checked = debugMode,
-                onCheckedChange = onDebugModeChange,
+                onCheckedChange = null,
                 colors = TailcatButtons.checkbox(uncheckedColor = BorderSubtle)
             )
         }

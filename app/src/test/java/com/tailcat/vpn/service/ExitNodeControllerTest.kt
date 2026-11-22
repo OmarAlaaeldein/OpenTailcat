@@ -54,8 +54,9 @@ class ExitNodeControllerTest {
 
     private var tunnel = TunnelState.DISCONNECTED
     private var now = NOW
+    private var mono = 0L
     private val engine = FakeExitNode()
-    private val controller = ExitNodeController(engine, { tunnel }, { now })
+    private val controller = ExitNodeController(engine, { tunnel }, { now }, { mono })
     private val config = ExitNodeConfig(ttlSeconds = 3600)
 
     private fun sharing() = controller.state.value as ExitNodeUiState.Sharing
@@ -137,7 +138,12 @@ class ExitNodeControllerTest {
     @Test
     fun expiryEndsSharingEvenIfTheEngineHasNotSaidSo() {
         assertNull(controller.start(config))
-        now = engine.expires + 1
+        // Forward wall-clock jump must not falsely expire a live session.
+        now = engine.expires + 100
+        controller.refresh()
+        assertTrue(controller.isActive)
+        // Advancing monotonic uptime past TTL ends sharing.
+        mono = config.ttlSeconds!!
         controller.refresh()
         val ended = controller.state.value as ExitNodeUiState.Ended
         assertEquals(ExitNodeEnd.EXPIRED, ended.reason)
@@ -150,6 +156,7 @@ class ExitNodeControllerTest {
         assertNull(controller.start(ExitNodeConfig(null)))
         assertNull(sharing().stats.expiresUnixSec)
         now += 365L * 24 * 3600
+        mono += 365L * 24 * 3600
         controller.refresh()
         assertTrue("a year later it is still sharing", controller.isActive)
         assertEquals(0, engine.stops)

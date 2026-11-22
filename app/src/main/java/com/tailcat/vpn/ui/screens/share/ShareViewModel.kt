@@ -6,6 +6,7 @@ import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.core.model.TunnelState
 import com.tailcat.vpn.service.ExitNodeAdmission
 import com.tailcat.vpn.service.ExitNodeConfig
+import com.tailcat.vpn.service.ExitNodeNotifications
 import com.tailcat.vpn.service.ExitNodeRelay
 import com.tailcat.vpn.service.ExitNodeService
 import com.tailcat.vpn.service.ExitNodeUiState
@@ -126,7 +127,10 @@ class ShareViewModel : ViewModel() {
     fun deny(key: String) = deviceAction { controller.deny(key) }
     fun revoke(key: String) = deviceAction { controller.revoke(key) }
 
-    fun acknowledgeEnded() = controller.acknowledgeEnded()
+    fun acknowledgeEnded() {
+        ExitNodeNotifications(app).clearEnded()
+        controller.acknowledgeEnded()
+    }
 
     private fun deviceAction(block: () -> String?) {
         viewModelScope.launch(Dispatchers.IO) { block()?.let { _events.emit(it) } }

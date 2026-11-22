@@ -68,7 +68,7 @@ fun HomeTopBar(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                 Text(
                     text = "OpenTailcat",
                     style = MaterialTheme.typography.headlineLarge

@@ -74,9 +74,12 @@ class ProfileRepository(private val preferencesStore: PreferencesStorage) {
         )
     }
 
-    private fun saveProfiles() {
+    private fun saveProfiles(list: List<GatewayProfile>): Boolean {
+        if (list.isEmpty()) {
+            return preferencesStore.saveProfilesJson(null)
+        }
         val array = JSONArray()
-        for (p in _profiles.value) {
+        for (p in list) {
             val obj = JSONObject().apply {
                 put("id", p.id)
                 put("name", p.name)
@@ -91,7 +94,7 @@ class ProfileRepository(private val preferencesStore: PreferencesStorage) {
             }
             array.put(obj)
         }
-        preferencesStore.savedProfilesJson = array.toString()
+        return preferencesStore.saveProfilesJson(array.toString())
     }
 
     fun addOrUpdateFromToken(
@@ -136,8 +139,10 @@ class ProfileRepository(private val preferencesStore: PreferencesStorage) {
         )
 
         val updatedList = _profiles.value.filter { it.id != profile.id } + profile
+        if (!saveProfiles(updatedList)) {
+            return Result.failure(IllegalStateException("Could not save gateway profile securely"))
+        }
         _profiles.value = updatedList
-        saveProfiles()
 
         // Always activate the newly paired or updated profile immediately
         setActiveProfile(profile)
@@ -164,8 +169,11 @@ class ProfileRepository(private val preferencesStore: PreferencesStorage) {
             dnsPolicy = dnsPolicy
         )
 
-        _profiles.value = _profiles.value.map { if (it.id == profileId) updated else it }
-        saveProfiles()
+        val updatedList = _profiles.value.map { if (it.id == profileId) updated else it }
+        if (!saveProfiles(updatedList)) {
+            return Result.failure(IllegalStateException("Could not save DNS settings securely"))
+        }
+        _profiles.value = updatedList
 
         if (_activeProfile.value?.id == profileId) {
             _activeProfile.value = updated
@@ -176,18 +184,20 @@ class ProfileRepository(private val preferencesStore: PreferencesStorage) {
 
     fun setActiveProfile(profile: GatewayProfile) {
         require(_profiles.value.any { it.id == profile.id }) { "Profile is not saved" }
-        _activeProfile.value = profile
-        preferencesStore.activeProfileId = profile.id
+        if (preferencesStore.saveActiveProfileId(profile.id)) {
+            _activeProfile.value = profile
+        }
     }
 
     fun deleteProfile(id: String) {
         val updatedList = _profiles.value.filter { it.id != id }
+        if (!saveProfiles(updatedList)) return
         _profiles.value = updatedList
-        saveProfiles()
 
         if (_activeProfile.value?.id == id) {
-            _activeProfile.value = updatedList.firstOrNull()
-            preferencesStore.activeProfileId = _activeProfile.value?.id
+            val nextActive = updatedList.find { it.isDefault } ?: updatedList.firstOrNull()
+            _activeProfile.value = nextActive
+            preferencesStore.saveActiveProfileId(nextActive?.id)
         }
     }
 }

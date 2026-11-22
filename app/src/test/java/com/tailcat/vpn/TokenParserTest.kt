@@ -195,6 +195,49 @@ class TokenParserTest {
         }
     }
 
+    @Test
+    fun rejectsTrailingDotLoopbackColonHostNoneHostAndUnsafeNat64Derp() {
+        fun cborBytes(b: ByteArray): ByteArray = byteArrayOf((0x40 + 24).toByte(), b.size.toByte()) + b
+        fun cborText(s: String): ByteArray {
+            val utf8 = s.toByteArray(Charsets.UTF_8)
+            return if (utf8.size <= 23) {
+                byteArrayOf((0x60 + utf8.size).toByte()) + utf8
+            } else {
+                byteArrayOf((0x60 + 24).toByte(), utf8.size.toByte()) + utf8
+            }
+        }
+        fun tokenWithDerpNode(fields: List<Pair<String, String>>): String {
+            val p = ByteArray(32) { (it + 1).toByte() }
+            val k = ByteArray(32) { (it + 33).toByte() }
+            var nodeBytes = byteArrayOf((0xA0 + fields.size).toByte())
+            for ((fk, fv) in fields) {
+                nodeBytes += cborText(fk) + cborText(fv)
+            }
+            val regionBytes = byteArrayOf(0xA2.toByte()) +
+                cborText("i") + byteArrayOf(0x18, 0x01) +
+                cborText("n") + byteArrayOf(0x81.toByte()) + nodeBytes
+            val top = byteArrayOf(0xA3.toByte()) +
+                cborText("p") + cborBytes(p) +
+                cborText("k") + cborBytes(k) +
+                cborText("r") + regionBytes
+            return "tc" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(top)
+        }
+
+        val badTokens = listOf(
+            tokenWithDerpNode(listOf("h" to "localhost.")),
+            tokenWithDerpNode(listOf("h" to "derp.example:443")),
+            tokenWithDerpNode(listOf("h" to "none")),
+            tokenWithDerpNode(listOf("h" to "derp.example", "6" to "64:ff9b::127.0.0.1")),
+            tokenWithDerpNode(listOf("h" to "derp.example", "6" to "64:ff9b:1::1")),
+            tokenWithDerpNode(listOf("h" to "derp.example", "6" to "::1.1.1.1"))
+        )
+        for (bad in badTokens) {
+            val parsed = TokenParser.parse(bad)
+            assertEquals("Expected INVALID for $bad", TokenClassification.INVALID, parsed.classification)
+            assertFalse(parsed.isConnectable)
+        }
+    }
+
     companion object {
         private const val INSECURE_FOR_TESTS_TOKEN =
             "tco2FrWCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QGFwWCABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fIGFygaJhToGiYWhsZGVycC5leGFtcGxlYXj1YWkB"

@@ -5,15 +5,15 @@ import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TunnelState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import com.tailcat.vpn.core.tls.PinnedHttps
-import java.io.InputStream
-import java.io.OutputStream
 import kotlin.math.abs
 import kotlin.math.round
 
@@ -28,10 +28,12 @@ class SpeedTestEngine {
     suspend fun runSpeedTest(viaGateway: Boolean = false) = withContext(Dispatchers.IO) {
         currentStage = SpeedTestStage.MEASURING_PING
         stageDetail = null
+        val initialTunnel = tunnelState()
         _testState.value = SpeedTestResult(
             stage = SpeedTestStage.MEASURING_PING,
             progress = 0.05f,
-            viaGateway = viaGateway
+            viaGateway = viaGateway,
+            tunnelState = initialTunnel
         )
 
         try {
@@ -120,7 +122,11 @@ class SpeedTestEngine {
 
             // Stage 4: Completed
             val metrics = snapshotMetrics(viaGateway)
-            val tunnel = tunnelState()
+            val tunnel = if (!viaGateway && initialTunnel == TunnelState.DISCONNECTED) {
+                TunnelState.DISCONNECTED
+            } else {
+                tunnelState()
+            }
             val findings = SpeedTroubleshooter.diagnose(
                 tunnelState = tunnel,
                 metrics = metrics,
@@ -149,7 +155,11 @@ class SpeedTestEngine {
         } catch (e: Exception) {
             val failed = currentStage
             val metrics = snapshotMetrics(viaGateway)
-            val tunnel = tunnelState()
+            val tunnel = if (!viaGateway && initialTunnel == TunnelState.DISCONNECTED) {
+                TunnelState.DISCONNECTED
+            } else {
+                tunnelState()
+            }
             val findings = SpeedTroubleshooter.diagnose(
                 tunnelState = tunnel,
                 metrics = metrics,
@@ -210,93 +220,95 @@ class SpeedTestEngine {
 
     private suspend fun measureDownloadSpeed(onProgress: (Double, Float) -> Unit): Double {
         val testDurationMs = 5000L
-        val startTime = System.currentTimeMillis()
         var totalBytesRead = 0L
-        var lastReportedSpeed = 0.0
+        var startTime = 0L
 
+        val conn = PinnedHttps.open("https://speed.cloudflare.com/__down?bytes=25000000").apply {
+            connectTimeout = 4000
+            readTimeout = 4000
+            requestMethod = "GET"
+            useCaches = false
+        }
         try {
-            val conn = PinnedHttps.open("https://speed.cloudflare.com/__down?bytes=25000000").apply {
-                connectTimeout = 4000
-                readTimeout = 4000
-                requestMethod = "GET"
-                useCaches = false
-            }
-
             val buffer = ByteArray(32768)
             check(conn.responseCode in 200..299) { "Download endpoint returned HTTP ${conn.responseCode}" }
-            val stream: InputStream = conn.inputStream
+            conn.inputStream.use { stream ->
+                startTime = System.currentTimeMillis()
+                while (System.currentTimeMillis() - startTime < testDurationMs) {
+                    currentCoroutineContext().ensureActive()
+                    val bytes = stream.read(buffer)
+                    if (bytes == -1) break
+                    totalBytesRead += bytes
 
-            while (System.currentTimeMillis() - startTime < testDurationMs) {
-                val bytes = stream.read(buffer)
-                if (bytes == -1) break
-                totalBytesRead += bytes
-
-                val elapsedSec = (System.currentTimeMillis() - startTime) / 1000.0
-                if (elapsedSec > 0.3) {
-                    val rawMbps = (totalBytesRead * 8.0) / (elapsedSec * 1_000_000.0)
-                    val cleanMbps = round(rawMbps * 10.0) / 10.0
-                    lastReportedSpeed = cleanMbps
-                    val stageProgress = ((System.currentTimeMillis() - startTime) / testDurationMs.toFloat()).coerceIn(0f, 1f)
-                    onProgress(cleanMbps, stageProgress)
+                    val elapsedSec = (System.currentTimeMillis() - startTime) / 1000.0
+                    if (elapsedSec > 0.3) {
+                        val rawMbps = (totalBytesRead * 8.0) / (elapsedSec * 1_000_000.0)
+                        val cleanMbps = round(rawMbps * 10.0) / 10.0
+                        val stageProgress = ((System.currentTimeMillis() - startTime) / testDurationMs.toFloat()).coerceIn(0f, 1f)
+                        onProgress(cleanMbps, stageProgress)
+                    }
                 }
             }
-            stream.close()
-            conn.disconnect()
         } catch (error: CancellationException) {
             throw error
         } catch (e: Exception) {
             throw IllegalStateException("Download test failed: ${e.message ?: "network error"}", e)
+        } finally {
+            conn.disconnect()
         }
 
-        check(lastReportedSpeed > 0.0) { "Download test returned no data" }
-        return round(lastReportedSpeed * 10.0) / 10.0
+        check(totalBytesRead > 0L) { "Download test returned no data" }
+        val totalElapsedSec = ((System.currentTimeMillis() - startTime).coerceAtLeast(1L)) / 1000.0
+        val finalMbps = round(((totalBytesRead * 8.0) / (totalElapsedSec * 1_000_000.0)) * 10.0) / 10.0
+        return finalMbps.coerceAtLeast(0.1)
     }
 
     private suspend fun measureUploadSpeed(onProgress: (Double, Float) -> Unit): Double {
         val testDurationMs = 4000L
-        val startTime = System.currentTimeMillis()
         var totalBytesSent = 0L
-        var lastReportedSpeed = 0.0
+        var startTime = 0L
 
+        val conn = PinnedHttps.open("https://speed.cloudflare.com/__up").apply {
+            connectTimeout = 4000
+            readTimeout = 4000
+            requestMethod = "POST"
+            doOutput = true
+            useCaches = false
+            setChunkedStreamingMode(16384)
+        }
         try {
-            val conn = PinnedHttps.open("https://speed.cloudflare.com/__up").apply {
-                connectTimeout = 4000
-                readTimeout = 4000
-                requestMethod = "POST"
-                doOutput = true
-                useCaches = false
-                setChunkedStreamingMode(16384)
-            }
-
             val buffer = ByteArray(16384)
-            val stream: OutputStream = conn.outputStream
+            conn.outputStream.use { stream ->
+                startTime = System.currentTimeMillis()
+                while (System.currentTimeMillis() - startTime < testDurationMs) {
+                    currentCoroutineContext().ensureActive()
+                    stream.write(buffer)
+                    totalBytesSent += buffer.size
 
-            while (System.currentTimeMillis() - startTime < testDurationMs) {
-                stream.write(buffer)
-                totalBytesSent += buffer.size
-
-                val elapsedSec = (System.currentTimeMillis() - startTime) / 1000.0
-                if (elapsedSec > 0.3) {
-                    val rawMbps = (totalBytesSent * 8.0) / (elapsedSec * 1_000_000.0)
-                    val cleanMbps = round(rawMbps * 10.0) / 10.0
-                    lastReportedSpeed = cleanMbps
-                    val stageProgress = ((System.currentTimeMillis() - startTime) / testDurationMs.toFloat()).coerceIn(0f, 1f)
-                    onProgress(cleanMbps, stageProgress)
+                    val elapsedSec = (System.currentTimeMillis() - startTime) / 1000.0
+                    if (elapsedSec > 0.3) {
+                        val rawMbps = (totalBytesSent * 8.0) / (elapsedSec * 1_000_000.0)
+                        val cleanMbps = round(rawMbps * 10.0) / 10.0
+                        val stageProgress = ((System.currentTimeMillis() - startTime) / testDurationMs.toFloat()).coerceIn(0f, 1f)
+                        onProgress(cleanMbps, stageProgress)
+                    }
                 }
+                stream.flush()
             }
-            stream.flush()
-            stream.close()
             check(conn.responseCode in 200..299) { "Upload endpoint returned HTTP ${conn.responseCode}" }
-            conn.inputStream?.close()
-            conn.disconnect()
+            conn.inputStream?.use { /* drain/close */ }
         } catch (error: CancellationException) {
             throw error
         } catch (e: Exception) {
             throw IllegalStateException("Upload test failed: ${e.message ?: "network error"}", e)
+        } finally {
+            conn.disconnect()
         }
 
-        check(lastReportedSpeed > 0.0) { "Upload test returned no data" }
-        return round(lastReportedSpeed * 10.0) / 10.0
+        check(totalBytesSent > 0L) { "Upload test returned no data" }
+        val totalElapsedSec = ((System.currentTimeMillis() - startTime).coerceAtLeast(1L)) / 1000.0
+        val finalMbps = round(((totalBytesSent * 8.0) / (totalElapsedSec * 1_000_000.0)) * 10.0) / 10.0
+        return finalMbps.coerceAtLeast(0.1)
     }
 
     fun reset() {

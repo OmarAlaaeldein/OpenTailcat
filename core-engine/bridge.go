@@ -89,8 +89,9 @@ type TunBridge struct {
 	netstack   *netstackProxy
 	tunWriteMu sync.Mutex
 
-	closed atomic.Bool
-	wg     sync.WaitGroup
+	closed   atomic.Bool
+	wg       sync.WaitGroup
+	readDone chan struct{}
 
 	pumpDeadMu    sync.Mutex
 	onPumpDead    func(error)
@@ -365,8 +366,11 @@ func (b *TunBridge) Start() error {
 	udpReady := make(chan struct{})
 	healthReady := make(chan struct{})
 
+	readDone := make(chan struct{})
+	b.readDone = readDone
 	b.wg.Add(1)
 	go func() {
+		defer close(readDone)
 		defer b.wg.Done()
 		defer b.recoverPump("tun read")
 		b.reportPumpDead(b.readLoop(tunReady))
@@ -435,9 +439,17 @@ func (b *TunBridge) Stop() error {
 		b.tunFile.Close()
 	}
 
-	// Netstack teardown and pump exit share one deadline.
+	// Wait for readLoop to finish injecting packets before destroying the
+	// gVisor stack, then close netstack and wait for remaining pumps within one
+	// bounded deadline.
 	done := make(chan struct{})
 	go func() {
+		if b.readDone != nil {
+			select {
+			case <-b.readDone:
+			case <-time.After(stopWaitTimeout / 2):
+			}
+		}
 		if b.netstack != nil {
 			b.netstack.Close()
 		}
@@ -494,24 +506,35 @@ func (b *TunBridge) handleOutboundPacket(pkt []byte) {
 	}
 
 	version := pkt[0] >> 4
-	if b.mtu > 0 && len(pkt) > b.mtu {
-		b.mtuExceeded.Add(1)
-		if version == 6 {
-			b.writeICMPv6PacketTooBig(pkt, ipv6MinMTU)
-		} else if version == 4 && ipv4DontFragment(pkt) {
-			mtu := b.mtu
-			if pkt[9] == 17 { // UDP must also fit the tunnel
-				mtu = min(mtu, ipv4UDPTunnelMTU(pkt))
-			}
-			b.writeIPv4FragNeeded(pkt, mtu)
-		}
-		return
-	}
-
 	switch version {
 	case 4:
+		ihl := int(pkt[0]&0x0f) * 4
+		if ihl < 20 || len(pkt) < ihl {
+			b.malformedIP.Add(1)
+			return
+		}
+		if b.mtu > 0 && len(pkt) > b.mtu {
+			b.mtuExceeded.Add(1)
+			if ipv4DontFragment(pkt) {
+				mtu := b.mtu
+				if pkt[9] == 17 { // UDP must also fit the tunnel
+					mtu = min(mtu, ipv4UDPTunnelMTU(pkt))
+				}
+				b.writeIPv4FragNeeded(pkt, mtu)
+			}
+			return
+		}
 		b.handleIPv4(pkt)
 	case 6:
+		if len(pkt) < 40 {
+			b.malformedIP.Add(1)
+			return
+		}
+		if b.mtu > 0 && len(pkt) > b.mtu {
+			b.mtuExceeded.Add(1)
+			b.writeICMPv6PacketTooBig(pkt, ipv6MinMTU)
+			return
+		}
 		b.handleIPv6(pkt)
 	default:
 		b.malformedIP.Add(1)
@@ -637,8 +660,12 @@ func ipv6FinalNextHeader(pkt []byte) (nh byte, off int, fragment bool, ok bool) 
 			if len(pkt) < off+8 {
 				return 0, 0, false, false
 			}
+			fragOff := binary.BigEndian.Uint16(pkt[off+2:off+4]) & 0xfff8
 			nh = pkt[off]
 			off += 8
+			if fragOff != 0 {
+				return nh, off, true, true
+			}
 			fragment = true
 		case 51:
 			if len(pkt) < off+2 {
@@ -684,7 +711,7 @@ func (b *TunBridge) writeICMPv6PacketTooBig(pkt []byte, mtu int) {
 	if len(pkt) < 40 {
 		return
 	}
-	if nh, off, _, ok := ipv6FinalNextHeader(pkt); ok && nh == 58 && len(pkt) > off && pkt[off] < 128 {
+	if nh, off, fragment, ok := ipv6FinalNextHeader(pkt); ok && !fragment && nh == 58 && len(pkt) > off && pkt[off] < 128 {
 		return // never answer an ICMPv6 error
 	}
 	if !b.allowICMPError() {
@@ -838,9 +865,11 @@ func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 			b.lastTime = t
 
 			if lastRTTSample.IsZero() || t.Sub(lastRTTSample) >= rttSampleInterval {
-				if b.rttSampling.CompareAndSwap(false, true) {
+				if !b.closed.Load() && b.rttSampling.CompareAndSwap(false, true) {
 					lastRTTSample = t
+					b.wg.Add(1)
 					go func() {
+						defer b.wg.Done()
 						// RTT sampling is not a required pump: a panic here must
 						// not mark the session FAILED.
 						defer b.recoverPumpLogOnly("rtt sample")
@@ -850,10 +879,14 @@ func (b *TunBridge) rateCalcLoop(ready chan struct{}) {
 				}
 			}
 
-			if b.tcpOnly.Load() &&
+			if !b.closed.Load() && b.tcpOnly.Load() &&
 				(lastUDPReprobe.IsZero() || t.Sub(lastUDPReprobe) >= udpReprobeInterval) {
 				lastUDPReprobe = t
-				go b.reprobeUDP()
+				b.wg.Add(1)
+				go func() {
+					defer b.wg.Done()
+					b.reprobeUDP()
+				}()
 			}
 		}
 	}

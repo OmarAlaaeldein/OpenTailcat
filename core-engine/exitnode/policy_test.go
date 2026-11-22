@@ -57,15 +57,30 @@ func TestCheckDestination(t *testing.T) {
 		{"[::ffff:169.254.169.254]:80", true, errBlockedAlways},
 		{"[::ffff:8.8.8.8]:80", false, nil},
 
-		// So is a NAT64-embedded one, including the RFC 8215 local-use /48.
+		// So is a NAT64-embedded one; RFC 8215 64:ff9b:1::/48 is always local-use.
 		{"[64:ff9b::7f00:1]:80", false, errBlockedLocal},
 		{"[64:ff9b::a9fe:a9fe]:80", true, errBlockedAlways},
 		{"[64:ff9b::808:808]:80", false, nil},
 		{"[64:ff9b:1:7f00:0:100::]:80", false, errBlockedLocal},
 		{"[64:ff9b:1:c0a8:1:100::]:80", false, errBlockedLocal},
 		{"[64:ff9b:1:a9fe:a9:fe00::]:80", true, errBlockedAlways},
-		{"[64:ff9b:1:808:8:800::]:80", false, nil},
+		{"[64:ff9b:1:808:8:800::]:80", false, errBlockedLocal},
+		{"[64:ff9b:1:808:8:800::]:80", true, nil},
+		{"[64:ff9b:1::808:808]:80", false, errBlockedLocal},
 		{"[64:ff9b:1:c0a8:1:100::]:80", true, nil},
+
+		// Zone-scoped addresses and special-purpose IPv6 blocks are rejected.
+		{"[fe80::1%eth0]:80", true, errBadDestination},
+		{"[2606:4700:4700::1111%wlan0]:443", false, errBadDestination},
+		{"[::8.8.8.8]:80", true, errBlockedAlways},
+		{"[::ffff:0:8.8.8.8]:80", true, errBlockedAlways},
+		{"[fec0::1]:80", false, errBlockedLocal},
+		{"[fec0::1]:80", true, nil},
+		{"[2001::1]:80", true, errBlockedAlways},
+		{"[2001:2::1]:80", true, errBlockedAlways},
+		{"[2002:0808:0808::]:80", true, errBlockedAlways},
+		{"[3fff::1]:80", true, errBlockedAlways},
+		{"[5f00::1]:80", true, errBlockedAlways},
 
 		// Port 0 is not a destination.
 		{"8.8.8.8:0", false, errBadDestination},

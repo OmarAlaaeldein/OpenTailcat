@@ -120,6 +120,21 @@ class UpdatePolicyTest {
     }
 
     @Test
+    fun rejectsOutOfOrderRotationLineage() {
+        assertNotNull(
+            UpdatePolicy.signerRejection(setOf(debug), setOf(release), listOf(release, debug), trusted)
+        )
+    }
+
+    @Test
+    fun safeReleasePageNormalizesDotSegments() {
+        assertEquals(
+            "${UpdatePolicy.RELEASES_PAGE}/latest",
+            UpdatePolicy.safeReleasePage("${UpdatePolicy.RELEASES_PAGE}/../../evil/login")
+        )
+    }
+
+    @Test
     fun pinsTheRotationReleaseSigner() {
         assertTrue(
             "e22881801806e9809b325e40746536098add8a5902fb4c9bc9134474fa7f69d7" in

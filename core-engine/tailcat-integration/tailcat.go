@@ -360,6 +360,7 @@ type locoBackend struct {
 	clients      map[key.NodePublic]*tailcfg.Node // for the server
 	nextClientID tailcfg.NodeID                   // for the server; never reused after a removal
 	pendingAllow map[key.NodePublic]bool          // client keys with an allowClient call in flight
+	removedAllow map[key.NodePublic]bool          // pendingAllow keys disconnected while their allowClient call was in flight
 	nm           *netmap.NetworkMap
 	eps          []netip.AddrPort // our current local UDP endpoints, sorted
 	closeOnce    sync.Once
@@ -1348,8 +1349,18 @@ func decodeDERPMap(data []byte) *tailcfg.DERPMap {
 	if err := json.Unmarshal(data, dm); err != nil {
 		return nil
 	}
+	if f := DERPMapFilter; f != nil {
+		if err := f(dm); err != nil {
+			return nil
+		}
+	}
 	return dm
 }
+
+// DERPMapFilter, when set, vets and may prune every DERP map decoded from
+// JSON (fetched or cached). An error discards the map. Set it once at
+// program start, before any client or server runs.
+var DERPMapFilter func(*tailcfg.DERPMap) error
 
 // Expand populates ci.Region from a DERP map if only ci.RegionID was set.
 // If ci.Region is already populated, Expand is a no-op. When RegionID is -1,
@@ -1751,6 +1762,12 @@ func (b *locoBackend) onMeow(src key.NodePublic, discoPub key.DiscoPublic) bool 
 		allowed := b.allowClient(src)
 		b.mu.Lock()
 		delete(b.pendingAllow, src)
+		removed := b.removedAllow[src]
+		delete(b.removedAllow, src)
+		if removed {
+			b.logf("ignoring meow from %v: disconnected while AllowClient ran", src.String())
+			return false
+		}
 		if !allowed {
 			b.logf("ignoring meow from %v: rejected by AllowClient", src.String())
 			return false
@@ -1823,6 +1840,9 @@ func (b *locoBackend) setNetworkMapLocked() {
 // it from the network map so magicsock and netstack no longer know
 // it. It reports whether k was connected. b.mu must be held.
 func (b *locoBackend) removeClientLocked(k key.NodePublic) bool {
+	if b.pendingAllow[k] {
+		mak.Set(&b.removedAllow, k, true)
+	}
 	if _, ok := b.clients[k]; !ok {
 		return false
 	}

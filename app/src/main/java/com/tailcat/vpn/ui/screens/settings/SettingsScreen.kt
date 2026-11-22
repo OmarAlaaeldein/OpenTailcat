@@ -4,6 +4,7 @@ import com.tailcat.vpn.BuildConfig
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -28,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
@@ -50,21 +52,23 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
     val app = remember { TailcatApplication.instance }
     val store = app.preferencesStore
     val engineAvailability = app.tunnelEngine.availability
-    val updatesViewModel: SettingsViewModel = viewModel()
+    val updatesViewModel: SettingsViewModel? = if (BuildConfig.UPDATER_ENABLED) viewModel() else null
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(updatesViewModel) {
-        updatesViewModel.uiEvent.collect { message ->
-            scope.launch { snackbarHostState.showSnackbar(message) }
+    if (updatesViewModel != null) {
+        LaunchedEffect(updatesViewModel) {
+            updatesViewModel.uiEvent.collect { message ->
+                scope.launch { snackbarHostState.showSnackbar(message) }
+            }
         }
     }
 
-    var selectedTab by remember { mutableIntStateOf(0) }
-    var mtuText by remember { mutableStateOf(store.defaultMtu.toString()) }
-    var dnsText by remember { mutableStateOf(store.defaultDns) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var mtuText by rememberSaveable { mutableStateOf(store.defaultMtu.toString()) }
+    var dnsText by rememberSaveable { mutableStateOf(store.defaultDns) }
     var excludedApps by remember { mutableStateOf(store.splitTunnelExcludedApps) }
-    var appQuery by remember { mutableStateOf("") }
+    var appQuery by rememberSaveable { mutableStateOf("") }
     var debugMode by remember { mutableStateOf(store.debugMode) }
 
     // Every package installed for this user, not only apps with a launcher
@@ -117,6 +121,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier
                         .fillMaxSize()
+                        .imePadding()
                         .verticalScroll(rememberScrollState())
                         .padding(16.dp)
                 ) {
@@ -142,7 +147,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
 
                     ActiveProfileDnsCard(app)
 
-                    if (BuildConfig.UPDATER_ENABLED) {
+                    if (BuildConfig.UPDATER_ENABLED && updatesViewModel != null) {
                         SettingsUpdatesCard(viewModel = updatesViewModel)
                     }
 

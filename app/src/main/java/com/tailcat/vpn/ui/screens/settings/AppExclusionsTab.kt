@@ -3,18 +3,19 @@ package com.tailcat.vpn.ui.screens.settings
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material3.Checkbox
@@ -29,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.core.model.TunnelState
@@ -89,8 +91,13 @@ internal fun AppExclusionsTab(
 ) {
     // Re-filtered only when the list or the query changes, not on every
     // recomposition (the list can hold hundreds of apps).
-    val visibleApps = remember(installedApps, appQuery) {
-        installedApps.orEmpty().filter { item ->
+    val visibleApps = remember(installedApps, excludedApps, appQuery) {
+        val installed = installedApps.orEmpty()
+        val installedPackages = installed.mapTo(HashSet(installed.size)) { it.packageName }
+        val uninstalledExcluded = (excludedApps - installedPackages)
+            .sorted()
+            .map { pkg -> AppInfoItem(packageName = pkg, appName = "$pkg (not installed)") }
+        (uninstalledExcluded + installed).filter { item ->
             appQuery.isBlank() ||
                 item.appName.contains(appQuery, ignoreCase = true) ||
                 item.packageName.contains(appQuery, ignoreCase = true)
@@ -98,7 +105,9 @@ internal fun AppExclusionsTab(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding()
     ) {
         OutlinedTextField(
             value = appQuery,
@@ -157,15 +166,19 @@ internal fun AppExclusionsTab(
                         .padding(vertical = 6.dp)
                         .panel(TailcatShapes.Tile)
                         .clip(TailcatShapes.Tile)
-                        .clickable {
-                            onExcludedAppsChange(
-                                if (isExcluded) {
-                                    excludedApps - item.packageName
-                                } else {
-                                    excludedApps + item.packageName
-                                }
-                            )
-                        }
+                        .toggleable(
+                            value = isExcluded,
+                            role = Role.Checkbox,
+                            onValueChange = { checked ->
+                                onExcludedAppsChange(
+                                    if (checked) {
+                                        excludedApps + item.packageName
+                                    } else {
+                                        excludedApps - item.packageName
+                                    }
+                                )
+                            }
+                        )
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
                     Icon(Icons.Default.Apps, null, tint = AccentCyan, modifier = Modifier.size(22.dp))
@@ -193,15 +206,7 @@ internal fun AppExclusionsTab(
                     }
                     Checkbox(
                         checked = isExcluded,
-                        onCheckedChange = { checked ->
-                            onExcludedAppsChange(
-                                if (checked) {
-                                    excludedApps + item.packageName
-                                } else {
-                                    excludedApps - item.packageName
-                                }
-                            )
-                        },
+                        onCheckedChange = null,
                         colors = TailcatButtons.checkbox(uncheckedColor = TextMuted)
                     )
                 }

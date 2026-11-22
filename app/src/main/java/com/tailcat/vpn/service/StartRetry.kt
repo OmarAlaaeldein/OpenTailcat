@@ -34,7 +34,8 @@ object StartRetry {
     private val PERMANENT_PREFIXES = listOf(
         "token rejected",
         "token classification",
-        "VPN engine is missing"
+        "VPN engine is missing",
+        "exit node is active"
     )
 }
 

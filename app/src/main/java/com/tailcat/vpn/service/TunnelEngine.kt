@@ -125,10 +125,13 @@ class TunnelEngine : NativeEngine {
         call("disarmPumps") { Engine.disarmPumps() }
     }
 
-    override fun setSocketProtector(protect: (Int) -> Boolean) {
+    override fun setSocketProtector(protect: ((Int) -> Boolean)?) {
         if (!loaded) return
         call("setSocketProtector") {
-            Engine.setSocketProtector(SocketProtector { fd -> protect(fd.toInt()) })
+            val nativeProtector = protect?.let { fn ->
+                SocketProtector { fd -> fn(fd.toInt()) }
+            }
+            Engine.setSocketProtector(nativeProtector)
         }
     }
 

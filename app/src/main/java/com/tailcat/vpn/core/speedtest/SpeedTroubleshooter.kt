@@ -20,6 +20,7 @@ data class TroubleshootFinding(
 object SpeedTroubleshooter {
 
     private const val REDACTED = "[ip-redacted]"
+    private const val TOKEN_REDACTED = "[token-redacted]"
 
     // Runs of characters an IP literal can contain; each run is validated as
     // a literal so a neighbouring word character cannot leave part of an
@@ -29,6 +30,8 @@ object SpeedTroubleshooter {
     // IPv4 written with dashes inside hostnames (ec2-203-0-113-5.compute...).
     private val DASHED_IPV4 = Regex("""(?<![0-9])[0-9]{1,3}(?:-[0-9]{1,3}){3}(?![0-9])""")
 
+    private val TOKEN_PATTERN = Regex("""\btc[A-Za-z0-9_-]{16,}\b""")
+
     private val PRIVATE_HINT = Regex(
         """(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})"""
     )
@@ -37,7 +40,8 @@ object SpeedTroubleshooter {
 
     fun sanitizeMessage(raw: String?): String {
         if (raw.isNullOrBlank()) return raw.orEmpty()
-        val undashed = DASHED_IPV4.replace(raw) { m ->
+        val detokened = TOKEN_PATTERN.replace(raw, TOKEN_REDACTED)
+        val undashed = DASHED_IPV4.replace(detokened) { m ->
             if (isIpv4(m.value.replace('-', '.'))) REDACTED else m.value
         }
         return CANDIDATE.replace(undashed) { m -> redactToken(m.value) }
@@ -45,11 +49,41 @@ object SpeedTroubleshooter {
 
     private fun redactToken(token: String): String {
         if (isIpv6(token)) return REDACTED
-        val core = token.trimEnd('.')
-        val suffix = token.substring(core.length)
-        if (isIpv4(core)) return keepPrivate(core) + suffix
-        IPV4_WITH_PORT.matchEntire(core)?.let { m ->
-            if (isIpv4(m.groupValues[1])) return keepPrivate(m.groupValues[1]) + ":" + m.groupValues[2] + suffix
+        // Strip leading '.' or single ':' (preserving leading "::") and trailing '.' / ':'.
+        var start = 0
+        while (start < token.length) {
+            val ch = token[start]
+            if (ch == '.' || (ch == ':' && !(start + 1 < token.length && token[start + 1] == ':'))) {
+                start++
+            } else {
+                break
+            }
+        }
+        var end = token.length
+        while (end > start && (token[end - 1] == '.' || token[end - 1] == ':')) {
+            if (token[end - 1] == ':' && end - 2 >= start && token[end - 2] == ':') break
+            end--
+        }
+        val prefix = token.substring(0, start)
+        val trimmed = token.substring(start, end)
+        val suffix = token.substring(end)
+        if (isIpv6(trimmed)) return prefix + REDACTED + suffix
+        if (isIpv4(trimmed)) return prefix + keepPrivate(trimmed) + suffix
+        IPV4_WITH_PORT.matchEntire(trimmed)?.let { m ->
+            if (isIpv4(m.groupValues[1])) return prefix + keepPrivate(m.groupValues[1]) + ":" + m.groupValues[2] + suffix
+        }
+        // Strip leading hex-word ':' prefix (e.g. "ab:203.0.113.5", "dead:2001:db8::1").
+        val firstColon = trimmed.indexOf(':')
+        if (firstColon in 1 until trimmed.length - 1 &&
+            trimmed.substring(0, firstColon).all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }
+        ) {
+            val hexPrefix = prefix + trimmed.substring(0, firstColon + 1)
+            val rest = trimmed.substring(firstColon + 1)
+            if (isIpv6(rest)) return hexPrefix + REDACTED + suffix
+            if (isIpv4(rest)) return hexPrefix + keepPrivate(rest) + suffix
+            IPV4_WITH_PORT.matchEntire(rest)?.let { m ->
+                if (isIpv4(m.groupValues[1])) return hexPrefix + keepPrivate(m.groupValues[1]) + ":" + m.groupValues[2] + suffix
+            }
         }
         return token
     }
@@ -115,7 +149,7 @@ object SpeedTroubleshooter {
             }
         }
 
-        if (viaGateway || tunnelState == TunnelState.CONNECTED) {
+        if (viaGateway) {
             when {
                 metrics == null -> findings += TroubleshootFinding(
                     FindingSeverity.WARNING,

@@ -47,17 +47,18 @@ func (s EngineState) String() string {
 }
 
 type session struct {
-	id         int64
-	ctx        context.Context
-	cancel     context.CancelFunc
-	token      *ParsedToken
-	client     preparedClient
-	bridge     *TunBridge
-	transport  string
-	rttMs      int64
-	tcpOnly    bool
-	ipv6Egress bool
-	closeOnce  sync.Once
+	id          int64
+	ctx         context.Context
+	cancel      context.CancelFunc
+	prepareDone chan struct{}
+	token       *ParsedToken
+	client      preparedClient
+	bridge      *TunBridge
+	transport   string
+	rttMs       int64
+	tcpOnly     bool
+	ipv6Egress  bool
+	closeOnce   sync.Once
 }
 
 type TailcatCore struct {
@@ -99,7 +100,14 @@ func (c *TailcatCore) markFailed(sess *session, bridge *TunBridge, err error) {
 	c.healthUnix.Store(0)
 	c.mu.Unlock()
 
-	go closeSession(sess)
+	go func() {
+		closeSession(sess)
+		c.mu.Lock()
+		if c.sess == sess {
+			c.sess = nil
+		}
+		c.mu.Unlock()
+	}()
 }
 
 // closeSession stops the bridge and closes the client, returning after at
@@ -111,6 +119,13 @@ func closeSession(sess *session) {
 	}
 	sess.cancel()
 	sess.closeOnce.Do(func() {
+		if sess.prepareDone != nil {
+			select {
+			case <-sess.prepareDone:
+			case <-time.After(stopWaitTimeout):
+				log.Printf("Tailcat session close waiting for Prepare exceeded %s", stopWaitTimeout)
+			}
+		}
 		// sess.bridge/sess.client are published under globalCore.mu by
 		// Prepare/AttachTun/DetachTun. Snapshot them under the same mutex:
 		// markFailed runs closeSession on a new goroutine while AttachTun
@@ -148,11 +163,15 @@ func closeSession(sess *session) {
 
 func Prepare(tokenStr string) (err error) {
 	var sess *session
+	var prepareDone chan struct{}
 	defer func() {
 		if r := recover(); r != nil {
 			err = exportedPanicError("Prepare", r)
 			// Leave STOPPED rather than a PREPARING state nothing will finish.
 			abandonPrepare(sess)
+		}
+		if prepareDone != nil {
+			close(prepareDone)
 		}
 	}()
 	pt, err := ParseToken(tokenStr)
@@ -184,7 +203,8 @@ func Prepare(tokenStr string) (err error) {
 	activeMonitor = nil
 	netStateMu.Unlock()
 	ctx, cancel := context.WithCancel(context.Background())
-	sess = &session{ctx: ctx, cancel: cancel, token: pt}
+	prepareDone = make(chan struct{})
+	sess = &session{ctx: ctx, cancel: cancel, prepareDone: prepareDone, token: pt}
 	globalCore.state = StatePreparing
 	globalCore.sess = sess
 	globalCore.lastErr = ""

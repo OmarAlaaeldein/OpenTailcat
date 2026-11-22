@@ -37,11 +37,15 @@ sealed interface ExitNodeUiState {
 class ExitNodeController(
     private val engine: NativeExitNode,
     private val tunnelState: () -> TunnelState,
-    private val nowSec: () -> Long = { System.currentTimeMillis() / 1000 }
+    private val nowSec: () -> Long = { System.currentTimeMillis() / 1000 },
+    private val monoSec: () -> Long = { System.nanoTime() / 1_000_000_000L },
+    private val interlockLock: Any = Any()
 ) {
     private val lock = Any()
     private var generation = 0L
     private var statsFailures = 0
+    private var activeTtlSeconds: Long? = null
+    private var startedMonoSec: Long = 0L
 
     private val _state = MutableStateFlow<ExitNodeUiState>(ExitNodeUiState.Idle)
     val state: StateFlow<ExitNodeUiState> = _state.asStateFlow()
@@ -62,17 +66,21 @@ class ExitNodeController(
      */
     fun start(config: ExitNodeConfig): String? {
         val gen: Long
-        synchronized(lock) {
-            if (!engine.availability.isAvailable) return engine.availability.message
-            if (isActive) return "Already sharing."
-            // Order matters: claiming the slot first means a VPN start that
-            // checks startBlockReason() after this point is refused.
-            if (tunnelState() != TunnelState.DISCONNECTED) {
-                return "Disconnect the VPN first. Sharing and the VPN cannot run together."
+        synchronized(interlockLock) {
+            synchronized(lock) {
+                if (!engine.availability.isAvailable) return engine.availability.message
+                if (isActive) return "Already sharing."
+                // Order matters: claiming the slot first means a VPN start that
+                // checks startBlockReason() after this point is refused.
+                if (tunnelState() != TunnelState.DISCONNECTED) {
+                    return "Disconnect the VPN first. Sharing and the VPN cannot run together."
+                }
+                gen = ++generation
+                statsFailures = 0
+                activeTtlSeconds = config.ttlSeconds
+                startedMonoSec = monoSec()
+                _state.value = ExitNodeUiState.Starting
             }
-            gen = ++generation
-            statsFailures = 0
-            _state.value = ExitNodeUiState.Starting
         }
 
         val token: String
@@ -81,13 +89,16 @@ class ExitNodeController(
             token = engine.start(config)
             stats = ExitNodeStats.parse(engine.statsJson())
         } catch (e: Exception) {
-            runCatching { engine.stop() }
             val message = e.message?.takeIf { it.isNotBlank() } ?: "Could not start sharing"
-            synchronized(lock) {
+            val shouldStop = synchronized(lock) {
                 if (generation == gen) {
                     _state.value = ExitNodeUiState.Ended(ExitNodeEnd.FAILED, message)
+                    true
+                } else {
+                    false
                 }
             }
+            if (shouldStop) runCatching { engine.stop() }
             return message
         }
 
@@ -117,10 +128,12 @@ class ExitNodeController(
         }
         synchronized(lock) { statsFailures = 0 }
 
+        val ttl = synchronized(lock) { activeTtlSeconds }
+        val startMono = synchronized(lock) { startedMonoSec }
         when {
             tunnelState() != TunnelState.DISCONNECTED ->
                 end(current, ExitNodeEnd.STOPPED, "The VPN connected, so sharing was stopped.")
-            stats.isExpired || stats.expiresUnixSec?.let { nowSec() >= it } == true ->
+            stats.isExpired || (ttl != null && monoSec() - startMono >= ttl) ->
                 end(current, ExitNodeEnd.EXPIRED, "Sharing time is up. The code no longer works.")
             !stats.isRunning ->
                 end(current, ExitNodeEnd.STOPPED, "Sharing stopped.")
@@ -141,6 +154,19 @@ class ExitNodeController(
         }
         // Outside the lock: native Close is bounded but not instant, and a
         // concurrent start() must be able to observe the new generation.
+        runCatching { engine.stop() }
+    }
+
+    internal fun currentGeneration(): Long = synchronized(lock) { generation }
+
+    /** Stops only if [expectedGen] is still the active session generation. */
+    internal fun stopIfGeneration(expectedGen: Long) {
+        synchronized(lock) {
+            if (generation != expectedGen) return
+            val wasActive = isActive
+            generation++
+            if (wasActive) _state.value = ExitNodeUiState.Ended(ExitNodeEnd.STOPPED, "Sharing stopped.")
+        }
         runCatching { engine.stop() }
     }
 

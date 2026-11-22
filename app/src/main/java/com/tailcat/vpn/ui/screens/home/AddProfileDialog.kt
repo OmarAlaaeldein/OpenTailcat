@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
@@ -47,6 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -85,12 +88,13 @@ fun AddProfileDialog(
     onSave: (name: String, token: String, dns: String, policy: DnsPolicy) -> Result<GatewayProfile>,
     onDismiss: () -> Unit
 ) {
+    // Keep the pairing token strictly in memory; never serialize secrets into savedInstanceState.
     var tokenInput by remember { mutableStateOf("") }
-    var nameInput by remember { mutableStateOf("") }
-    var dnsInput by remember {
+    var nameInput by rememberSaveable { mutableStateOf("") }
+    var dnsInput by rememberSaveable {
         mutableStateOf(TailcatApplication.instance.preferencesStore.defaultDns)
     }
-    var dnsPolicy by remember {
+    var dnsPolicy by rememberSaveable {
         mutableStateOf(DnsPolicy.PROFILE_RESOLVER)
     }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -216,7 +220,7 @@ fun AddProfileDialog(
 
                 OutlinedTextField(
                     value = nameInput,
-                    onValueChange = { nameInput = it },
+                    onValueChange = { if (it.length <= 64) nameInput = it },
                     label = { Text("Gateway Name (Optional)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -250,26 +254,30 @@ fun AddProfileDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
                     listOf(
                         DnsPolicy.PROFILE_RESOLVER to "Profile resolver",
                         DnsPolicy.FORCED_RESOLVER to "Forced resolver"
                     ).forEach { (policy, label) ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable { dnsPolicy = policy }
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .selectable(
+                                    selected = dnsPolicy == policy,
+                                    role = Role.RadioButton,
+                                    onClick = { dnsPolicy = policy }
+                                )
                         ) {
                             RadioButton(
                                 selected = dnsPolicy == policy,
-                                onClick = { dnsPolicy = policy },
+                                onClick = null,
                                 colors = RadioButtonDefaults.colors(
                                     selectedColor = AccentCyan,
                                     unselectedColor = BorderSubtle
                                 )
                             )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(label, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                         }
                     }

@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"tailscale.com/tailcfg"
 	"tailscale.com/types/key"
@@ -121,8 +123,17 @@ func (r *exitNodeRelayJSON) region() (*tailcfg.DERPRegion, error) {
 	if host == "" {
 		return nil, errors.New("relay hostname is required")
 	}
-	if strings.ContainsAny(host, "/?#@: \t\\") {
-		return nil, errors.New("relay hostname must be a bare host name, not a URL or host:port")
+	for _, ch := range host {
+		if unicode.IsSpace(ch) || ch < 0x20 || ch == 0x7f || strings.ContainsRune("/?#@:\\%", ch) {
+			return nil, errors.New("relay hostname must be a bare host name, not a URL or host:port")
+		}
+	}
+	if strings.EqualFold(host, "none") {
+		return nil, fmt.Errorf("relay hostname %q is not a usable DNS name", host)
+	}
+	trimmedDot := strings.TrimSuffix(host, ".")
+	if trimmedDot == "" || strings.HasPrefix(host, ".") || strings.Contains(trimmedDot, "..") {
+		return nil, fmt.Errorf("relay hostname %q is not a usable DNS name", host)
 	}
 	// An IP literal can pass the token parser's endpoint policy, but the relay
 	// would then have to serve a certificate with that IP in it, which no
@@ -181,7 +192,8 @@ func parseExitNodeConfig(raw string) (exitnode.Config, error) {
 	if err := dec.Decode(&in); err != nil {
 		return exitnode.Config{}, errors.New("exit node config is not valid")
 	}
-	if dec.More() {
+	var trailing any
+	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return exitnode.Config{}, errors.New("exit node config has trailing data")
 	}
 	var cfg exitnode.Config
@@ -254,16 +266,26 @@ func StartExitNode(configJSON string) (token string, err error) {
 			return "", errors.New("exit node start was cancelled")
 		}
 		node := exitHost.node
-		if node == nil || node.State() != exitnode.StateRunning {
+		if node == nil {
 			break
 		}
-		if exitHost.nodeSeq > exitHost.stopSeq {
+		doneAlready := false
+		select {
+		case <-node.Done():
+			doneAlready = true
+		default:
+		}
+		if doneAlready {
+			releaseExitNodeLocked()
+			break
+		}
+		if node.State() == exitnode.StateRunning && exitHost.nodeSeq > exitHost.stopSeq {
 			exitHost.mu.Unlock()
 			return "", errors.New("exit node is already running")
 		}
-		// A stop that predates this start is closing that node. Wait for it
-		// to finish instead of reporting "already running" for a session the
-		// user already ended.
+		// A stop (or natural expiry) is still closing that node. Wait for it
+		// to finish instead of reporting "already running" or "VPN active"
+		// before its claim and protector have been released.
 		exitHost.mu.Unlock()
 		select {
 		case <-node.Done():
@@ -279,7 +301,8 @@ func StartExitNode(configJSON string) (token string, err error) {
 	}
 
 	globalCore.mu.Lock()
-	idle := (globalCore.state == StateStopped || globalCore.state == StateFailed) && !globalCore.stopping
+	idle := (globalCore.state == StateStopped || globalCore.state == StateFailed) &&
+		globalCore.sess == nil && !globalCore.stopping
 	if idle && !exitNodeClaim.Load() {
 		exitNodeClaim.Store(true)
 	} else {

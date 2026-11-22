@@ -875,6 +875,42 @@ func TestUDPDialDoesNotBlockInject(t *testing.T) {
 	close(release)
 }
 
+func TestShortAndFragmentedIPv6MTUPacketsDoNotPanicAndSkipFragPacketTooBig(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	bridge := &TunBridge{ctx: ctx, cancel: cancel, client: &mockTunnelClient{}, token: &ParsedToken{RegionID: 1}}
+	proxy, err := newNetstackProxy(bridge)
+	if err != nil {
+		t.Fatalf("newNetstackProxy: %v", err)
+	}
+	defer proxy.Close()
+	bridge.netstack = proxy
+
+	// Truncated IPv4 header with IHL=2 and short IPv6 packet must not panic.
+	bridge.handleIPv4([]byte{0x42, 0x00, 0x00, 0x10})
+	bridge.handleIPv6(make([]byte, 20))
+	if bridge.malformedIP.Load() < 2 {
+		t.Fatalf("expected malformedIP >= 2, got %d", bridge.malformedIP.Load())
+	}
+
+	// Fragmented IPv6 UDP packet larger than IPv6 min MTU must not emit Packet Too Big for non-zero offset.
+	fragPkt := make([]byte, 40+8+1300)
+	fragPkt[0] = 0x60
+	binary.BigEndian.PutUint16(fragPkt[4:6], uint16(8+1300))
+	fragPkt[6] = 44 // Fragment header
+	fragPkt[7] = 64
+	copy(fragPkt[8:24], netip.MustParseAddr("fd7a:115c:a1e0::2").AsSlice())
+	copy(fragPkt[24:40], netip.MustParseAddr("2606:4700:4700::1111").AsSlice())
+	fragPkt[40] = 17 // Next header UDP
+	// Fragment offset = 185 (non-zero, encoded in top 13 bits of bytes 42..43)
+	binary.BigEndian.PutUint16(fragPkt[42:44], uint16(185<<3))
+	beforeMTU := bridge.mtuExceeded.Load()
+	bridge.handleIPv6(fragPkt)
+	if bridge.mtuExceeded.Load() != beforeMTU {
+		t.Fatalf("non-first IPv6 fragment triggered mtuExceeded: %d -> %d", beforeMTU, bridge.mtuExceeded.Load())
+	}
+}
+
 func waitAtomic32(t *testing.T, v *atomic.Int32, want int32, timeout time.Duration, what string) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

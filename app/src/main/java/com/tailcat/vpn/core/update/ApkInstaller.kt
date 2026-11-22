@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import androidx.core.content.pm.PackageInfoCompat
 import java.io.File
 import java.security.MessageDigest
 
@@ -35,7 +36,11 @@ object ApkInstaller {
      * the update is acceptable; otherwise the reason to refuse, including when
      * signatures cannot be read.
      */
-    fun signatureMismatchReason(context: Context, apkFile: File): String? {
+    fun signatureMismatchReason(
+        context: Context,
+        apkFile: File,
+        expectedVersionName: String? = null
+    ): String? {
         return runCatching {
             val pm = context.packageManager
             val flags = if (Build.VERSION.SDK_INT >= 28) {
@@ -50,6 +55,16 @@ object ApkInstaller {
                 return "Downloaded APK is a different app"
             }
             val installed = pm.getPackageInfo(context.packageName, flags)
+            if (PackageInfoCompat.getLongVersionCode(archive) <= PackageInfoCompat.getLongVersionCode(installed)) {
+                return "Downloaded APK is not a newer version"
+            }
+            if (expectedVersionName != null) {
+                val archiveVer = LatestRelease.normalizeVersion(archive.versionName.orEmpty())
+                val expectedVer = LatestRelease.normalizeVersion(expectedVersionName)
+                if (archiveVer != expectedVer) {
+                    return "Downloaded APK version ($archiveVer) does not match release ($expectedVer)"
+                }
+            }
             UpdatePolicy.signerRejection(
                 installedCurrent = currentSignerDigests(installed),
                 archiveCurrent = currentSignerDigests(archive),

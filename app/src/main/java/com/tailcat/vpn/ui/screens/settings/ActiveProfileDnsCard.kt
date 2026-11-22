@@ -1,10 +1,11 @@
 package com.tailcat.vpn.ui.screens.settings
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material3.MaterialTheme
@@ -21,7 +22,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.core.dns.DnsValidationResult
 import com.tailcat.vpn.core.dns.DnsValidator
@@ -29,6 +32,7 @@ import com.tailcat.vpn.core.model.DnsPolicy
 import com.tailcat.vpn.core.model.TunnelState
 import com.tailcat.vpn.ui.theme.AccentCyan
 import com.tailcat.vpn.ui.theme.BorderSubtle
+import com.tailcat.vpn.ui.theme.RedDegraded
 import com.tailcat.vpn.ui.theme.TextMuted
 import com.tailcat.vpn.ui.theme.TextSecondary
 
@@ -48,6 +52,7 @@ internal fun ActiveProfileDnsCard(app: TailcatApplication) {
             )
         }
         var activeDnsMessage by remember { mutableStateOf<String?>(null) }
+        var activeDnsIsError by remember { mutableStateOf(false) }
 
         if (activeProfile == null) {
             Text(
@@ -65,8 +70,13 @@ internal fun ActiveProfileDnsCard(app: TailcatApplication) {
             }
             OutlinedTextField(
                 value = activeDnsText,
-                onValueChange = { activeDnsText = it; activeDnsMessage = null },
+                onValueChange = { activeDnsText = it; activeDnsMessage = null; activeDnsIsError = false },
                 label = { Text("Resolver IP") },
+                supportingText = {
+                    if (activeDnsValidation is DnsValidationResult.Invalid) {
+                        Text(activeDnsValidation.reason, color = RedDegraded, fontSize = 11.sp)
+                    }
+                },
                 isError = activeDnsValidation is DnsValidationResult.Invalid,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
@@ -80,16 +90,25 @@ internal fun ActiveProfileDnsCard(app: TailcatApplication) {
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { activePolicy = policy }
+                        .selectable(
+                            selected = activePolicy == policy,
+                            role = Role.RadioButton,
+                            onClick = {
+                                activePolicy = policy
+                                activeDnsMessage = null
+                                activeDnsIsError = false
+                            }
+                        )
                 ) {
                     RadioButton(
                         selected = activePolicy == policy,
-                        onClick = { activePolicy = policy },
+                        onClick = null,
                         colors = RadioButtonDefaults.colors(
                             selectedColor = AccentCyan,
                             unselectedColor = BorderSubtle
                         )
                     )
+                    Spacer(Modifier.width(8.dp))
                     Text(label, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                 }
             }
@@ -102,6 +121,7 @@ internal fun ActiveProfileDnsCard(app: TailcatApplication) {
                         customDns = activeDnsText,
                         dnsPolicy = activePolicy
                     )
+                    activeDnsIsError = result.isFailure
                     activeDnsMessage = result.fold(
                         onSuccess = {
                             val reconnect = app.tunnelController.tunnelState.value !=
@@ -120,7 +140,12 @@ internal fun ActiveProfileDnsCard(app: TailcatApplication) {
             }
             activeDnsMessage?.let { msg ->
                 Spacer(Modifier.height(6.dp))
-                Text(msg, style = MaterialTheme.typography.bodySmall.copy(color = AccentCyan))
+                Text(
+                    msg,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = if (activeDnsIsError) RedDegraded else AccentCyan
+                    )
+                )
             }
         }
     }

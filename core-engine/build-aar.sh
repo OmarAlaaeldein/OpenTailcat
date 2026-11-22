@@ -169,6 +169,7 @@ REQUIRED_METHODS=(
     "stop"
     "updateNetworkState"
     "setSocketProtector"
+    "ensureTransportProtect"
     "startExitNode"
     "stopExitNode"
     "exitNodeStatsJSON"

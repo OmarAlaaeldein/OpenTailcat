@@ -2,6 +2,7 @@ package com.tailcat.vpn.core.update
 
 import com.tailcat.vpn.BuildConfig
 import com.tailcat.vpn.core.net.AppHttp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.currentCoroutineContext
@@ -81,6 +82,7 @@ class ApkDownloader(private val cacheDir: File) {
             file
         }.onFailure { e ->
             target?.delete()
+            if (e is CancellationException) throw e
             _progress.value = DownloadProgress(active = false, error = e.message ?: "Download failed")
         }.also {
             connection?.disconnect()
@@ -120,6 +122,7 @@ class ApkDownloader(private val cacheDir: File) {
     }
 
     fun reset() {
+        File(cacheDir, "updates").listFiles()?.forEach { it.delete() }
         _progress.value = DownloadProgress()
     }
 

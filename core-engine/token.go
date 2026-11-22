@@ -590,22 +590,41 @@ func rejectUnsafeDERPNodes(regions []*tailcfg.DERPRegion) error {
 	return nil
 }
 
+var (
+	derpV4CompatPrefix = netip.MustParsePrefix("::/96")
+	derpWellKnownNAT64 = netip.MustParsePrefix("64:ff9b::/96")
+	derpLocalUseNAT64  = netip.MustParsePrefix("64:ff9b:1::/48")
+)
+
 func rejectUnsafeDERPEndpoint(label, value string) error {
-	if value == "" || value == "none" {
+	if value == "" {
 		return nil
 	}
-	lower := strings.ToLower(value)
+	if value == "none" {
+		if label == "IPv4" || label == "IPv6" {
+			return nil
+		}
+		return fmt.Errorf("embedded DERP %s cannot be %q", label, value)
+	}
+	lower := strings.TrimRight(strings.ToLower(value), ".")
 	if lower == "localhost" || strings.HasSuffix(lower, ".localhost") || lower == "ip6-localhost" ||
 		lower == "metadata.google.internal" || lower == "metadata.internal" {
 		return fmt.Errorf("embedded DERP %s is a loopback name", label)
 	}
 	addr, err := netip.ParseAddr(value)
 	if err != nil {
+		if strings.Contains(value, ":") {
+			return fmt.Errorf("embedded DERP %s contains ':' without being a valid IP", label)
+		}
 		if hostnameHasEmbeddedIP(value) {
 			return fmt.Errorf("embedded DERP %s embeds an IP address", label)
 		}
 		return nil
 	}
+	return rejectUnsafeDERPIP(label, addr)
+}
+
+func rejectUnsafeDERPIP(label string, addr netip.Addr) error {
 	// Apply the IPv4 policy to IPv4-mapped IPv6 literals too. In particular,
 	// netip.IsUnspecified does not recognize ::ffff:0:0 without unmapping it.
 	addr = addr.Unmap()
@@ -618,6 +637,19 @@ func rejectUnsafeDERPEndpoint(label, value string) error {
 		return fmt.Errorf("embedded DERP %s is a link-local address", label)
 	case addr.IsMulticast():
 		return fmt.Errorf("embedded DERP %s is a multicast address", label)
+	}
+	if addr.Is6() {
+		if derpV4CompatPrefix.Contains(addr) {
+			return fmt.Errorf("embedded DERP %s uses deprecated IPv4-compatible IPv6", label)
+		}
+		if derpLocalUseNAT64.Contains(addr) {
+			return fmt.Errorf("embedded DERP %s uses local-use NAT64", label)
+		}
+		if derpWellKnownNAT64.Contains(addr) {
+			b := addr.As16()
+			v4 := netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]})
+			return rejectUnsafeDERPIP(label, v4)
+		}
 	}
 	return nil
 }

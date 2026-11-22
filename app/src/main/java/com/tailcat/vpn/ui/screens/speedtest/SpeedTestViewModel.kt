@@ -20,7 +20,8 @@ class SpeedTestViewModel : ViewModel() {
 
     fun startSpeedTest() {
         activeJob?.cancel()
-        val viaGateway = TailcatApplication.instance.tunnelController.tunnelState.value == TunnelState.CONNECTED
+        val state = TailcatApplication.instance.tunnelController.tunnelState.value
+        val viaGateway = state == TunnelState.CONNECTED || state == TunnelState.DEGRADED
         activeJob = viewModelScope.launch {
             engine.runSpeedTest(viaGateway)
         }

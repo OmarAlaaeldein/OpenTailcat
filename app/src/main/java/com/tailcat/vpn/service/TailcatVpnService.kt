@@ -19,6 +19,7 @@ import com.tailcat.vpn.core.model.NetworkMetrics
 import com.tailcat.vpn.core.model.TunnelState
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +36,7 @@ class TailcatVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private val interfaceLock = Any()
+    private val notificationLock = Any()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val startLock = Any()
 
@@ -75,19 +77,11 @@ class TailcatVpnService : VpnService() {
 
         // A duplicate start (Always-on plus a restore, or a second tap) must not
         // be re-validated: a transient failure would tear down a live tunnel.
-        if (!shuttingDown.get() && (startJob?.isActive == true || vpnInterface != null)) return START_STICKY
+        val hasTun = synchronized(interfaceLock) { vpnInterface != null }
+        if (!shuttingDown.get() && (startJob?.isActive == true || hasTun)) return START_STICKY
 
         val app = TailcatApplication.instance
         val profile = app.profileRepository.activeProfile.value
-        // Always-on starts at boot or behind a captive portal before any network
-        // is validated; the start loop below retries the handshake instead.
-        val validationError = app.tunnelController.validateStartRequest(requireOnline = false)
-        if (profile == null || validationError != null) {
-            rejectStart(
-                validationError ?: "No gateway profile is selected"
-            )
-            return START_NOT_STICKY
-        }
         // Only an explicit Connect tap fails fast; Always-on (SERVICE_INTERFACE
         // action), sticky restarts (null intent), and restores retry.
         val retryOnFailure = intent?.getBooleanExtra(EXTRA_USER_INITIATED, false) != true
@@ -97,18 +91,33 @@ class TailcatVpnService : VpnService() {
             app.preferencesStore.vpnWanted = true
         }
 
-        synchronized(interfaceLock) {
-            startGeneration++
-            shuttingDown.set(false)
+        val rejection = synchronized(app.tunnelController.roleInterlock) {
+            // Always-on starts at boot or behind a captive portal before any network
+            // is validated; the start loop below retries the handshake instead.
+            val validationError = app.tunnelController.validateStartRequest(requireOnline = false)
+            if (profile == null || validationError != null) {
+                validationError ?: "No gateway profile is selected"
+            } else if (prepare(this) != null) {
+                // Sticky/always-on restores do not pass through the UI consent launcher.
+                // Consent can also be revoked between the UI callback and service start.
+                VPN_PERMISSION_REQUIRED
+            } else {
+                synchronized(interfaceLock) {
+                    startGeneration++
+                    shuttingDown.set(false)
+                }
+                app.tunnelController.setTunnelState(TunnelState.CONNECTING)
+                null
+            }
+        }
+        if (rejection != null) {
+            rejectStart(rejection)
+            return START_NOT_STICKY
         }
         try {
-            // Sticky/always-on restores do not pass through the UI consent launcher.
-            // Consent can also be revoked between the UI callback and service start.
-            check(prepare(this) == null) { VPN_PERMISSION_REQUIRED }
-            app.tunnelController.setTunnelState(TunnelState.CONNECTING)
             val notification = app.notificationManager.buildNotification(
                 state = TunnelState.CONNECTING,
-                profileName = profile.name,
+                profileName = profile!!.name,
                 metrics = app.tunnelController.networkMetrics.value
             )
             if (Build.VERSION.SDK_INT >= 34) {
@@ -183,7 +192,25 @@ class TailcatVpnService : VpnService() {
                 startForeground(VpnNotificationManager.NOTIFICATION_ID, notification)
             }
         }
-        shutdown()
+        val startedShutdown = shutdown()
+        if (!startedShutdown) {
+            // An earlier shutdown already claimed shuttingDown, so shutdown()
+            // returned early; end the shortService we just promoted for cleanup.
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf(lastStartId)
+        }
+    }
+
+    override fun onTimeout(startId: Int) {
+        super.onTimeout(startId)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf(startId)
+    }
+
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        super.onTimeout(startId, fgsType)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf(startId)
     }
 
     /**
@@ -196,7 +223,7 @@ class TailcatVpnService : VpnService() {
         val app = TailcatApplication.instance
         // A stop launched off the main thread must finish before prepare, or
         // it would tear down the session this start creates.
-        pendingNativeStop?.join()
+        pendingNativeStop?.await()
         var attempt = 0
         while (true) {
             try {
@@ -229,7 +256,7 @@ class TailcatVpnService : VpnService() {
                 val waitMs = StartRetry.delayMs(attempt)
                 resetForRetry()
                 app.tunnelController.onStartRetrying(message, waitMs)
-                showStateNotification(profile, TunnelState.RECONNECTING)
+                showStateNotification(profile, TunnelState.RECONNECTING, epoch)
                 // Cancelled by shutdown() when the user disconnects.
                 delay(waitMs)
             }
@@ -243,7 +270,10 @@ class TailcatVpnService : VpnService() {
      * until this job completes. shutdown() is a no-op if it already ran.
      */
     private fun abandonStaleStart(epoch: Long) {
-        runCatching { TailcatApplication.instance.tunnelEngine.stop() }
+        runCatching {
+            TailcatApplication.instance.tunnelEngine.stop()
+            TailcatApplication.instance.tunnelEngine.setSocketProtector(null)
+        }
         // Only a start of the current epoch may end the service; an older
         // one's shutdown already ran, and a newer start may own the service now.
         shutdown(epoch)
@@ -299,23 +329,26 @@ class TailcatVpnService : VpnService() {
         runCatching { TailcatApplication.instance.tunnelEngine.stop() }
     }
 
-    private fun showStateNotification(profile: GatewayProfile, state: TunnelState) {
+    private fun showStateNotification(profile: GatewayProfile, state: TunnelState, epoch: Long) {
         val app = TailcatApplication.instance
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        runCatching {
-            manager.notify(
-                VpnNotificationManager.NOTIFICATION_ID,
-                app.notificationManager.buildNotification(
-                    state = state,
-                    profileName = profile.name,
-                    metrics = app.tunnelController.networkMetrics.value,
-                    detail = if (state == TunnelState.RECONNECTING) {
-                        app.tunnelController.lastError.value
-                    } else {
-                        null
-                    }
+        synchronized(notificationLock) {
+            if (isStale(epoch)) return
+            runCatching {
+                manager.notify(
+                    VpnNotificationManager.NOTIFICATION_ID,
+                    app.notificationManager.buildNotification(
+                        state = state,
+                        profileName = profile.name,
+                        metrics = app.tunnelController.networkMetrics.value,
+                        detail = if (state == TunnelState.RECONNECTING) {
+                            app.tunnelController.lastError.value
+                        } else {
+                            null
+                        }
+                    )
                 )
-            )
+            }
         }
     }
 
@@ -345,7 +378,7 @@ class TailcatVpnService : VpnService() {
                     }
                     return@launchSerializedStart
                 }
-                showStateNotification(profile, TunnelState.RECONNECTING)
+                showStateNotification(profile, TunnelState.RECONNECTING, epoch)
                 startWithRetry(profile, retryOnFailure = true, epoch)
             }
         }
@@ -365,16 +398,7 @@ class TailcatVpnService : VpnService() {
         }
 
         // Provide current validated Android LinkProperties, interface state, and DNS policy to native engine
-        val networkState = JSONObject(app.networkMonitor.getNetworkStateJSON()).apply {
-            put("dnsPolicy", profile.dnsPolicy.name)
-            put("tunnelMtu", profile.mtu)
-            // Upstream engine logs name public/local IPs and peer endpoints.
-            put("verboseLogs", app.preferencesStore.debugMode)
-            if (profile.dnsPolicy == DnsPolicy.FORCED_RESOLVER) {
-                put("forcedDns", dnsValidation.ip)
-            }
-        }.toString()
-        app.tunnelEngine.updateNetworkState(networkState)
+        app.tunnelEngine.updateNetworkState(buildNetworkStateJson(app, profile, dnsValidation.ip))
         app.tunnelEngine.setSocketProtector { fd -> protect(fd) }
 
         // Last check before a native session exists (TLA+ finding F2).
@@ -402,7 +426,7 @@ class TailcatVpnService : VpnService() {
             vpnBuilder(profile, dnsValidation.ip, defaultRoutes = false, excludedApps),
             epoch
         )
-        attachLive(app, warm, networkState, epoch)
+        attachLive(app, warm, profile, dnsValidation.ip, epoch)
         currentCoroutineContext().ensureActive()
         checkNotShuttingDown(epoch)
         // Intentional two-phase rebind: disarm pump-failure so the planned
@@ -419,7 +443,7 @@ class TailcatVpnService : VpnService() {
         if (routed.fd != warm.fd) {
             runCatching { warm.close() }
         }
-        val metrics = attachLive(app, routed, networkState, epoch)
+        val metrics = attachLive(app, routed, profile, dnsValidation.ip, epoch)
         // Publish CONNECTED atomically with respect to shutdown(), whose
         // check-and-set of shuttingDown also takes interfaceLock: either
         // shutdown already started and nothing is published, or it runs
@@ -430,9 +454,23 @@ class TailcatVpnService : VpnService() {
             app.tunnelController.onEngineConnected(metrics)
             app.tunnelController.setAppliedExclusions(excludedApps.toSet())
             publishAlwaysOnStatus()
-            startMetricsNotificationUpdater(profile)
+            startMetricsNotificationUpdater(profile, epoch)
         }
     }
+
+    private fun buildNetworkStateJson(
+        app: TailcatApplication,
+        profile: GatewayProfile,
+        dnsIp: String
+    ): String = JSONObject(app.networkMonitor.getNetworkStateJSON()).apply {
+        put("dnsPolicy", profile.dnsPolicy.name)
+        put("tunnelMtu", profile.mtu)
+        // Upstream engine logs name public/local IPs and peer endpoints.
+        put("verboseLogs", app.preferencesStore.debugMode)
+        if (profile.dnsPolicy == DnsPolicy.FORCED_RESOLVER) {
+            put("forcedDns", dnsIp)
+        }
+    }.toString()
 
     private fun checkNotShuttingDown(epoch: Long) {
         if (isStale(epoch)) {
@@ -458,13 +496,14 @@ class TailcatVpnService : VpnService() {
     private suspend fun attachLive(
         app: TailcatApplication,
         established: ParcelFileDescriptor,
-        networkState: String,
+        profile: GatewayProfile,
+        dnsIp: String,
         epoch: Long
     ): NetworkMetrics {
         currentCoroutineContext().ensureActive()
         checkNotShuttingDown(epoch)
         app.tunnelEngine.attachTun(established.fd)
-        app.tunnelEngine.updateNetworkState(networkState)
+        app.tunnelEngine.updateNetworkState(buildNetworkStateJson(app, profile, dnsIp))
         val metrics = app.tunnelEngine.getStats()
         check(EngineHealth.shouldConnect(metrics, TunnelController.unixNow())) {
             "VPN engine did not become live after attach"
@@ -510,7 +549,7 @@ class TailcatVpnService : VpnService() {
         return builder
     }
 
-    private fun startMetricsNotificationUpdater(profile: GatewayProfile) {
+    private fun startMetricsNotificationUpdater(profile: GatewayProfile, epoch: Long) {
         val app = TailcatApplication.instance
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -522,16 +561,19 @@ class TailcatVpnService : VpnService() {
                 val state = app.tunnelController.tunnelState.value
                 val now = SystemClock.elapsedRealtime()
                 if (!NotificationThrottle.shouldPost(state, lastState, now, lastPostMs)) return@collect
-                lastState = state
-                lastPostMs = now
-                manager.notify(
-                    VpnNotificationManager.NOTIFICATION_ID,
-                    app.notificationManager.buildNotification(
-                        state = state,
-                        profileName = profile.name,
-                        metrics = metrics
+                synchronized(notificationLock) {
+                    if (isStale(epoch)) return@collect
+                    lastState = state
+                    lastPostMs = now
+                    manager.notify(
+                        VpnNotificationManager.NOTIFICATION_ID,
+                        app.notificationManager.buildNotification(
+                            state = state,
+                            profileName = profile.name,
+                            metrics = metrics
+                        )
                     )
-                )
+                }
             }
         }
     }
@@ -553,7 +595,7 @@ class TailcatVpnService : VpnService() {
      * so a stale start job or STOP intent cannot end a service that a newer
      * Connect owns.
      */
-    private fun shutdown(epoch: Long? = null, startGen: Long? = null) {
+    private fun shutdown(epoch: Long? = null, startGen: Long? = null): Boolean {
         // Under interfaceLock so establishAndAdopt and the CONNECTED publish
         // in establishAndStartEngine are atomic with respect to it.
         val casGeneration = synchronized(interfaceLock) {
@@ -567,7 +609,9 @@ class TailcatVpnService : VpnService() {
                 -1L
             }
         }
-        if (casGeneration < 0) return
+        if (casGeneration < 0) return false
+        val stopSignal = CompletableDeferred<Unit>()
+        pendingNativeStop = stopSignal
         TailcatApplication.instance.tunnelController.sessionFailureHandler = null
         TailcatApplication.instance.tunnelController.setAlwaysOnStatus(null)
         TailcatApplication.instance.tunnelController.setAppliedExclusions(null)
@@ -584,28 +628,45 @@ class TailcatVpnService : VpnService() {
         runCatching { tun?.close() }
 
         val finish: () -> Unit = finish@{
-            // A START accepted after the CAS owns this instance now; stopping
-            // here would cancel it through onDestroy (TLA+ finding N1b).
-            if (startGeneration != casGeneration) return@finish
-            finishedGeneration = casGeneration
-            TailcatApplication.instance.tunnelController.onVpnStopped()
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            // Not stopSelf(): a start Android already queued for this instance
-            // must keep it alive and reach onStartCommand.
-            stopSelf(lastStartId)
+            synchronized(notificationLock) {
+                // A START accepted after the CAS owns this instance now; stopping
+                // here would cancel it through onDestroy (TLA+ finding N1b).
+                if (startGeneration != casGeneration) return@finish
+                finishedGeneration = casGeneration
+                TailcatApplication.instance.tunnelController.onVpnStopped()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                // Not stopSelf(): a start Android already queued for this instance
+                // must keep it alive and reach onStartCommand.
+                stopSelf(lastStartId)
+            }
         }
         if (Looper.myLooper() == Looper.getMainLooper()) {
             // Native stop can wait up to its bound; never block the main thread
             // (onDestroy, rejected starts). The TUN is already closed, so routes
             // are gone before this runs; the next start joins it first.
-            pendingNativeStop = serviceScope.launch {
-                runCatching { TailcatApplication.instance.tunnelEngine.stop() }
+            serviceScope.launch {
+                try {
+                    runCatching {
+                        TailcatApplication.instance.tunnelEngine.stop()
+                        TailcatApplication.instance.tunnelEngine.setSocketProtector(null)
+                    }
+                } finally {
+                    stopSignal.complete(Unit)
+                }
             }
             finish()
         } else {
-            runCatching { TailcatApplication.instance.tunnelEngine.stop() }
+            try {
+                runCatching {
+                    TailcatApplication.instance.tunnelEngine.stop()
+                    TailcatApplication.instance.tunnelEngine.setSocketProtector(null)
+                }
+            } finally {
+                stopSignal.complete(Unit)
+            }
             Handler(Looper.getMainLooper()).post(finish)
         }
+        return true
     }
 
     override fun onDestroy() {
@@ -616,8 +677,9 @@ class TailcatVpnService : VpnService() {
     }
 
     override fun onRevoke() {
+        val gen = startGeneration
         TailcatApplication.instance.preferencesStore.vpnWanted = false
-        serviceScope.launch { shutdown() }
+        serviceScope.launch { shutdown(startGen = gen) }
     }
 
 
@@ -634,8 +696,8 @@ class TailcatVpnService : VpnService() {
         @Volatile
         private var lastStartJob: Job? = null
 
-        /** Native stop running off the main thread; outlives the service instance. */
+        /** Native stop completion signal; outlives the service instance. */
         @Volatile
-        private var pendingNativeStop: Job? = null
+        private var pendingNativeStop: CompletableDeferred<Unit>? = null
     }
 }

@@ -120,8 +120,12 @@ func (b *TunBridge) noteUDPFlowEnded(sent, received int64) {
 		return
 	}
 	b.udpUnanswered.Store(0)
-	if b.udpRelatching.CompareAndSwap(false, true) {
-		go b.relatchUDP()
+	if !b.closed.Load() && b.udpRelatching.CompareAndSwap(false, true) {
+		b.wg.Add(1)
+		go func() {
+			defer b.wg.Done()
+			b.relatchUDP()
+		}()
 	}
 }
 

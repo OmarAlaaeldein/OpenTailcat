@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -53,7 +54,7 @@ internal fun LicensesDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Surface(color = BgDark, modifier = Modifier.fillMaxSize()) {
+        Surface(color = BgDark, modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
             Column {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

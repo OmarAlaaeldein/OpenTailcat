@@ -5,7 +5,6 @@ import android.app.Activity
 import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
-import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -29,12 +28,12 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +46,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tailcat.vpn.core.NetworkType
 import com.tailcat.vpn.core.model.GatewayProfile
 import com.tailcat.vpn.core.model.TunnelState
+import com.tailcat.vpn.ui.SecureWindowWhile
 import com.tailcat.vpn.ui.screens.home.components.PowerToggleRing
 import com.tailcat.vpn.ui.screens.home.components.TelemetryCard
 import com.tailcat.vpn.ui.screens.home.components.TelemetryDisplay
@@ -85,20 +85,10 @@ fun HomeScreen(
         }
     }
 
-    var showAddDialog by remember { mutableStateOf(false) }
+    var showAddDialog by rememberSaveable { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<GatewayProfile?>(null) }
 
-    DisposableEffect(showAddDialog) {
-        val window = (context as? Activity)?.window
-        if (showAddDialog) {
-            window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        } else {
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
-        onDispose {
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
-    }
+    SecureWindowWhile(showAddDialog)
 
     val isDeviceOffline = networkType == NetworkType.NONE
 

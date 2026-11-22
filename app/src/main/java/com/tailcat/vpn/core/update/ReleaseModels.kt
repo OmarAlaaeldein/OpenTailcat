@@ -64,27 +64,62 @@ data class LatestRelease(
         fun normalizeVersion(raw: String): String =
             raw.trim().removePrefix("v").removePrefix("V")
 
-        /** True when [candidate] is a strictly newer semver-ish version than [current]. */
+        /** True when [candidate] is a strictly newer SemVer 2.0.0 version than [current]. */
         fun isNewerVersion(candidate: String, current: String): Boolean {
-            val a = parseVersionParts(candidate)
-            val b = parseVersionParts(current)
-            if (a.isEmpty() || b.isEmpty()) return false
-            val len = maxOf(a.size, b.size)
-            for (i in 0 until len) {
-                val av = a.getOrElse(i) { 0 }
-                val bv = b.getOrElse(i) { 0 }
+            val a = parseSemVer(candidate) ?: return false
+            val b = parseSemVer(current) ?: return false
+            val coreLen = maxOf(a.core.size, b.core.size)
+            for (i in 0 until coreLen) {
+                val av = a.core.getOrElse(i) { 0 }
+                val bv = b.core.getOrElse(i) { 0 }
                 if (av != bv) return av > bv
             }
-            return false
+            // Pre-release has lower precedence than the normal version (1.7.3-rc.1 < 1.7.3).
+            if (a.preRelease.isEmpty() && b.preRelease.isEmpty()) return false
+            if (a.preRelease.isEmpty()) return true
+            if (b.preRelease.isEmpty()) return false
+            val preLen = minOf(a.preRelease.size, b.preRelease.size)
+            for (i in 0 until preLen) {
+                val ap = a.preRelease[i]
+                val bp = b.preRelease[i]
+                if (ap == bp) continue
+                val an = ap.toIntOrNull()
+                val bn = bp.toIntOrNull()
+                return when {
+                    an != null && bn != null -> an > bn
+                    an != null -> false // numeric identifiers always have lower precedence than non-numeric
+                    bn != null -> true
+                    else -> ap > bp
+                }
+            }
+            return a.preRelease.size > b.preRelease.size
         }
 
-        private fun parseVersionParts(version: String): List<Int> {
-            val parts = normalizeVersion(version)
-                .split('.', '-', '+')
-                .map { part -> part.takeWhile { it.isDigit() }.toIntOrNull() ?: 0 }
-                .take(8)
-            val lastNonZero = parts.indexOfLast { it != 0 }
-            return if (lastNonZero < 0) emptyList() else parts.subList(0, lastNonZero + 1)
+        private data class SemVer(val core: List<Int>, val preRelease: List<String>)
+
+        private fun parseSemVer(raw: String): SemVer? {
+            val noBuild = normalizeVersion(raw).substringBefore('+')
+            if (noBuild.isEmpty()) return null
+            val dash = noBuild.indexOf('-')
+            val coreStr = if (dash >= 0) noBuild.substring(0, dash) else noBuild
+            val preStr = if (dash >= 0) noBuild.substring(dash + 1) else ""
+            if (coreStr.isEmpty()) return null
+            val coreParts = coreStr.split('.')
+            if (coreParts.size > 8) return null
+            val core = coreParts.map { part ->
+                if (part.isEmpty() || !part.all(Char::isDigit)) return null
+                part.toIntOrNull() ?: return null
+            }
+            if (core.all { it == 0 }) return null
+            val pre = if (dash >= 0) {
+                if (preStr.isEmpty()) return null
+                val parts = preStr.split('.')
+                if (parts.any { it.isEmpty() }) return null
+                parts
+            } else {
+                emptyList()
+            }
+            return SemVer(core, pre)
         }
     }
 }

@@ -51,6 +51,7 @@ object PinnedHttps {
     fun open(endpoint: String): HttpsURLConnection {
         val url = URL(endpoint)
         val connection = AppHttp.open(url) as HttpsURLConnection
+        connection.instanceFollowRedirects = false
         connection.sslSocketFactory = socketFactoryFor(url.host)
         return connection
     }

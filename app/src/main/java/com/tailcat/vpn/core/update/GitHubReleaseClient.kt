@@ -4,6 +4,7 @@ import com.tailcat.vpn.BuildConfig
 import com.tailcat.vpn.core.net.AppHttp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 
 /**
  * Fetches the latest GitHub release with system TLS (not PinnedHttps —
@@ -14,6 +15,7 @@ object GitHubReleaseClient {
     private val LATEST_URL =
         "https://api.github.com/repos/${BuildConfig.REPO_SLUG}/releases/latest"
     private const val TIMEOUT_MS = 8_000
+    private const val MAX_BODY_BYTES = 1024 * 1024
 
     suspend fun fetchLatest(): Result<LatestRelease> = withContext(Dispatchers.IO) {
         runCatching {
@@ -37,7 +39,17 @@ object GitHubReleaseClient {
                         else -> "GitHub returned HTTP $code"
                     }
                 }
-                val body = connection.inputStream.bufferedReader().use { it.readText() }
+                val body = connection.inputStream.use { input ->
+                    val out = ByteArrayOutputStream()
+                    val buf = ByteArray(8192)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n <= 0) break
+                        check(out.size() + n <= MAX_BODY_BYTES) { "Release metadata response is too large" }
+                        out.write(buf, 0, n)
+                    }
+                    out.toString(Charsets.UTF_8.name())
+                }
                 LatestRelease.parse(body)
             } finally {
                 connection.disconnect()

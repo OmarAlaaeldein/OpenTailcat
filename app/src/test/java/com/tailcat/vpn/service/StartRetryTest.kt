@@ -29,6 +29,7 @@ class StartRetryTest {
             )
         )
         assertTrue(StartRetry.isPermanentEngineError("VPN engine is missing prepare"))
+        assertTrue(StartRetry.isPermanentEngineError("exit node is active"))
     }
 
     @Test

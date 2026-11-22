@@ -46,7 +46,7 @@ const (
 	// slots; flows that have seen a reply keep their gateway mapping for
 	// Tailcat's 2 min DefaultUDPIdleTimeout (RFC 4787 REQ-5).
 	udpDNSAnsweredIdle   = 2 * time.Second
-	udpDNSUnansweredIdle = 10 * time.Second
+	udpDNSUnansweredIdle = 20 * time.Second
 	udpUnrepliedIdle     = 30 * time.Second
 	udpRepliedIdle       = 2 * time.Minute
 	udpGCInterval        = time.Second
@@ -95,6 +95,7 @@ type udpFlow struct {
 	closed       atomic.Bool
 	closeOnce    sync.Once
 	unregistered atomic.Bool
+	endReported  atomic.Bool
 	cancel       context.CancelFunc
 }
 
@@ -425,6 +426,7 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest, resolvedDst neti
 	// Read before Complete, which releases the request's segment.
 	isDNS := request.ID().LocalPort == 53
 
+	var abandoned atomic.Bool
 	dialed := make(chan tcpDialResult, 1)
 	go func() {
 		// Guarantee the waiter below never blocks forever: a panicking
@@ -442,14 +444,29 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest, resolvedDst neti
 		ctx, cancel := context.WithTimeout(p.bridge.ctx, tcpDialTimeout)
 		conn, err := p.bridge.client.DialTCP(ctx, resolvedDst)
 		cancel()
-		dialed <- tcpDialResult{conn, err}
+		if abandoned.Load() {
+			closeConn(conn)
+			return
+		}
+		select {
+		case dialed <- tcpDialResult{conn, err}:
+			if abandoned.Load() {
+				select {
+				case res := <-dialed:
+					closeConn(res.conn)
+				default:
+				}
+			}
+		default:
+			closeConn(conn)
+		}
 	}()
 
 	var waitQueue waiter.Queue
 	endpoint, tcpErr := request.CreateEndpoint(&waitQueue)
 	if tcpErr != nil || endpoint == nil {
 		request.Complete(true)
-		res := waitDialResult(p.bridge.ctx, dialed)
+		res := waitDialResult(p.bridge.ctx, dialed, &abandoned)
 		closeConn(res.conn)
 		return
 	}
@@ -460,7 +477,7 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest, resolvedDst neti
 	// the gateway dials the destination, so an unreachable or refused host
 	// shows up as connected-then-EOF. Refusing properly needs the gateway to
 	// dial before completing the tunnel handshake.
-	res := waitDialResult(p.bridge.ctx, dialed)
+	res := waitDialResult(p.bridge.ctx, dialed, &abandoned)
 	if res.err != nil || isNilConn(res.conn) {
 		_ = local.Close()
 		closeConn(res.conn)
@@ -486,11 +503,17 @@ func (p *netstackProxy) proxyTCP(request *tcp.ForwarderRequest, resolvedDst neti
 // waitDialResult waits for the async DialTCP result but also returns on engine
 // shutdown, so a stuck dial cannot pin a proxyTCP goroutine (and its 512-slot
 // + tcpWg credit) forever.
-func waitDialResult(ctx context.Context, dialed <-chan tcpDialResult) tcpDialResult {
+func waitDialResult(ctx context.Context, dialed <-chan tcpDialResult, abandoned *atomic.Bool) tcpDialResult {
 	select {
 	case res := <-dialed:
 		return res
 	case <-ctx.Done():
+		abandoned.Store(true)
+		select {
+		case res := <-dialed:
+			closeConn(res.conn)
+		default:
+		}
 		return tcpDialResult{nil, ctx.Err()}
 	}
 }
@@ -556,8 +579,10 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 
 	srcAP := netip.AddrPortFrom(srcIP.Unmap(), id.RemotePort)
 	dstAP := netip.AddrPortFrom(dstIP.Unmap(), id.LocalPort)
+	isDNS := dstAP.Port() == 53
+	tcpOnly := p.bridge.tcpOnly.Load()
 
-	if p.bridge.tcpOnly.Load() && dstAP.Port() != 53 {
+	if tcpOnly && !isDNS {
 		p.bridge.policyRejections.Add(1)
 		return false
 	}
@@ -594,7 +619,7 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 	p.udpWg.Add(1)
 	p.udpMu.Unlock()
 	if evicted != nil {
-		p.bridge.noteUDPFlowEnded(evicted.sent.Load(), evicted.received.Load())
+		p.reportFlowEnded(evicted)
 		evicted.close()
 	}
 
@@ -612,7 +637,7 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 	ctx, cancel := context.WithCancel(p.bridge.ctx)
 	flow := &udpFlow{
 		key:       flowKey,
-		isDNS:     dstAP.Port() == 53,
+		isDNS:     isDNS,
 		localConn: localConn,
 		cancel:    cancel,
 	}
@@ -637,7 +662,7 @@ func (p *netstackProxy) acceptUDP(request *udp.ForwarderRequest) bool {
 	p.udpMu.Unlock()
 	p.track(localConn)
 
-	if p.bridge.tcpOnly.Load() && resolvedDst.Port() == 53 {
+	if tcpOnly && flow.isDNS {
 		go p.runDNSOverTCPFlow(ctx, flow, resolvedDst)
 		return true
 	}
@@ -722,7 +747,7 @@ func (p *netstackProxy) evictLRULocked() *udpFlow {
 	var victim *udpFlow
 	var victimLast int64
 	for _, f := range p.udpFlows {
-		if f.unregistered.Load() {
+		if f.unregistered.Load() || f.closed.Load() {
 			continue
 		}
 		if last := f.lastActive.Load(); victim == nil || last < victimLast {
@@ -768,10 +793,10 @@ func (p *netstackProxy) runDNSOverTCPFlow(ctx context.Context, flow *udpFlow, ds
 			return
 		}
 		flow.touch()
-		flow.sent.Add(1)
-		p.bridge.dnsQueries.Add(1)
 		query := append([]byte(nil), buf[:n]...)
 		if sess != nil && sess.send(query) == nil {
+			flow.sent.Add(1)
+			p.bridge.dnsQueries.Add(1)
 			continue
 		}
 		// No connection yet, or it broke: dial once more for this query.
@@ -781,9 +806,12 @@ func (p *netstackProxy) runDNSOverTCPFlow(ctx context.Context, flow *udpFlow, ds
 		if sess, err = p.startDNSOverTCP(ctx, dst, flow); err != nil {
 			return
 		}
+		flow.touch()
 		if err := sess.send(query); err != nil {
 			return
 		}
+		flow.sent.Add(1)
+		p.bridge.dnsQueries.Add(1)
 	}
 }
 
@@ -839,6 +867,9 @@ func (s *dnsTCPSession) send(query []byte) error {
 	if len(query) >= 2 && len(s.pending) < maxPendingDNSOverTCP {
 		s.pending[binary.BigEndian.Uint16(query[:2])] = query
 	}
+	// Set the read deadline while holding s.mu so readAnswers cannot observe
+	// an earlier empty pending map and clear it after this query is queued.
+	_ = s.conn.SetReadDeadline(time.Now().Add(dnsTCPIOTimeout))
 	s.mu.Unlock()
 	frame := make([]byte, 2+len(query))
 	binary.BigEndian.PutUint16(frame, uint16(len(query)))
@@ -858,21 +889,31 @@ func (s *dnsTCPSession) readAnswers(flow *udpFlow) {
 	defer s.p.recoverFlow("dns-over-tcp answers")
 	var hdr [2]byte
 	for {
+		s.mu.Lock()
+		if len(s.pending) > 0 {
+			_ = s.conn.SetReadDeadline(time.Now().Add(dnsTCPIOTimeout))
+		} else {
+			_ = s.conn.SetReadDeadline(time.Time{})
+		}
+		s.mu.Unlock()
 		if _, err := io.ReadFull(s.conn, hdr[:]); err != nil {
 			return
 		}
-		resp := make([]byte, binary.BigEndian.Uint16(hdr[:]))
+		respLen := int(binary.BigEndian.Uint16(hdr[:]))
+		if respLen < 12 {
+			return
+		}
+		_ = s.conn.SetReadDeadline(time.Now().Add(dnsTCPIOTimeout))
+		resp := make([]byte, respLen)
 		if _, err := io.ReadFull(s.conn, resp); err != nil {
 			return
 		}
 		var query []byte
-		if len(resp) >= 2 {
-			id := binary.BigEndian.Uint16(resp[:2])
-			s.mu.Lock()
-			query = s.pending[id]
-			delete(s.pending, id)
-			s.mu.Unlock()
-		}
+		id := binary.BigEndian.Uint16(resp[:2])
+		s.mu.Lock()
+		query = s.pending[id]
+		delete(s.pending, id)
+		s.mu.Unlock()
 		flow.touch()
 		flow.received.Add(1)
 		if _, err := flow.localConn.Write(truncateDNSForUDP(query, resp)); err != nil {
@@ -973,23 +1014,36 @@ func (p *netstackProxy) cleanupIdleUDPFlows(ready chan struct{}) {
 	}
 }
 
+func (p *netstackProxy) reportFlowEnded(f *udpFlow) {
+	if p == nil || p.bridge == nil || f == nil {
+		return
+	}
+	if !f.endReported.Swap(true) {
+		p.bridge.noteUDPFlowEnded(f.sent.Load(), f.received.Load())
+	}
+}
+
 // expireIdleUDPFlows closes the flows idle past their timeout at now and
 // reports how each ended, so gateway UDP loss can re-latch tcpOnly.
 func (p *netstackProxy) expireIdleUDPFlows(now time.Time) {
 	for _, f := range p.expiredUDPFlows(now) {
-		p.bridge.noteUDPFlowEnded(f.sent.Load(), f.received.Load())
+		p.reportFlowEnded(f)
 		f.close()
 	}
 }
 
-// expiredUDPFlows returns the flows that have been idle longer than their
-// idle timeout at now.
+// expiredUDPFlows returns and unregisters the flows that have been idle
+// longer than their idle timeout at now.
 func (p *netstackProxy) expiredUDPFlows(now time.Time) []*udpFlow {
 	nowNano := now.UnixNano()
 	var expired []*udpFlow
 	p.udpMu.Lock()
 	for _, flow := range p.udpFlows {
+		if flow.closed.Load() || flow.unregistered.Load() {
+			continue
+		}
 		if nowNano-flow.lastActive.Load() > int64(flow.idleTimeout()) {
+			p.unregisterFlowLocked(flow)
 			expired = append(expired, flow)
 		}
 	}
@@ -1040,7 +1094,7 @@ func (p *netstackProxy) Close() {
 	}()
 	select {
 	case <-done:
-	case <-time.After(stopWaitTimeout):
+	case <-time.After(stopWaitTimeout * 2 / 3):
 		// Flows were cancelled/closed; abandon waiters so TunBridge.Stop stays bounded.
 	}
 	p.stack.Destroy()

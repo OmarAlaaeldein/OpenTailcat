@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -147,6 +149,7 @@ fun SpeedTestScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
         ) {
             Spacer(modifier = Modifier.height(12.dp))
@@ -158,8 +161,10 @@ fun SpeedTestScreen(
                     .panel(TailcatShapes.Tile, fill = SurfaceElevated)
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
+                val displayedTunnelState =
+                    if (testState.stage == SpeedTestStage.IDLE) tunnelState else testState.tunnelState
                 Text(
-                    text = SpeedTestBanner.text(testState.stage, testState.viaGateway, tunnelState),
+                    text = SpeedTestBanner.text(testState.stage, testState.viaGateway, displayedTunnelState),
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = TextSecondary,
                         fontSize = 11.sp
@@ -241,24 +246,26 @@ fun SpeedTestScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(24.dp))
 
             if (testState.stage == SpeedTestStage.FAILED) {
+                val headline = testState.errorMessage ?: "The benchmark could not complete"
                 Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                     Text(
-                        text = testState.errorMessage ?: "The benchmark could not complete",
+                        text = headline,
                         style = MaterialTheme.typography.bodyMedium.copy(color = RedDegraded),
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
-                    testState.findings.filter { it.severity != FindingSeverity.ERROR }
+                    testState.findings
+                        .filterNot { it.severity == FindingSeverity.ERROR && it.message == headline }
                         .forEach { finding ->
                             Text(
                                 text = "• ${finding.message}",
                                 style = MaterialTheme.typography.bodySmall.copy(
-                                    color = if (finding.severity == FindingSeverity.WARNING) {
-                                        YellowWarning
-                                    } else {
-                                        TextSecondary
+                                    color = when (finding.severity) {
+                                        FindingSeverity.ERROR -> RedDegraded
+                                        FindingSeverity.WARNING -> YellowWarning
+                                        FindingSeverity.INFO -> TextSecondary
                                     },
                                     fontSize = 11.sp
                                 ),
@@ -272,10 +279,10 @@ fun SpeedTestScreen(
                         Text(
                             text = "• ${finding.message}",
                             style = MaterialTheme.typography.bodySmall.copy(
-                                color = if (finding.severity == FindingSeverity.WARNING) {
-                                    YellowWarning
-                                } else {
-                                    TextSecondary
+                                color = when (finding.severity) {
+                                    FindingSeverity.ERROR -> RedDegraded
+                                    FindingSeverity.WARNING -> YellowWarning
+                                    FindingSeverity.INFO -> TextSecondary
                                 },
                                 fontSize = 11.sp
                             ),

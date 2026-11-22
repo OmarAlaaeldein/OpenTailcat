@@ -1,23 +1,29 @@
 package com.tailcat.vpn.ui.screens.share
 
-import android.app.Activity
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.PersistableBundle
-import android.view.WindowManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -54,6 +60,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -72,6 +79,7 @@ import com.tailcat.vpn.core.model.TunnelState
 import com.tailcat.vpn.service.ExitNodeAdmission
 import com.tailcat.vpn.service.ExitNodeRelay
 import com.tailcat.vpn.service.ExitNodeUiState
+import com.tailcat.vpn.ui.SecureWindowWhile
 import com.tailcat.vpn.ui.screens.home.QrMatrixCanvas
 import com.tailcat.vpn.ui.screens.home.encodeTokenQr
 import com.tailcat.vpn.ui.theme.AccentCyan
@@ -87,6 +95,7 @@ import com.tailcat.vpn.ui.theme.TextSecondary
 import com.tailcat.vpn.ui.theme.YellowWarning
 import com.tailcat.vpn.ui.theme.panel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Share this phone's connection as an exit gateway. A separate screen on
@@ -105,14 +114,21 @@ fun ShareScreen(
     val admission by viewModel.admission.collectAsStateWithLifecycle()
     val relay by viewModel.relay.collectAsStateWithLifecycle()
     val tunnelState by viewModel.tunnelState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) {
+        viewModel.start()
+    }
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { snackbar.showSnackbar(it) }
     }
     // The code on screen is a credential: no screenshots or recents preview
     // while it is shown.
-    SecureWhile(state is ExitNodeUiState.Sharing)
+    SecureWindowWhile(state is ExitNodeUiState.Sharing)
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -134,6 +150,7 @@ fun ShareScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
@@ -154,7 +171,18 @@ fun ShareScreen(
                     onRelayHostname = viewModel::setRelayHostname,
                     onRelayDerpPort = viewModel::setRelayDerpPort,
                     onRelayStunPort = viewModel::setRelayStunPort,
-                    onStart = viewModel::start
+                    onStart = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.POST_NOTIFICATIONS
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            viewModel.start()
+                        }
+                    }
                 )
                 ExitNodeUiState.Starting -> StartingContent()
                 is ExitNodeUiState.Sharing -> SharingContent(
@@ -163,7 +191,8 @@ fun ShareScreen(
                     onApprove = viewModel::approve,
                     onDeny = viewModel::deny,
                     onRevoke = viewModel::revoke,
-                    onStop = viewModel::stop
+                    onStop = viewModel::stop,
+                    onCopied = { scope.launch { snackbar.showSnackbar("Code copied") } }
                 )
                 is ExitNodeUiState.Ended -> EndedContent(s.message, viewModel::acknowledgeEnded)
             }
@@ -200,17 +229,17 @@ private fun SetupContent(
     Card {
         Eyebrow("HOW LONG")
         Spacer(Modifier.height(8.dp))
-        // Four timed choices fill a phone's width, so "no limit" gets its own row.
-        val (timed, untimed) = ShareDuration.entries.partition { it.isTimed }
-        for (options in listOf(timed, untimed)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                options.forEach { option ->
-                    FilterChip(
-                        selected = option == duration,
-                        onClick = { onDuration(option) },
-                        label = { Text(option.label) }
-                    )
-                }
+        @OptIn(ExperimentalLayoutApi::class)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ShareDuration.entries.forEach { option ->
+                FilterChip(
+                    selected = option == duration,
+                    onClick = { onDuration(option) },
+                    label = { Text(option.label) }
+                )
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -419,7 +448,8 @@ private fun SharingContent(
     onApprove: (String) -> Unit,
     onDeny: (String) -> Unit,
     onRevoke: (String) -> Unit,
-    onStop: () -> Unit
+    onStop: () -> Unit,
+    onCopied: () -> Unit
 ) {
     val now by rememberNowSec()
     val expires = stats.expiresUnixSec
@@ -435,7 +465,7 @@ private fun SharingContent(
         )
     }
 
-    CodeCard(token, openAdmission = stats.openAdmission)
+    CodeCard(token, openAdmission = stats.openAdmission, onCopied = onCopied)
 
     if (stats.pending.isNotEmpty()) {
         Card(border = YellowWarning.copy(alpha = 0.5f)) {
@@ -497,7 +527,7 @@ private fun SharingContent(
 }
 
 @Composable
-private fun CodeCard(token: String, openAdmission: Boolean) {
+private fun CodeCard(token: String, openAdmission: Boolean, onCopied: () -> Unit) {
     val context = LocalContext.current
     val matrix = remember(token) { runCatching { encodeTokenQr(token) }.getOrNull() }
     Card {
@@ -508,7 +538,10 @@ private fun CodeCard(token: String, openAdmission: Boolean) {
                 Text("The code is too large for a QR image. Use Copy.")
             }
             Spacer(Modifier.height(12.dp))
-            OutlinedButton(onClick = { copySensitive(context, token) }) {
+            OutlinedButton(onClick = {
+                copySensitive(context, token)
+                onCopied()
+            }) {
                 Icon(Icons.Default.ContentCopy, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Copy code")
@@ -641,16 +674,6 @@ internal fun formatRemaining(seconds: Long): String {
     val m = (s % 3600) / 60
     val sec = s % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%02d:%02d".format(m, sec)
-}
-
-@Composable
-private fun SecureWhile(enabled: Boolean) {
-    val context = LocalContext.current
-    DisposableEffect(enabled) {
-        val window = (context as? Activity)?.window
-        if (enabled) window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose { if (enabled) window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
-    }
 }
 
 /** Copies the code and, on Android 13+, asks the system not to show it in the clipboard preview. */

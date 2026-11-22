@@ -1,5 +1,6 @@
 package com.tailcat.vpn.core.token
 
+import java.net.Inet6Address
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -704,8 +705,12 @@ object TokenParser {
     }
 
     private fun rejectUnsafeDerpEndpoint(label: String, value: String) {
-        if (value == "none") return
-        val lower = value.lowercase()
+        if (value.isEmpty()) return
+        if (value == "none") {
+            if (label == "IPv4" || label == "IPv6") return
+            throw IllegalArgumentException("embedded DERP $label cannot be $value")
+        }
+        val lower = value.lowercase().trimEnd('.')
         if (lower == "localhost" || lower.endsWith(".localhost") || lower == "ip6-localhost" ||
             lower == "metadata.google.internal" || lower == "metadata.internal"
         ) {
@@ -713,11 +718,18 @@ object TokenParser {
         }
         val ip = literalIp(value)
         if (ip == null) {
+            if (value.contains(':')) {
+                throw IllegalArgumentException("embedded DERP $label contains ':' without being a valid IP")
+            }
             if (hostnameHasEmbeddedIp(value)) {
                 throw IllegalArgumentException("embedded DERP $label embeds an IP address")
             }
             return
         }
+        rejectUnsafeDerpIp(label, ip)
+    }
+
+    private fun rejectUnsafeDerpIp(label: String, ip: InetAddress) {
         if (ip.isLoopbackAddress) {
             throw IllegalArgumentException("embedded DERP $label is a loopback address")
         }
@@ -729,6 +741,30 @@ object TokenParser {
         }
         if (ip.isMulticastAddress) {
             throw IllegalArgumentException("embedded DERP $label is a multicast address")
+        }
+        if (ip is Inet6Address) {
+            val raw = ip.address
+            if (raw.size == 16) {
+                // Deprecated IPv4-compatible IPv6 ::/96
+                if ((0 until 12).all { raw[it] == 0.toByte() }) {
+                    throw IllegalArgumentException("embedded DERP $label uses deprecated IPv4-compatible IPv6")
+                }
+                // RFC 8215 local-use NAT64 64:ff9b:1::/48
+                if (raw[0] == 0x00.toByte() && raw[1] == 0x64.toByte() &&
+                    raw[2] == 0xff.toByte() && raw[3] == 0x9b.toByte() &&
+                    raw[4] == 0x00.toByte() && raw[5] == 0x01.toByte()
+                ) {
+                    throw IllegalArgumentException("embedded DERP $label uses local-use NAT64")
+                }
+                // Well-known NAT64 64:ff9b::/96: validate the embedded IPv4 address
+                if (raw[0] == 0x00.toByte() && raw[1] == 0x64.toByte() &&
+                    raw[2] == 0xff.toByte() && raw[3] == 0x9b.toByte() &&
+                    (4 until 12).all { raw[it] == 0.toByte() }
+                ) {
+                    val v4 = InetAddress.getByAddress(raw.copyOfRange(12, 16))
+                    rejectUnsafeDerpIp(label, v4)
+                }
+            }
         }
     }
 
@@ -762,9 +798,17 @@ object TokenParser {
 
     private fun literalIp(value: String): InetAddress? {
         if (value.contains(':')) {
+            if (value.contains('%')) {
+                val zone = value.substringAfter('%')
+                if (zone.isEmpty()) return null
+            }
             val host = value.substringBefore('%')
             if (!host.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' || it == ':' || it == '.' }) {
                 return null
+            }
+            if (host.contains('.')) {
+                val tail = host.substringAfterLast(':')
+                if (literalIpv4(tail) == null) return null
             }
             return runCatching {
                 // Java collapses IPv4-mapped IPv6 (::ffff:127.0.0.1) to an

@@ -18,6 +18,11 @@ var (
 func SetSocketProtector(p SocketProtector) {
 	defer recoverExported("SetSocketProtector", nil)
 	protectorMu.Lock()
+	if exitNodeClaim.Load() {
+		// Never clobber the exit node's allowAllProtector while it owns the engine.
+		protectorMu.Unlock()
+		return
+	}
 	currentProtector = p
 	protectorMu.Unlock()
 	hookAndroidProtect()

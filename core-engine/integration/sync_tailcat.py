@@ -26,6 +26,51 @@ def outputs():
         text = replace_once(text, '\t"tailscale.com/net/netns"\n', "")
         text = replace_once(text, "\tnetns.SetEnabled(false)", "\tconfigureStandaloneNetNS()")
         if name == "tailcat.go":
+            # A DisconnectClient that lands while allowClient is in flight for
+            # the same key must win: record it, and refuse to add the client
+            # once the hook returns.
+            text = replace_once(text,
+                "\tpendingAllow map[key.NodePublic]bool          // client keys with an allowClient call in flight\n",
+                "\tpendingAllow map[key.NodePublic]bool          // client keys with an allowClient call in flight\n"
+                "\tremovedAllow map[key.NodePublic]bool // pendingAllow keys disconnected while their allowClient call was in flight\n")
+            text = replace_once(text, '''		delete(b.pendingAllow, src)
+		if !allowed {''', '''		delete(b.pendingAllow, src)
+		removed := b.removedAllow[src]
+		delete(b.removedAllow, src)
+		if removed {
+			b.logf("ignoring meow from %v: disconnected while AllowClient ran", src.String())
+			return false
+		}
+		if !allowed {''')
+            text = replace_once(text, '''func (b *locoBackend) removeClientLocked(k key.NodePublic) bool {
+	if _, ok := b.clients[k]; !ok {''', '''func (b *locoBackend) removeClientLocked(k key.NodePublic) bool {
+	if b.pendingAllow[k] {
+		mak.Set(&b.removedAllow, k, true)
+	}
+	if _, ok := b.clients[k]; !ok {''')
+            # Every decoded DERP map, fresh or cached, passes the application's
+            # endpoint policy, whatever URL or redirect it came from.
+            text = replace_once(text, '''	dm := new(tailcfg.DERPMap)
+	if err := json.Unmarshal(data, dm); err != nil {
+		return nil
+	}
+	return dm
+}''', '''	dm := new(tailcfg.DERPMap)
+	if err := json.Unmarshal(data, dm); err != nil {
+		return nil
+	}
+	if f := DERPMapFilter; f != nil {
+		if err := f(dm); err != nil {
+			return nil
+		}
+	}
+	return dm
+}
+
+// DERPMapFilter, when set, vets and may prune every DERP map decoded from
+// JSON (fetched or cached). An error discards the map. Set it once at
+// program start, before any client or server runs.
+var DERPMapFilter func(*tailcfg.DERPMap) error''')
             text = replace_once(text, "// nodeKeyLocked returns", '''// NetworkMonitor returns the monitor owned by this initialized client.
 // This application-owned integration API deliberately uses ordinary typed
 // access. Call after Ping initialized the client; absence is an explicit error.

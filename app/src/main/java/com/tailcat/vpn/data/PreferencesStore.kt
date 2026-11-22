@@ -6,12 +6,13 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
-import androidx.core.content.edit
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import org.json.JSONArray
 import java.io.File
+import java.security.InvalidKeyException
 import java.security.KeyStore
+import java.security.KeyStoreException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -30,6 +31,16 @@ interface PreferencesStorage {
      * messages stay short either way. Never gates routing or lockdown.
      */
     var debugMode: Boolean
+
+    fun saveProfilesJson(json: String?): Boolean {
+        savedProfilesJson = json
+        return true
+    }
+
+    fun saveActiveProfileId(id: String?): Boolean {
+        activeProfileId = id
+        return true
+    }
 }
 
 /**
@@ -66,6 +77,9 @@ class PreferencesStore internal constructor(
         get() = store.getString(KEY_ACTIVE_PROFILE_ID)
         set(value) { store.putString(KEY_ACTIVE_PROFILE_ID, value, commit = true) }
 
+    override fun saveActiveProfileId(id: String?): Boolean =
+        store.putString(KEY_ACTIVE_PROFILE_ID, id, commit = true)
+
     override var defaultMtu: Int
         get() = store.getString(KEY_DEFAULT_MTU)?.toIntOrNull() ?: 1280
         set(value) { store.putString(KEY_DEFAULT_MTU, value.coerceIn(MIN_MTU, MAX_MTU).toString()) }
@@ -87,6 +101,9 @@ class PreferencesStore internal constructor(
         get() = store.getString(KEY_SAVED_PROFILES)
         set(value) { store.putString(KEY_SAVED_PROFILES, value, commit = true) }
 
+    override fun saveProfilesJson(json: String?): Boolean =
+        store.putString(KEY_SAVED_PROFILES, json, commit = true)
+
     override var vpnWanted: Boolean
         get() = store.getString(KEY_VPN_WANTED).toBoolean()
         set(value) { store.putString(KEY_VPN_WANTED, value.toString(), commit = true) }
@@ -105,11 +122,16 @@ class PreferencesStore internal constructor(
     private fun migrate(context: Context) {
         val legacy = context.getSharedPreferences(legacyName, Context.MODE_PRIVATE)
         if (legacy.all.isNotEmpty() && store.importMissing(legacy.all)) {
-            legacy.edit(commit = true) { clear() }
+            context.deleteSharedPreferences(legacyName)
         }
 
         val sharedPrefsDir = File(context.applicationInfo.dataDir, "shared_prefs")
         if (!File(sharedPrefsDir, "$encryptedName.xml").exists()) return
+        if (store.getString(KEY_SAVED_PROFILES) != null ||
+            store.getString(KEY_ENCRYPTED_MIGRATION_DONE) == "true"
+        ) {
+            return
+        }
         val old = try {
             EncryptedSharedPreferences.create(
                 context,
@@ -120,10 +142,12 @@ class PreferencesStore internal constructor(
             ).all
         } catch (e: Exception) {
             Log.w(TAG, "Previous encrypted preferences are unreadable (${e.javaClass.simpleName})")
+            store.putString(KEY_ENCRYPTED_MIGRATION_DONE, "true", commit = true)
             return
         }
         if (store.importMissing(old)) {
             context.deleteSharedPreferences(encryptedName)
+            store.putString(KEY_ENCRYPTED_MIGRATION_DONE, "true", commit = true)
         }
     }
 
@@ -141,6 +165,7 @@ class PreferencesStore internal constructor(
         private const val KEY_SAVED_PROFILES = "key_saved_profiles"
         private const val KEY_VPN_WANTED = "key_vpn_wanted"
         private const val KEY_DEBUG_MODE = "key_debug_mode"
+        private const val KEY_ENCRYPTED_MIGRATION_DONE = "key_encrypted_migration_done"
 
         private const val MIN_MTU = 1_280
         private const val MAX_MTU = 1_500
@@ -185,21 +210,42 @@ internal class KeystoreValueCipher(private val alias: String) : ValueCipher {
         return key
     }
 
+    @Synchronized
+    private fun invalidateCachedKey() {
+        cachedKey = null
+    }
+
     override fun seal(key: String, plain: String): String {
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, key())
-        cipher.updateAAD(key.toByteArray())
-        val sealed = cipher.iv + cipher.doFinal(plain.toByteArray())
-        return Base64.encodeToString(sealed, Base64.NO_WRAP)
+        return try {
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, key())
+            cipher.updateAAD(key.toByteArray())
+            val sealed = cipher.iv + cipher.doFinal(plain.toByteArray())
+            Base64.encodeToString(sealed, Base64.NO_WRAP)
+        } catch (e: InvalidKeyException) {
+            invalidateCachedKey()
+            throw e
+        } catch (e: KeyStoreException) {
+            invalidateCachedKey()
+            throw e
+        }
     }
 
     override fun open(key: String, sealed: String): String {
         val raw = Base64.decode(sealed, Base64.NO_WRAP)
         require(raw.size > IV_BYTES) { "sealed value is too short" }
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, raw, 0, IV_BYTES))
-        cipher.updateAAD(key.toByteArray())
-        return String(cipher.doFinal(raw, IV_BYTES, raw.size - IV_BYTES))
+        return try {
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, raw, 0, IV_BYTES))
+            cipher.updateAAD(key.toByteArray())
+            String(cipher.doFinal(raw, IV_BYTES, raw.size - IV_BYTES))
+        } catch (e: InvalidKeyException) {
+            invalidateCachedKey()
+            throw e
+        } catch (e: KeyStoreException) {
+            invalidateCachedKey()
+            throw e
+        }
     }
 
     private companion object {

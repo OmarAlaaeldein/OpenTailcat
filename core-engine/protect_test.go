@@ -104,3 +104,30 @@ func TestEnsureTransportProtectNoopOrSafe(t *testing.T) {
 		t.Fatalf("got %v", p.fds)
 	}
 }
+
+func TestSetSocketProtectorIgnoredDuringExitNodeClaim(t *testing.T) {
+	SetSocketProtector(nil)
+	exitNodeClaim.Store(true)
+	defer func() {
+		exitNodeClaim.Store(false)
+		SetSocketProtector(nil)
+	}()
+
+	SetSocketProtector(&testProtector{})
+	protectorMu.Lock()
+	got := currentProtector
+	protectorMu.Unlock()
+	if got != nil {
+		t.Fatal("SetSocketProtector mutated protector while exitNodeClaim was held")
+	}
+
+	exitNodeClaim.Store(false)
+	p := &testProtector{}
+	SetSocketProtector(p)
+	protectorMu.Lock()
+	got = currentProtector
+	protectorMu.Unlock()
+	if got != p {
+		t.Fatal("SetSocketProtector did not install protector after exitNodeClaim cleared")
+	}
+}

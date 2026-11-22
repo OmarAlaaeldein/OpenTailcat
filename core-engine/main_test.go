@@ -437,3 +437,78 @@ func TestPrepareUsesUpstreamUDPDial(t *testing.T) {
 		t.Fatal("expected UDP DialUDP path (tcpOnly=false) after upstream application UDP")
 	}
 }
+
+func TestIsSafeDNSAddrRejectsReservedAndNAT64(t *testing.T) {
+	rejected := []string{
+		"0.0.0.1", "10.0.0.1", "100.64.0.1", "127.0.0.1", "169.254.169.254",
+		"192.0.0.1", "192.0.2.1", "198.18.0.1", "198.51.100.1", "203.0.113.1",
+		"224.0.0.1", "240.0.0.1", "100::1", "2001:db8::53", "::1.1.1.1",
+		"64:ff9b::127.0.0.1", "64:ff9b:1::1", "::ffff:10.0.0.1", "fe80::1", "fd00::1",
+	}
+	for _, s := range rejected {
+		addr := netip.MustParseAddr(s)
+		if isSafeDNSAddr(addr) {
+			t.Errorf("isSafeDNSAddr(%q) = true, want false", s)
+		}
+	}
+	allowed := []string{"1.1.1.1", "8.8.8.8", "2606:4700:4700::1111", "64:ff9b::1.1.1.1"}
+	for _, s := range allowed {
+		addr := netip.MustParseAddr(s)
+		if !isSafeDNSAddr(addr) {
+			t.Errorf("isSafeDNSAddr(%q) = false, want true", s)
+		}
+	}
+}
+
+func TestUpdateNetworkStateStripsIPv6Zones(t *testing.T) {
+	defer func() { _ = UpdateNetworkState("") }()
+	payload := `{"isOnline":true,"networkType":"WIFI","interfaces":[{"name":"wlan0","addresses":["fe80::1%wlan0/64","192.168.1.50/24"]}]}`
+	if err := UpdateNetworkState(payload); err != nil {
+		t.Fatalf("UpdateNetworkState failed: %v", err)
+	}
+	netStateMu.RLock()
+	defer netStateMu.RUnlock()
+	if len(customIfs) != 1 || len(customIfs[0].AltAddrs) != 2 {
+		t.Fatalf("unexpected customIfs: %+v", customIfs)
+	}
+}
+
+func TestCBORNestedKeyLengthCapAndUnsafeDerpToken(t *testing.T) {
+	var nodeRaw, discoRaw [32]byte
+	for i := 0; i < 32; i++ {
+		nodeRaw[i] = byte(i + 1)
+		discoRaw[i] = byte(i + 33)
+	}
+	nodePub := key.NodePrivateFromRaw32(mem.B(nodeRaw[:])).Public()
+	discoPub := key.DiscoPrivateFromRaw32(mem.B(discoRaw[:])).Public()
+
+	// Oversized nested map key (> 128 bytes) must be rejected by strict CBOR validator.
+	overKey := strings.Repeat("k", 129)
+	oversizeMap := map[string]any{
+		"p": nodePub.AppendTo(nil),
+		"k": discoPub.AppendTo(nil),
+		"r": map[string]any{
+			"i": uint64(900),
+			"n": []any{map[string]any{"h": "derp.example", overKey: "v"}},
+		},
+	}
+	raw, _ := cbor.Marshal(oversizeMap)
+	if pt, err := ParseToken("tc" + base64.RawURLEncoding.EncodeToString(raw)); err == nil || pt.IsConnectable() {
+		t.Fatalf("expected oversized nested key token rejection, got err=%v", err)
+	}
+
+	for _, badHost := range []string{"localhost.", "derp.example:443", "none"} {
+		wireMap := map[string]any{
+			"p": nodePub.AppendTo(nil),
+			"k": discoPub.AppendTo(nil),
+			"r": map[string]any{
+				"i": uint64(900),
+				"n": []any{map[string]any{"h": badHost, "4": "none"}},
+			},
+		}
+		b, _ := cbor.Marshal(wireMap)
+		if pt, err := ParseToken("tc" + base64.RawURLEncoding.EncodeToString(b)); err == nil || pt.IsConnectable() {
+			t.Fatalf("expected unsafe DERP host %q to be rejected", badHost)
+		}
+	}
+}

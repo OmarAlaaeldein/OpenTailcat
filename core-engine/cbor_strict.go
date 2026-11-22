@@ -269,6 +269,9 @@ func (r *strictCborReader) readStrictValue(depth int) (any, error) {
 			if err != nil {
 				return nil, err
 			}
+			if kLen > 128 {
+				return nil, errors.New("nested map key exceeds maximum length")
+			}
 			kB, err := r.readBytes(int(kLen))
 			if err != nil {
 				return nil, err

@@ -31,6 +31,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"strings"
@@ -136,6 +137,10 @@ type Config struct {
 
 	// now is replaceable in tests.
 	now func() time.Time
+
+	// localPrefixes lists the host's own addresses and on-link prefixes
+	// (interfacePrefixes in production). Replaceable in tests.
+	localPrefixes func() []netip.Prefix
 }
 
 // Node is a running exit node. All methods are safe for concurrent use.
@@ -161,12 +166,19 @@ type Node struct {
 	// openAdmitted records the open-admission keys that may be evicted, with
 	// the last time each was admitted. Approved keys never appear here.
 	openAdmitted map[key.NodePublic]time.Time
-	denied       map[key.NodePublic]struct{}
-	pending      map[key.NodePublic]*pendingPeer
-	peers        map[key.NodePublic]*peerStats
-	timer        *time.Timer
+	// denied holds pending requests the host refused, with when. It is
+	// bounded; the oldest refusal is forgotten first.
+	denied map[key.NodePublic]time.Time
+	// revoked holds keys the host withdrew. It is never evicted: a host
+	// decision must not be undone by a flood of other keys.
+	revoked map[key.NodePublic]struct{}
+	pending map[key.NodePublic]*pendingPeer
+	peers   map[key.NodePublic]*peerStats
+	timer   *time.Timer
 
 	tcpSlots, udpSlots chan struct{}
+
+	local *hostLocal
 
 	closeOnce sync.Once
 	closeErr  error
@@ -277,7 +289,8 @@ func newNode(cfg Config) *Node {
 		state:        StateRunning,
 		allowed:      map[key.NodePublic]struct{}{},
 		openAdmitted: map[key.NodePublic]time.Time{},
-		denied:       map[key.NodePublic]struct{}{},
+		denied:       map[key.NodePublic]time.Time{},
+		revoked:      map[key.NodePublic]struct{}{},
 		pending:      map[key.NodePublic]*pendingPeer{},
 		peers:        map[key.NodePublic]*peerStats{},
 		tcpSlots:     make(chan struct{}, cfg.MaxTCP),
@@ -292,6 +305,11 @@ func newNode(cfg Config) *Node {
 		n.expires = n.started.Add(cfg.TTL)
 	}
 	n.peerKey = func(net.Addr) (key.NodePublic, bool) { return key.NodePublic{}, false }
+	src := cfg.localPrefixes
+	if src == nil {
+		src = interfacePrefixes
+	}
+	n.local = &hostLocal{source: src, now: now}
 	return n
 }
 
@@ -390,16 +408,35 @@ func (n *Node) admit(k key.NodePublic) bool {
 	if !n.running() {
 		return false
 	}
+	var evicted key.NodePublic
+	defer func() {
+		// A forgotten open key may still be configured as a WireGuard peer.
+		// Drop it so no live peer is left that admission no longer tracks.
+		// Async and outside n.mu: this runs inside the server's AllowClient
+		// hook, and DisconnectClient takes the server's own lock.
+		if !evicted.IsZero() && n.srv != nil {
+			go n.srv.DisconnectClient(evicted)
+		}
+	}()
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if _, ok := n.allowed[k]; ok {
+		if _, open := n.openAdmitted[k]; open {
+			n.openAdmitted[k] = n.now()
+		}
 		return true
 	}
-	if n.cfg.Admission == AdmitOpen {
-		return n.admitOpenLocked(k, n.now())
+	// Host refusals apply in every admission mode, open included.
+	if _, ok := n.revoked[k]; ok {
+		return false
 	}
 	if _, ok := n.denied[k]; ok {
 		return false
+	}
+	if n.cfg.Admission == AdmitOpen {
+		ok, ev := n.admitOpenLocked(k, n.now())
+		evicted = ev
+		return ok
 	}
 	now := n.now()
 	n.prunePendingLocked(now)
@@ -417,22 +454,29 @@ func (n *Node) admit(k key.NodePublic) bool {
 // admitOpenLocked admits a token holder while keeping the remembered keys
 // bounded. Only idle, open-admitted keys can be evicted: an active flow and a
 // key the host approved are never forgotten under it.
-func (n *Node) admitOpenLocked(k key.NodePublic, now time.Time) bool {
+// It returns the key it evicted to make room, if any, so the caller can drop
+// that peer from the server once n.mu is released.
+func (n *Node) admitOpenLocked(k key.NodePublic, now time.Time) (bool, key.NodePublic) {
 	if _, ok := n.allowed[k]; ok {
 		if _, open := n.openAdmitted[k]; open {
 			n.openAdmitted[k] = now
 		}
-		return true
+		return true, key.NodePublic{}
 	}
-	if len(n.openAdmitted) >= maxOpenAdmitted && !n.evictOpenLocked() {
-		return false
+	var evicted key.NodePublic
+	if len(n.openAdmitted) >= maxOpenAdmitted {
+		ev, ok := n.evictOpenLocked()
+		if !ok {
+			return false, key.NodePublic{}
+		}
+		evicted = ev
 	}
 	n.allowed[k] = struct{}{}
 	n.openAdmitted[k] = now
-	return true
+	return true, evicted
 }
 
-func (n *Node) evictOpenLocked() bool {
+func (n *Node) evictOpenLocked() (key.NodePublic, bool) {
 	var oldest key.NodePublic
 	var at time.Time
 	found := false
@@ -445,12 +489,12 @@ func (n *Node) evictOpenLocked() bool {
 		}
 	}
 	if !found {
-		return false
+		return key.NodePublic{}, false
 	}
 	delete(n.openAdmitted, oldest)
 	delete(n.allowed, oldest)
 	delete(n.peers, oldest)
-	return true
+	return oldest, true
 }
 
 func (n *Node) prunePendingLocked(now time.Time) {
@@ -488,6 +532,7 @@ func (n *Node) Approve(k key.NodePublic) error {
 	}
 	delete(n.pending, k)
 	delete(n.denied, k)
+	delete(n.revoked, k)
 	delete(n.openAdmitted, k)
 	n.allowed[k] = struct{}{}
 	return nil
@@ -499,10 +544,24 @@ func (n *Node) Deny(k key.NodePublic) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	delete(n.pending, k)
-	if len(n.denied) >= maxDenied {
-		return // bounded; the device simply reappears as pending
+	n.denyLocked(k)
+}
+
+// denyLocked records a refusal, forgetting the oldest one when full. A
+// forgotten device simply reappears as pending.
+func (n *Node) denyLocked(k key.NodePublic) {
+	if _, ok := n.denied[k]; !ok && len(n.denied) >= maxDenied {
+		var oldest key.NodePublic
+		var at time.Time
+		first := true
+		for dk, t := range n.denied {
+			if first || t.Before(at) {
+				oldest, at, first = dk, t, false
+			}
+		}
+		delete(n.denied, oldest)
 	}
-	n.denied[k] = struct{}{}
+	n.denied[k] = n.now()
 }
 
 // Revoke removes a device and drops its connection. Admission is withdrawn
@@ -514,9 +573,8 @@ func (n *Node) Revoke(k key.NodePublic) bool {
 	delete(n.allowed, k)
 	delete(n.openAdmitted, k)
 	delete(n.pending, k)
-	if len(n.denied) < maxDenied {
-		n.denied[k] = struct{}{}
-	}
+	delete(n.denied, k)
+	n.revoked[k] = struct{}{}
 	n.mu.Unlock()
 	dropped := false
 	if n.srv != nil {
@@ -547,7 +605,7 @@ func (n *Node) onTCPForward(dst netip.AddrPort) func(net.Conn) {
 	if !n.running() {
 		return nil
 	}
-	if err := checkDestination(dst, n.cfg.AllowLocalDestinations); err != nil {
+	if !n.destinationAllowed(dst) {
 		n.rejPolicy.Add(1)
 		return nil // the library answers with a reset
 	}
@@ -558,11 +616,23 @@ func (n *Node) onUDPForward(dst netip.AddrPort) func(tailcat.ConnPacketConn) {
 	if !n.running() {
 		return nil
 	}
-	if err := checkDestination(dst, n.cfg.AllowLocalDestinations); err != nil {
+	if !n.destinationAllowed(dst) {
 		n.rejPolicy.Add(1)
 		return nil // the flow is dropped
 	}
 	return func(c tailcat.ConnPacketConn) { n.serveUDP(c, dst) }
+}
+
+// destinationAllowed applies the fixed policy and, unless a test opted in,
+// refuses the host's own addresses and on-link LAN prefixes.
+func (n *Node) destinationAllowed(dst netip.AddrPort) bool {
+	if checkDestination(dst, n.cfg.AllowLocalDestinations) != nil {
+		return false
+	}
+	if !n.cfg.AllowLocalDestinations && n.local.contains(dst.Addr()) {
+		return false
+	}
+	return true
 }
 
 // peer returns the counters for the device behind remote, creating them on
@@ -651,28 +721,41 @@ func (n *Node) proxyTCP(peer, remote net.Conn, p *peerStats) {
 
 	var wg sync.WaitGroup
 	wg.Add(2)
+	abort := func() { peer.Close(); remote.Close() }
 	cp := func(dst, src net.Conn, total, per *atomic.Uint64) {
 		defer wg.Done()
 		buf := make([]byte, 32<<10)
 		for {
-			nr, err := src.Read(buf)
+			nr, rerr := src.Read(buf)
 			if nr > 0 {
 				nw, werr := dst.Write(buf[:nr])
 				total.Add(uint64(nw))
 				per.Add(uint64(nw))
 				p.lastActive.Store(n.now().Unix())
 				if werr != nil {
-					err = werr
+					// The other direction would otherwise block in Read
+					// forever, holding a goroutine and a TCP slot.
+					abort()
+					return
 				}
 			}
-			if err != nil {
-				break
+			if rerr == nil {
+				continue
 			}
-		}
-		if cw, ok := dst.(interface{ CloseWrite() error }); ok {
-			cw.CloseWrite()
-		} else {
-			dst.Close()
+			if !errors.Is(rerr, io.EOF) {
+				abort()
+				return
+			}
+			// Clean EOF: forward the half-close and let the other
+			// direction finish.
+			if cw, ok := dst.(interface{ CloseWrite() error }); ok {
+				if cw.CloseWrite() != nil {
+					abort()
+				}
+			} else {
+				dst.Close()
+			}
+			return
 		}
 	}
 	go cp(remote, peer, &n.bytesFromPeers, &p.fromPeer)
