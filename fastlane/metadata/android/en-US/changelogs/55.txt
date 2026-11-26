@@ -1,0 +1,1 @@
+Hardening release: fixes from a security, concurrency, and UI audit. Share this phone now blocks the host's own network and keeps revoked guests out, DNS and token validation are stricter, shutdown races and storage write failures are fixed, the updater verifies more, and secret screens and layouts behave better.
