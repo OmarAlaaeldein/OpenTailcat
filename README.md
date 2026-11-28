@@ -31,7 +31,7 @@ What's included:
 
 ## Share this phone (exit node)
 
-Tap the share button on the home screen to turn the phone into a temporary Tailcat exit gateway. It generates fresh session keys and a `tc…` code (shown as a QR and copyable), then forwards guests' TCP and UDP traffic out through your Wi-Fi or mobile data.
+Share this phone, the control under the connection card, turns the phone into a temporary Tailcat exit gateway. It generates fresh session keys and a `tc…` code (shown as a QR and copyable), then forwards guests' TCP and UDP traffic out through your Wi-Fi or mobile data.
 
 | Setup | No time limit | Active share |
 | --- | --- | --- |

@@ -1,9 +1,8 @@
 package com.tailcat.vpn.ui.screens.settings
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tailcat.vpn.BuildConfig
 import com.tailcat.vpn.core.update.LatestRelease
@@ -71,14 +71,16 @@ internal fun SettingsUpdatesCard(
                     style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
                 )
                 Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionRow {
                     Button(
                         onClick = { viewModel.checkForUpdate() },
-                        colors = TailcatButtons.filled()
-                    ) { Text("Check for updates") }
-                    OutlinedButton(onClick = { viewModel.openReleasePage(context) }) {
-                        Text("Release notes")
-                    }
+                        colors = TailcatButtons.filled(),
+                        modifier = Modifier.weight(1f).height(40.dp)
+                    ) { ActionLabel("Check for updates") }
+                    OutlinedButton(
+                        onClick = { viewModel.openReleasePage(context) },
+                        modifier = Modifier.weight(1f).height(40.dp)
+                    ) { ActionLabel("Release notes") }
                 }
             }
             is UpdateState.Checking -> {
@@ -98,11 +100,14 @@ internal fun SettingsUpdatesCard(
                     style = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary)
                 )
                 Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { viewModel.resetUpdate() }) { Text("Check again") }
-                    OutlinedButton(onClick = { viewModel.openReleasePage(context) }) {
-                        Text("Release notes")
+                ActionRow {
+                    OutlinedButton(onClick = { viewModel.resetUpdate() }, modifier = Modifier.weight(1f).height(40.dp)) {
+                        ActionLabel("Check again")
                     }
+                    OutlinedButton(
+                        onClick = { viewModel.openReleasePage(context) },
+                        modifier = Modifier.weight(1f).height(40.dp)
+                    ) { ActionLabel("Release notes") }
                 }
             }
             is UpdateState.Available -> {
@@ -115,19 +120,19 @@ internal fun SettingsUpdatesCard(
                 )
                 ReleaseNotesAction(s.release) { showNotes = true }
                 Spacer(Modifier.height(8.dp))
-                @OptIn(ExperimentalLayoutApi::class)
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                ActionRow {
                     Button(
                         onClick = { viewModel.downloadUpdate(context) },
-                        colors = TailcatButtons.filled()
-                    ) { Text("Download") }
-                    OutlinedButton(onClick = { viewModel.openReleasePage(context) }) {
-                        Text("Open on GitHub")
+                        colors = TailcatButtons.filled(),
+                        modifier = Modifier.weight(1f).height(40.dp)
+                    ) { ActionLabel("Download") }
+                    OutlinedButton(
+                        onClick = { viewModel.openReleasePage(context) },
+                        modifier = Modifier.weight(1f).height(40.dp)
+                    ) { ActionLabel("GitHub") }
+                    OutlinedButton(onClick = { viewModel.resetUpdate() }, modifier = Modifier.weight(1f).height(40.dp)) {
+                        ActionLabel("Dismiss")
                     }
-                    OutlinedButton(onClick = { viewModel.resetUpdate() }) { Text("Dismiss") }
                 }
             }
             is UpdateState.Downloading -> {
@@ -156,12 +161,15 @@ internal fun SettingsUpdatesCard(
                 )
                 ReleaseNotesAction(s.release) { showNotes = true }
                 Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionRow {
                     Button(
                         onClick = { viewModel.openInstall(context) },
-                        colors = TailcatButtons.filled()
-                    ) { Text("Install") }
-                    OutlinedButton(onClick = { viewModel.resetUpdate() }) { Text("Cancel") }
+                        colors = TailcatButtons.filled(),
+                        modifier = Modifier.weight(1f).height(40.dp)
+                    ) { ActionLabel("Install") }
+                    OutlinedButton(onClick = { viewModel.resetUpdate() }, modifier = Modifier.weight(1f).height(40.dp)) {
+                        ActionLabel("Cancel")
+                    }
                 }
             }
             is UpdateState.Error -> {
@@ -170,11 +178,14 @@ internal fun SettingsUpdatesCard(
                     style = MaterialTheme.typography.bodyMedium.copy(color = YellowWarning)
                 )
                 Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { viewModel.checkForUpdate() }) { Text("Retry") }
-                    OutlinedButton(onClick = { viewModel.openReleasePage(context) }) {
-                        Text("Release notes")
+                ActionRow {
+                    OutlinedButton(onClick = { viewModel.checkForUpdate() }, modifier = Modifier.weight(1f).height(40.dp)) {
+                        ActionLabel("Retry")
                     }
+                    OutlinedButton(
+                        onClick = { viewModel.openReleasePage(context) },
+                        modifier = Modifier.weight(1f).height(40.dp)
+                    ) { ActionLabel("Release notes") }
                 }
             }
         }
@@ -185,5 +196,20 @@ internal fun SettingsUpdatesCard(
 private fun ReleaseNotesAction(release: LatestRelease, onRead: () -> Unit) {
     if (release.notes.isBlank()) return
     Spacer(Modifier.height(8.dp))
-    OutlinedButton(onClick = onRead) { Text("Release notes") }
+    OutlinedButton(onClick = onRead, modifier = Modifier.fillMaxWidth().height(40.dp)) {
+        ActionLabel("Release notes")
+    }
+}
+
+@Composable
+private fun ActionRow(content: @Composable RowScope.() -> Unit) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) { content() }
+}
+
+@Composable
+private fun ActionLabel(text: String) {
+    Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
 }

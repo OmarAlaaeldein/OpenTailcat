@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tailcat.vpn.TailcatApplication
@@ -115,6 +116,7 @@ internal fun ActiveProfileDnsCard(app: TailcatApplication) {
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 enabled = activeDnsValidation is DnsValidationResult.Valid,
+                modifier = Modifier.fillMaxWidth().height(40.dp),
                 onClick = {
                     val result = app.profileRepository.updateProfileDns(
                         profileId = activeProfile!!.id,
@@ -136,7 +138,7 @@ internal fun ActiveProfileDnsCard(app: TailcatApplication) {
                     )
                 }
             ) {
-                Text("Save profile DNS")
+                Text("Save profile DNS", maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
             }
             activeDnsMessage?.let { msg ->
                 Spacer(Modifier.height(6.dp))

@@ -52,6 +52,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
@@ -196,20 +197,38 @@ fun AddProfileDialog(
                             color = TextMuted
                         )
                     },
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(enabled = !importingQr, onClick = {
-                        try {
-                            imagePicker.launch("image/*")
-                        } catch (_: ActivityNotFoundException) {
-                            errorMessage = "No image picker is available. Paste the token."
-                        }
-                    }) { Text(if (importingQr) "Reading QR…" else "Import QR image") }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    TextButton(
+                        enabled = !importingQr,
+                        onClick = {
+                            try {
+                                imagePicker.launch("image/*")
+                            } catch (_: ActivityNotFoundException) {
+                                errorMessage = "No image picker is available. Paste the token."
+                            }
+                        },
+                        modifier = Modifier.weight(1f).height(40.dp)
+                    ) {
+                        Text(
+                            if (importingQr) "Reading QR…" else "Import QR image",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            softWrap = false
+                        )
+                    }
                     TextButton(
                         onClick = { showQr = true },
-                        enabled = !importingQr && validationState is TokenValidationState.Valid
-                    ) { Text("Show QR") }
+                        enabled = !importingQr && validationState is TokenValidationState.Valid,
+                        modifier = Modifier.weight(1f).height(40.dp)
+                    ) {
+                        Text("Show QR", maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
+                    }
                 }
                 Text(
                     "Select a QR image. It is decoded on this device; camera access is not required.",

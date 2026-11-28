@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SignalWifiOff
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.WarningAmber
@@ -33,12 +32,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tailcat.vpn.service.EngineAvailability
 import com.tailcat.vpn.ui.theme.panel
 import com.tailcat.vpn.ui.theme.TailcatShapes
 import com.tailcat.vpn.ui.theme.AccentCyan
-import com.tailcat.vpn.ui.theme.EmeraldConnected
 import com.tailcat.vpn.ui.theme.RedDegraded
 import com.tailcat.vpn.ui.theme.TextSecondary
 import com.tailcat.vpn.ui.theme.YellowWarning
@@ -49,8 +48,6 @@ fun HomeTopBar(
     isDeviceOffline: Boolean,
     engineAvailability: EngineAvailability,
     lastError: String?,
-    isSharing: Boolean,
-    onNavigateToShare: () -> Unit,
     onNavigateToSpeedTest: () -> Unit,
     onNavigateToSettings: () -> Unit
 ) {
@@ -80,19 +77,6 @@ fun HomeTopBar(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(
-                    onClick = onNavigateToShare,
-                    modifier = Modifier
-                        .panel(TailcatShapes.Control)
-                        .clip(TailcatShapes.Control)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Share,
-                        contentDescription = if (isSharing) "Sharing active. Manage sharing" else "Share this phone",
-                        tint = if (isSharing) EmeraldConnected else TextSecondary
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
                 IconButton(
                     onClick = onNavigateToSpeedTest,
                     modifier = Modifier
@@ -144,6 +128,8 @@ fun HomeTopBar(
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = "No internet connection. Connect to Wi-Fi or mobile data.",
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = RedDegraded,
                             fontWeight = FontWeight.Medium
@@ -201,6 +187,9 @@ private fun StatusBanner(
         Spacer(modifier = Modifier.width(10.dp))
         Text(
             text = message,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodySmall.copy(
                 color = color,
                 fontWeight = FontWeight.Medium
