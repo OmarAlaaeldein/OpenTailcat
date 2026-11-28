@@ -16,6 +16,6 @@
 
 ## Release notes
 
-`releases/` keeps one file per published version (latest: [1.8.0](releases/1.8.0.md)), listing changes, what was tested for that build, and SHA-256 checksums. Treat old release notes as immutable: add a new file for each release instead of editing past notes or hashes.
+`releases/` keeps one file per published version (latest: [1.8.5](releases/1.8.5.md)), listing changes, what was tested for that build, and SHA-256 checksums. Treat old release notes as immutable: add a new file for each release instead of editing past notes or hashes.
 
 Never commit live tokens, signing secrets, traffic captures, or personal account names to documentation.
