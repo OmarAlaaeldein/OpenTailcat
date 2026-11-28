@@ -31,8 +31,8 @@ android {
         applicationId = "com.tailcat.vpn"
         minSdk = 26
         targetSdk = 35
-        versionCode = 55
-        versionName = "1.8.0"
+        versionCode = 56
+        versionName = "1.8.5"
 
         buildConfigField("String", "REPO_SLUG", "\"$repoSlug\"")
 

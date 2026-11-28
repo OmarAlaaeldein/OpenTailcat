@@ -10,7 +10,7 @@ Project metadata:
 - Android: `com.tailcat.vpn`, min API 26, target API 35, compile API 37
 - Toolchain: Kotlin 2.4.21, Gradle 9.9.1, JDK 21, Go 1.27.4, NDK `29.0.14206865`
 - Dependency versions: `gradle/libs.versions.toml`, `core-engine/go.mod`
-- Current version: 1.8.0 (`docs/releases/`)
+- Current version: 1.8.5 (`docs/releases/`)
 
 ## Status
 
