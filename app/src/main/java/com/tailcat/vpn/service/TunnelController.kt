@@ -72,6 +72,14 @@ class TunnelController(
         _appliedExclusions.value = packages
     }
 
+    // Countries the running session blocks; null while stopped.
+    private val _appliedBlockedCountries = MutableStateFlow<Set<String>?>(null)
+    val appliedBlockedCountries: StateFlow<Set<String>?> = _appliedBlockedCountries.asStateFlow()
+
+    fun setAppliedBlockedCountries(countries: Set<String>?) {
+        _appliedBlockedCountries.value = countries
+    }
+
     val engineAvailability: EngineAvailability
         get() = tunnelEngine.availability
 
@@ -194,19 +202,19 @@ class TunnelController(
     fun validateStartRequest(requireOnline: Boolean = true): String? {
         startBlocker?.invoke()?.let { return it }
         val profile = profileRepository.activeProfile.value
-            ?: return "Pair a gateway token before connecting"
+            ?: return "Add a gateway token before connecting."
         if (requireOnline && !networkMonitor.isOnline) {
-            return "No validated internet connection is available"
+            return "No validated internet connection is available."
         }
 
         return when (val validation = TokenParser.validate(profile.token)) {
             is TokenValidationState.Valid -> {
                 if (tunnelEngine.availability.isAvailable) null else tunnelEngine.availability.message
             }
-            is TokenValidationState.Expired -> "The selected gateway token has expired"
-            is TokenValidationState.LegacyReissueRequired -> "Legacy token schema lacks separate disco key; reissue required"
+            is TokenValidationState.Expired -> "The selected gateway token has expired."
+            is TokenValidationState.LegacyReissueRequired -> "This token uses a legacy schema without a separate disco key. The gateway must reissue it."
             is TokenValidationState.Invalid -> validation.reason
-            TokenValidationState.Empty -> "The selected gateway token is empty"
+            TokenValidationState.Empty -> "The selected gateway token is empty."
         }
     }
 
@@ -260,7 +268,7 @@ class TunnelController(
                 ContextCompat.startForegroundService(context, intent)
                 true
             }.getOrElse {
-                onVpnStartFailed(it.message ?: "Android could not start the VPN service")
+                onVpnStartFailed(it.message ?: "Android could not start the VPN service.")
                 false
             }
         }
@@ -278,13 +286,13 @@ class TunnelController(
             action = TailcatVpnService.ACTION_STOP_VPN
         }
         runCatching { context.startService(intent) }
-            .onFailure { onVpnStartFailed(it.message ?: "Android could not stop the VPN service") }
+            .onFailure { onVpnStartFailed(it.message ?: "Android could not stop the VPN service.") }
     }
 
     fun onEngineConnected(initialMetrics: NetworkMetrics) {
         val now = unixNow()
         require(EngineHealth.shouldConnect(initialMetrics, now)) {
-            "VPN engine is not live running"
+            "The VPN engine is not running."
         }
         _lastError.value = null
         val generation = synchronized(stateLock) {

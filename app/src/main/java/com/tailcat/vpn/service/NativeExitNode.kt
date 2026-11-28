@@ -47,7 +47,7 @@ data class ExitNodeRelay(
          */
         fun validateHostname(hostname: String): String? {
             val host = hostname.trim()
-            if (host.isEmpty()) return "Enter your relay's host name"
+            if (host.isEmpty()) return "Enter the relay host name"
             if (host.any { it.isWhitespace() || it.code < 0x20 || it.code == 0x7f || it in "/?#@:\\%" }) {
                 return "Use a host name only, not a URL or host:port"
             }

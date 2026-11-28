@@ -224,7 +224,7 @@ fun TelemetryCard(
                 Text(
                     // UDP/53 queries plus TCP/53 connections forwarded to
                     // the gateway; encrypted DNS (Private DNS) is not counted.
-                    text = "Plain DNS queries: ${metrics.dnsQueries}",
+                    text = "Unencrypted DNS queries: ${metrics.dnsQueries}",
                     color = TextSecondary,
                     style = TailcatText.Eyebrow
                 )

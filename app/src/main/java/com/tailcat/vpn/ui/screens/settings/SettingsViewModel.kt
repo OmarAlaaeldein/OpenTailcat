@@ -63,7 +63,7 @@ class SettingsViewModel : ViewModel() {
                     }
                 }
                 .onFailure { e ->
-                    _updateState.value = UpdateState.Error(e.message ?: "Update check failed")
+                    _updateState.value = UpdateState.Error(e.message ?: "The update check failed.")
                 }
         }
     }
@@ -75,7 +75,7 @@ class SettingsViewModel : ViewModel() {
         val abi = ApkInstaller.preferredAbi()
         val asset = available.release.apkAssetForAbi(abi)
         if (asset == null) {
-            _updateState.value = UpdateState.Error("No APK for this device ABI ($abi)")
+            _updateState.value = UpdateState.Error("No update package is available for this device architecture ($abi).")
             return
         }
         downloadJob = viewModelScope.launch {
@@ -103,12 +103,12 @@ class SettingsViewModel : ViewModel() {
                         _updateState.value = UpdateState.Error(mismatch)
                     } else {
                         _updateState.value = UpdateState.Ready(available.release, file.absolutePath)
-                        _uiEvent.emit("Update downloaded")
+                        _uiEvent.emit("Update downloaded.")
                     }
                 }
                 .onFailure { e ->
                     collectJob.cancel()
-                    _updateState.value = UpdateState.Error(e.message ?: "Download failed")
+                    _updateState.value = UpdateState.Error(e.message ?: "The download failed.")
                 }
         }
     }
@@ -118,7 +118,7 @@ class SettingsViewModel : ViewModel() {
         val ready = _updateState.value as? UpdateState.Ready ?: return
         val file = File(ready.apkPath)
         if (!file.exists()) {
-            _updateState.value = UpdateState.Error("Downloaded file is missing")
+            _updateState.value = UpdateState.Error("The downloaded file is missing.")
             return
         }
         if (!ApkInstaller.canRequestInstall(context)) {
@@ -128,14 +128,14 @@ class SettingsViewModel : ViewModel() {
                 )
             }
             viewModelScope.launch {
-                _uiEvent.emit("Allow installs from this source, then tap Install again")
+                _uiEvent.emit("Allow installs from this source, then select Install again.")
             }
             return
         }
         val intent = ApkInstaller.installIntent(context, file)
         runCatching { context.startActivity(intent) }
             .onFailure { e ->
-                _updateState.value = UpdateState.Error(e.message ?: "Could not start installer")
+                _updateState.value = UpdateState.Error(e.message ?: "The installer could not be started.")
             }
     }
 

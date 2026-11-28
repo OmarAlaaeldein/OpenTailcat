@@ -98,7 +98,7 @@ fun SpeedTestScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Network Benchmark", color = TextPrimary) },
+                title = { Text("Network benchmark", color = TextPrimary) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
@@ -125,7 +125,7 @@ fun SpeedTestScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ContentCopy,
-                                contentDescription = "Copy troubleshooter report",
+                                contentDescription = "Copy diagnostic report",
                                 tint = AccentCyan
                             )
                         }
@@ -309,10 +309,10 @@ fun SpeedTestScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = when (testState.stage) {
-                        SpeedTestStage.IDLE -> "START SPEED TEST"
-                        SpeedTestStage.COMPLETED -> "TEST AGAIN"
-                        SpeedTestStage.FAILED -> "RETRY TEST"
-                        else -> "BENCHMARKING..."
+                        SpeedTestStage.IDLE -> "Start speed test"
+                        SpeedTestStage.COMPLETED -> "Test again"
+                        SpeedTestStage.FAILED -> "Retry test"
+                        else -> "Running benchmark…"
                     },
                     style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp)
                 )

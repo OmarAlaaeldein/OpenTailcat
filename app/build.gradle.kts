@@ -119,6 +119,8 @@ android {
     }
     sourceSets {
         getByName("test").resources.srcDir(rootProject.file("core-engine/testdata"))
+        // The shipped country data, so a test checks the exact file the app bundles.
+        getByName("test").resources.srcDir(file("src/main/assets"))
     }
 }
 

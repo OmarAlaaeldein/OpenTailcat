@@ -50,7 +50,7 @@ class TunnelExitNodeTest {
 
     @Test
     fun relayHostsAreValidatedBeforeTheEngineSeesThem() {
-        assertEquals("Enter your relay's host name", ExitNodeRelay.validateHostname("   "))
+        assertEquals("Enter the relay host name", ExitNodeRelay.validateHostname("   "))
         assertTrue(ExitNodeRelay.validateHostname("https://derp.example.com")!!.contains("host name only"))
         assertTrue(ExitNodeRelay.validateHostname("derp.example.com:8443")!!.contains("host name only"))
         assertTrue(ExitNodeRelay.validateHostname("203.0.113.10")!!.contains("not an IP address"))

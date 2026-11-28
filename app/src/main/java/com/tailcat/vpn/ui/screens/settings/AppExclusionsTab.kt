@@ -127,7 +127,8 @@ internal fun AppExclusionsTab(
             item {
                 val appliedExclusions by app.tunnelController.appliedExclusions.collectAsStateWithLifecycle()
                 Text(
-                    "Checked apps bypass the VPN and use the device network directly. Changes apply the next time the tunnel starts. The tunnel is not leak-free while any app is checked.",
+                    "Selected apps bypass the VPN and use the device network directly. Changes apply " +
+                        "the next time the tunnel starts. The tunnel is not leak-free while any app is excluded.",
                     style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary),
                     modifier = Modifier.padding(bottom = 12.dp, top = 6.dp)
                 )
@@ -136,13 +137,13 @@ internal fun AppExclusionsTab(
                     appliedExclusions != null && excludedApps != appliedExclusions
                 ) {
                     Text(
-                        "Exclusion list changed while the tunnel is up. Disconnect and Connect again for it to apply.",
+                        "The exclusion list changed while the tunnel is active. Disconnect and reconnect to apply it.",
                         style = MaterialTheme.typography.bodySmall.copy(color = YellowWarning),
                         modifier = Modifier.padding(bottom = 12.dp)
                     )
                 } else if (tunnelState != TunnelState.DISCONNECTED) {
                     Text(
-                        "Tunnel is running. New exclusions take effect on the next Connect.",
+                        "Changes take effect on the next connection.",
                         style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
                         modifier = Modifier.padding(bottom = 12.dp)
                     )
@@ -193,7 +194,7 @@ internal fun AppExclusionsTab(
                             Text(
                                 "Shares its network identity with ${item.sharedWith.take(3).joinToString()}" +
                                     (if (item.sharedWith.size > 3) " and ${item.sharedWith.size - 3} more" else "") +
-                                    ": excluding one excludes all of them.",
+                                    "; excluding one excludes all of them.",
                                 style = MaterialTheme.typography.labelMedium.copy(color = YellowWarning)
                             )
                         }

@@ -58,7 +58,7 @@ class ExitNodeController(
 
     /** For the client side of the interlock: why the VPN must not start now, or null. */
     fun startBlockReason(): String? =
-        if (isActive) "Stop sharing before connecting. Sharing and the VPN cannot run together." else null
+        if (isActive) "Stop sharing before connecting. Sharing and the VPN cannot run simultaneously." else null
 
     /**
      * Starts a session. Returns a user-facing refusal, or null once sharing is
@@ -69,11 +69,11 @@ class ExitNodeController(
         synchronized(interlockLock) {
             synchronized(lock) {
                 if (!engine.availability.isAvailable) return engine.availability.message
-                if (isActive) return "Already sharing."
+                if (isActive) return "Sharing is already active."
                 // Order matters: claiming the slot first means a VPN start that
                 // checks startBlockReason() after this point is refused.
                 if (tunnelState() != TunnelState.DISCONNECTED) {
-                    return "Disconnect the VPN first. Sharing and the VPN cannot run together."
+                    return "Disconnect the VPN first. Sharing and the VPN cannot run simultaneously."
                 }
                 gen = ++generation
                 statsFailures = 0
@@ -89,7 +89,7 @@ class ExitNodeController(
             token = engine.start(config)
             stats = ExitNodeStats.parse(engine.statsJson())
         } catch (e: Exception) {
-            val message = e.message?.takeIf { it.isNotBlank() } ?: "Could not start sharing"
+            val message = e.message?.takeIf { it.isNotBlank() } ?: "Sharing could not start."
             val shouldStop = synchronized(lock) {
                 if (generation == gen) {
                     _state.value = ExitNodeUiState.Ended(ExitNodeEnd.FAILED, message)
@@ -134,7 +134,7 @@ class ExitNodeController(
             tunnelState() != TunnelState.DISCONNECTED ->
                 end(current, ExitNodeEnd.STOPPED, "The VPN connected, so sharing was stopped.")
             stats.isExpired || (ttl != null && monoSec() - startMono >= ttl) ->
-                end(current, ExitNodeEnd.EXPIRED, "Sharing time is up. The code no longer works.")
+                end(current, ExitNodeEnd.EXPIRED, "The sharing period has ended. The code is no longer valid.")
             !stats.isRunning ->
                 end(current, ExitNodeEnd.STOPPED, "Sharing stopped.")
             else -> synchronized(lock) {
@@ -195,13 +195,13 @@ class ExitNodeController(
     fun revoke(deviceKey: String): String? = deviceAction { engine.revoke(deviceKey) }
 
     private inline fun deviceAction(block: () -> Unit): String? {
-        if (_state.value !is ExitNodeUiState.Sharing) return "Not sharing."
+        if (_state.value !is ExitNodeUiState.Sharing) return "Sharing is not active."
         return try {
             block()
             refresh() // show the change now rather than on the next tick
             null
         } catch (e: Exception) {
-            e.message?.takeIf { it.isNotBlank() } ?: "That did not work."
+            e.message?.takeIf { it.isNotBlank() } ?: "The request failed."
         }
     }
 

@@ -39,7 +39,10 @@ internal fun AlwaysOnCard() {
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "Recommended: turn on Always-on VPN and ‘Block connections without VPN’ (Android 8+). Without it, apps use the device network whenever the VPN is off or reconnecting. Connect still works without them. Note: with lockdown on, Android blocks checked apps from using the network entirely.",
+            "Recommended: enable Always-on VPN and ‘Block connections without VPN’ (Android 8 or later). " +
+                "Without them, apps use the device network whenever the VPN is off or reconnecting; " +
+                "Connect still works. With lockdown enabled, Android blocks apps excluded from the " +
+                "tunnel from using the network at all.",
             style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary)
         )
         Spacer(Modifier.height(10.dp))

@@ -1,12 +1,12 @@
 # Privacy Policy for OpenTailcat
 
-**Last updated:** November 21, 2026
+**Last updated:** November 27, 2026
 
 OpenTailcat has no accounts, ads, analytics SDKs, remote crash reporting, or hosted control plane. This policy describes the behavior of the current source tree. See [README.md](README.md#project-status) for development-preview limitations.
 
 ## Data stored on your device
 
-OpenTailcat stores gateway profile names, `tc…` connection tokens, the active profile selection, default MTU/DNS settings, debug logging toggle, and split-tunnel excluded package names locally.
+OpenTailcat stores gateway profile names, `tc…` connection tokens, the active profile selection, default MTU/DNS settings, debug logging toggle, split-tunnel excluded package names, and the country codes you choose to block locally.
 
 All preferences are encrypted value-by-value with AES-256-GCM using a non-exportable key in Android Keystore. Older plaintext or legacy encrypted preference files from previous versions are migrated once and removed. Android cloud backup and device-to-device data transfer are disabled in the app manifest.
 
@@ -20,7 +20,7 @@ OpenTailcat makes network connections only for the features below:
 
 - **Device public IP readout:** on app launch, disconnect, or manual refresh (while disconnected), the app queries `https://1.1.1.1/cdn-cgi/trace` (TLS-pinned) over normal Android HTTP sockets to display your public IP and country.
 - **Gateway tunnel & probes:** connecting to a gateway contacts the gateway peer and its DERP relay(s). When a token does not embed a custom DERP map, the engine fetches `https://tailcat.dev/derpmap.json` and resolves relay hostnames through Android's DNS servers on protected sockets. During connection setup and health monitoring, the engine probes through the gateway to verify UDP forwarding (STUN to `162.159.207.0:3478` and `74.125.250.129:19302`), IPv6 WAN reachability (TLS-pinned to `[2606:4700:4700::1111]:443`), and tunnel exit IP (TLS-pinned `https://1.1.1.1/cdn-cgi/trace` via `Client.DialTCP`).
-- **Tunneled traffic and DNS:** while connected, captured device traffic and DNS queries go through the WireGuard tunnel to your gateway under the profile's DNS policy.
+- **Tunneled traffic and DNS:** while connected, captured device traffic and DNS queries go through the WireGuard tunnel to your gateway under the profile's DNS policy. If you enable the country filter, destinations are matched on the device against a bundled snapshot of the regional internet registries' delegation data; no destination or country lookup is sent anywhere.
 - **Speed test (on demand):** when connected, the speed test resolves `speed.cloudflare.com` over TCP to `1.1.1.1:53` and tests against `1.1.1.1` / `speed.cloudflare.com` (TLS-pinned) through `Client.DialTCP`. When not connected, it uses normal Android HTTP sockets (following your device's active routes: your physical network if the VPN is off, or the TUN if a VPN interface is up). The UI labels which path was used.
 - **In-app updates (`github` flavor only):** tapping Check for update queries the GitHub Releases API, and tapping Download fetches the APK from GitHub release-asset hosts. The `fdroid` flavor contains no updater code.
 - **Share this phone (exit node):** when enabled, the phone connects to the nearest public DERP region (fetching `https://tailcat.dev/derpmap.json`) or to a custom relay hostname you enter. Outbound connections are opened from your phone to whatever Internet destinations approved guests request.

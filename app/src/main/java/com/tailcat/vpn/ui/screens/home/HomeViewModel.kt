@@ -54,7 +54,7 @@ class HomeViewModel : ViewModel() {
         if (tunnelState.value != TunnelState.DISCONNECTED) return
         if (!networkMonitor.isOnline) {
             viewModelScope.launch {
-                _uiEvent.emit("Cannot refresh IP: Device is offline")
+                _uiEvent.emit("Cannot refresh the IP address while the device is offline.")
             }
             return
         }
@@ -114,7 +114,7 @@ class HomeViewModel : ViewModel() {
         if (tunnelState.value == TunnelState.DISCONNECTED) return
         tunnelController.stopTunnel()
         viewModelScope.launch {
-            _uiEvent.emit("Gateway changed. Tap connect to start the new tunnel.")
+            _uiEvent.emit("Gateway changed. Connect to start the new tunnel.")
         }
     }
 
@@ -129,7 +129,7 @@ class HomeViewModel : ViewModel() {
             if (saved.id != previous) {
                 stopSessionForProfileChange()
             } else if (tunnelState.value != TunnelState.DISCONNECTED) {
-                showMessage("Gateway updated. Disconnect and connect again to use the new token.")
+                showMessage("Gateway updated. Disconnect and reconnect to use the new token.")
             }
         }
     }
@@ -139,7 +139,7 @@ class HomeViewModel : ViewModel() {
         dnsPolicy: DnsPolicy
     ): Result<GatewayProfile> {
         val profile = activeProfile.value
-            ?: return Result.failure(IllegalArgumentException("No gateway profile is selected"))
+            ?: return Result.failure(IllegalArgumentException("No gateway profile is selected."))
         return profileRepository.updateProfileDns(profile.id, customDns, dnsPolicy)
     }
 
@@ -151,6 +151,6 @@ class HomeViewModel : ViewModel() {
             tunnelController.clearLastError()
         }
         profileRepository.deleteProfile(id)
-        showMessage("Gateway profile deleted")
+        showMessage("Gateway profile deleted.")
     }
 }

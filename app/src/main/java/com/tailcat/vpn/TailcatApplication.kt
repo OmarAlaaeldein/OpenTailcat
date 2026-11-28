@@ -2,6 +2,7 @@ package com.tailcat.vpn
 
 import android.app.Application
 import com.tailcat.vpn.core.NetworkMonitor
+import com.tailcat.vpn.core.geo.CountryRanges
 import com.tailcat.vpn.core.net.AppHttp
 import com.tailcat.vpn.data.PreferencesStore
 import com.tailcat.vpn.data.ProfileRepository
@@ -32,6 +33,10 @@ class TailcatApplication : Application() {
     lateinit var networkMonitor: NetworkMonitor
         private set
 
+    /** Bundled country-to-IP-range data for the country filter (offline, read-only). */
+    lateinit var countryRanges: CountryRanges
+        private set
+
     lateinit var notificationManager: VpnNotificationManager
         private set
 
@@ -46,6 +51,7 @@ class TailcatApplication : Application() {
         profileRepository = ProfileRepository(preferencesStore)
         notificationManager = VpnNotificationManager(this)
         networkMonitor = NetworkMonitor(this)
+        countryRanges = CountryRanges { assets.open(CountryRanges.ASSET_NAME) }
         tunnelEngine = TunnelEngine()
         val roleInterlock = Any()
         tunnelController = TunnelController(

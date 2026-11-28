@@ -17,7 +17,7 @@ object SpeedTestReport {
         appVersion: String
     ): String {
         val lines = mutableListOf<String>()
-        lines += "OpenTailcat troubleshooter report"
+        lines += "OpenTailcat diagnostic report"
         lines += "app=$appVersion generated=$nowUnixSec"
         lines += "stage=${result.stage} failedStage=${result.failedStage ?: "-"} " +
             "viaGateway=${result.viaGateway} tunnelState=${result.tunnelState}"

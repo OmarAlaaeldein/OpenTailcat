@@ -23,6 +23,7 @@ What's included:
 - Multiple saved gateway profiles, each with its own DNS resolver, DNS policy (profile resolver or forced resolver), and MTU (1280–1500).
 - Token pairing via paste or on-device QR image import (uses Android's image picker and ZXing in memory, no camera permission), plus QR display for saved profiles.
 - Per-app split tunneling (excluded apps bypass the VPN).
+- Optional country filter: refuse tunnel connections to IP ranges allocated to countries you select, using a bundled offline snapshot of the regional internet registries' delegation data. It is best effort: CDN, anycast, and cloud ranges follow their operator's registered country, not where a server physically runs.
 - Live stats: RTT, jitter, direct vs. DERP relay region, traffic counters, and tunnel exit IP.
 - Built-in speed test (runs through `Client.DialTCP` when connected, or over normal device routes when disconnected, with the path labelled on screen).
 - Android **Always-on VPN** and **Block connections without VPN** support. Disconnecting from the notification requires unlocking the phone first.
@@ -32,12 +33,12 @@ What's included:
 
 Tap the share button on the home screen to turn the phone into a temporary Tailcat exit gateway. It generates fresh session keys and a `tc…` code (shown as a QR and copyable), then forwards guests' TCP and UDP traffic out through your Wi-Fi or mobile data.
 
-| Setup | Until I stop | Active share |
+| Setup | No time limit | Active share |
 | --- | --- | --- |
-| ![Share setup](docs/screenshots/share-setup.png) | ![Share setup with Until I stop](docs/screenshots/share-no-limit.png) | ![Active share with a guest connected](docs/screenshots/share-active.png) |
+| ![Share setup](docs/screenshots/share-setup.png) | ![Share setup with no time limit](docs/screenshots/share-no-limit.png) | ![Active share with a guest connected](docs/screenshots/share-active.png) |
 
-1. Pick a duration: 15 min, 1 h, 4 h, 24 h, or **Until I stop**.
-2. Choose admission mode: **Approve each device** (default) holds every new guest until you tap Approve. **Anyone with the code** skips approval and always requires a time limit.
+1. Pick a duration: 15 min, 1 h, 4 h, 24 h, or **No time limit**.
+2. Choose admission mode: **Approve each device** (default) holds every new guest until approved. **No approval required** skips approval and always requires a time limit.
 3. Optionally specify your own DERP relay (hostname plus DERP/STUN ports) instead of auto-picking the nearest public region. The relay info is embedded in the session code so guests need no extra setup.
 4. Tap **Start sharing**, let the guest scan or paste the code, and monitor active devices, open flows, and byte counts. Tap **Stop sharing** whenever you want to end the session and discard the keys.
 
@@ -55,14 +56,14 @@ Things to keep in mind when sharing:
    - Phones: `OpenTailcat-<version>-arm64-v8a.apk`
    - Emulators: `OpenTailcat-<version>-x86_64.apk`
 2. Verify against `OpenTailcat-<version>-SHA256SUMS.txt` if you want, then install.
-3. Open the app, tap the gateway selector, choose **Pair another gateway**, and paste or import your token.
+3. Open the app, open the gateway selector, choose **Add another gateway**, and paste or import the token.
 4. For the client VPN, turning on **Always-on VPN** and **Block connections without VPN** in Android settings is recommended.
 
 Pre-1.0/preview builds are signed with the development key; see [docs/signing.md](docs/signing.md) if Android refuses an upgrade from a very old install.
 
 ## Privacy
 
-OpenTailcat has no accounts, ads, analytics, or crash reporting. Saved profiles and tokens are encrypted with AES-256-GCM using a key in Android Keystore, and Android backup / device transfer is disabled.
+OpenTailcat has no accounts, ads, analytics, or crash reporting. Saved profiles and tokens are encrypted with AES-256-GCM using a key in Android Keystore, and Android backup / device transfer is disabled. The country filter uses a bundled snapshot of the registries' delegation data; it never sends a destination or country lookup anywhere.
 
 Network traffic the app initiates itself:
 
@@ -80,7 +81,7 @@ OpenTailcat is a development preview (`testRouting: true`). It connects and pass
 - Physical dual-capture leak testing on ARM64 and real-device roaming/doze validation are still open.
 - Release APKs currently use the development signing key.
 - Reconnects briefly drop the TUN between attempts unless Android's Always-on lockdown ("Block connections without VPN") is enabled.
-- Split-tunnel apps bypass the VPN, and the gateway operator can see decrypted exit traffic.
+- Split-tunnel apps bypass the VPN, the country filter is best effort (registry allocation data, not a geolocation lookup), and the gateway operator can see decrypted exit traffic.
 - **Share this phone** has been tested on an emulator host with a physical guest phone over mobile data, but long-session battery/heat behavior and physical-phone hosting haven't been measured yet. The host also cannot cryptographically verify which person is behind a pending device key, so only approve devices you expect.
 
 See [AGENTS.md](AGENTS.md) for architecture, invariants, and the full list of open work.

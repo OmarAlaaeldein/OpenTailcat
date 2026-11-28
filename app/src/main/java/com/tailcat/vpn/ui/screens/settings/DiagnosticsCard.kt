@@ -36,7 +36,7 @@ internal fun DiagnosticsCard(debugMode: Boolean, onDebugModeChange: (Boolean) ->
                 )
         ) {
             Text(
-                "Debug failure reports",
+                "Detailed failure reports",
                 style = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary),
                 modifier = Modifier.weight(1f)
             )
@@ -48,7 +48,10 @@ internal fun DiagnosticsCard(debugMode: Boolean, onDebugModeChange: (Boolean) ->
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            "When on, failure banners name the cause and append a telemetry snapshot (state, transport, health age, counters), and from the next connect the engine writes its full logs, including your public and local IP addresses, to the system log. Off by default; never changes routing or lockdown.",
+            "When enabled, failure banners include the cause and a telemetry snapshot (state, " +
+                "transport, health age, and counters). From the next connection, the engine also " +
+                "writes full logs, including public and local IP addresses, to the system log. " +
+                "Disabled by default; routing and lockdown are unaffected.",
             style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
         )
     }

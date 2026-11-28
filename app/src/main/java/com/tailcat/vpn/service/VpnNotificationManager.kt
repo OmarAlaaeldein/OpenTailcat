@@ -62,11 +62,11 @@ class VpnNotificationManager(private val context: Context) {
         )
 
         val title = when (state) {
-            TunnelState.CONNECTING -> "OpenTailcat: Connecting to $profileName..."
-            TunnelState.CONNECTED -> "OpenTailcat: Connected ($profileName)"
-            TunnelState.RECONNECTING -> "OpenTailcat: Reconnecting..."
-            TunnelState.DEGRADED -> "OpenTailcat: Tunnel Degraded"
-            TunnelState.DISCONNECTED -> "OpenTailcat: Disconnected"
+            TunnelState.CONNECTING -> "Connecting to $profileName"
+            TunnelState.CONNECTED -> "Connected to $profileName"
+            TunnelState.RECONNECTING -> "Reconnecting"
+            TunnelState.DEGRADED -> "Tunnel degraded"
+            TunnelState.DISCONNECTED -> "Disconnected"
         }
 
         // Live rates from TUN pump accounting (txRateKbps/rxRateKbps). Do not use
@@ -75,7 +75,7 @@ class VpnNotificationManager(private val context: Context) {
         val content = if (state == TunnelState.CONNECTED) {
             TrafficFormat.connectedNotificationContent(metrics)
         } else {
-            detail ?: "Tap to manage your VPN connection"
+            detail ?: "Open to manage the connection"
         }
 
         val isActive = state != TunnelState.DISCONNECTED

@@ -135,6 +135,13 @@ class TunnelEngine : NativeEngine {
         }
     }
 
+    override fun setCountryBlocklist(prefixes: String, resolverIp: String) {
+        // No silent fallback: with the engine unavailable the start fails anyway,
+        // and a filter the user asked for must never be skipped.
+        check(availability.isAvailable) { availability.message }
+        call("setCountryBlocklist") { Engine.setCountryBlocklist(prefixes, resolverIp) }
+    }
+
     override fun ensureTransportProtect() {
         if (!loaded) return
         call("ensureTransportProtect") { Engine.ensureTransportProtect() }

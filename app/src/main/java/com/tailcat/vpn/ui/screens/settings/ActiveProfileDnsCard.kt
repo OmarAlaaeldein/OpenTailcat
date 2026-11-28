@@ -56,7 +56,7 @@ internal fun ActiveProfileDnsCard(app: TailcatApplication) {
 
         if (activeProfile == null) {
             Text(
-                "Pair a gateway profile first.",
+                "Add a gateway profile first.",
                 style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
             )
         } else {
@@ -127,9 +127,9 @@ internal fun ActiveProfileDnsCard(app: TailcatApplication) {
                             val reconnect = app.tunnelController.tunnelState.value !=
                                 TunnelState.DISCONNECTED
                             if (reconnect) {
-                                "DNS saved. Reconnect for the new resolver to apply."
+                                "DNS settings saved. Reconnect to apply the new resolver."
                             } else {
-                                "DNS saved for ${activeProfile!!.name}."
+                                "DNS settings saved for ${activeProfile!!.name}."
                             }
                         },
                         onFailure = { it.message ?: "Could not save DNS settings" }

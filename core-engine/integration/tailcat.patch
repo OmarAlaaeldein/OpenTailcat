@@ -1,6 +1,6 @@
 --- upstream/tailcat.go
 +++ integration/tailcat.go
-@@ -76,7 +76,6 @@
+@@ -77,7 +77,6 @@
  	"tailscale.com/ipn/store/mem"
  	"tailscale.com/net/dns"
  	"tailscale.com/net/netmon"
@@ -8,7 +8,7 @@
  	"tailscale.com/net/tsaddr"
  	"tailscale.com/net/tsdial"
  	"tailscale.com/tailcfg"
-@@ -361,6 +360,7 @@
+@@ -392,6 +391,7 @@
  	clients      map[key.NodePublic]*tailcfg.Node // for the server
  	nextClientID tailcfg.NodeID                   // for the server; never reused after a removal
  	pendingAllow map[key.NodePublic]bool          // client keys with an allowClient call in flight
@@ -16,7 +16,7 @@
  	nm           *netmap.NetworkMap
  	eps          []netip.AddrPort // our current local UDP endpoints, sorted
  	closeOnce    sync.Once
-@@ -1349,8 +1349,18 @@
+@@ -1412,8 +1412,18 @@
  	if err := json.Unmarshal(data, dm); err != nil {
  		return nil
  	}
@@ -35,7 +35,7 @@
  
  // Expand populates ci.Region from a DERP map if only ci.RegionID was set.
  // If ci.Region is already populated, Expand is a no-op. When RegionID is -1,
-@@ -1752,6 +1762,12 @@
+@@ -1835,6 +1845,12 @@
  		allowed := b.allowClient(src)
  		b.mu.Lock()
  		delete(b.pendingAllow, src)
@@ -48,7 +48,7 @@
  		if !allowed {
  			b.logf("ignoring meow from %v: rejected by AllowClient", src.String())
  			return false
-@@ -1824,6 +1840,9 @@
+@@ -1907,6 +1923,9 @@
  // it from the network map so magicsock and netstack no longer know
  // it. It reports whether k was connected. b.mu must be held.
  func (b *locoBackend) removeClientLocked(k key.NodePublic) bool {
@@ -58,7 +58,7 @@
  	if _, ok := b.clients[k]; !ok {
  		return false
  	}
-@@ -1905,7 +1924,7 @@
+@@ -2025,7 +2044,7 @@
  	// call-me-maybe messages that advertise our UDP endpoints (see
  	// locoBackend.advertiseEndpoints).
  	conf.ForceDiscoKey = discoPrivateForNode(lb.priv)
@@ -67,12 +67,10 @@
  	e, err := wgengine.NewUserspaceEngine(logf, conf)
  	if err != nil {
  		logf("wgengine.NewUserspaceEngine(tun %q) error: %v", "userspace-networking", err)
-@@ -1959,6 +1978,25 @@
- 	started bool
- 
+@@ -2081,6 +2100,25 @@
  	upDone atomic.Bool // whether the server has meowed us at least once
-+}
-+
+ }
+ 
 +// NetworkMonitor returns the monitor owned by this initialized client.
 +// This application-owned integration API deliberately uses ordinary typed
 +// access. Call after Ping initialized the client; absence is an explicit error.
@@ -90,9 +88,25 @@
 +		return nil, errors.New("tailcat network monitor is unavailable")
 +	}
 +	return mon, nil
- }
- 
++}
++
  // nodeKeyLocked returns the client's effective node private key,
+ // resolving it from the Key field (or generating a fresh one) on
+ // first use. c.startMu must be held.
+@@ -2134,7 +2172,12 @@
+ 	sys.Set(bus)
+ 	sys.Set(health.NewTracker(bus))
+ 
+-	sys.Set(newNetMon(bus, logf))
++	netMon, err := netmonNew(bus, logf)
++	if err != nil {
++		lb.Close() // closes the subsystems started so far
++		return fmt.Errorf("netmon.New: %w", err)
++	}
++	sys.Set(netMon)
+ 
+ 	dialer := &tsdial.Dialer{Logf: logf} // mutated below (before used)
+ 	sys.Set(dialer)
 --- upstream/pickregion.go
 +++ integration/pickregion.go
 @@ -13,7 +13,6 @@

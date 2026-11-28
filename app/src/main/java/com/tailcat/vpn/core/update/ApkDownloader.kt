@@ -71,7 +71,7 @@ class ApkDownloader(private val cacheDir: File) {
             }
             check(readTotal == total) { "Download ended early" }
             val actual = digest.digest().joinToString("") { "%02x".format(it) }
-            check(actual == expectedSha256) { "APK SHA-256 mismatch — refusing to install" }
+            check(actual == expectedSha256) { "APK SHA-256 mismatch. Installation refused." }
             _progress.value = DownloadProgress(
                 active = false,
                 fraction = 1f,

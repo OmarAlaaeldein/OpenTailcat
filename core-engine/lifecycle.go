@@ -69,6 +69,10 @@ type TailcatCore struct {
 	lastErr    string
 	healthUnix atomic.Int64
 	pendingDNS atomic.Pointer[DNSConfig]
+	// countryBlock is the list SetCountryBlocklist installed. Unlike
+	// pendingDNS it is not reset by Prepare or Stop: Kotlin sets it before
+	// every start, and AttachTun snapshots it into each bridge.
+	countryBlock atomic.Pointer[countryBlocklist]
 	// pendingMTU is the profile TUN MTU staged by UpdateNetworkState (0 = default).
 	pendingMTU atomic.Int64
 	stopping   bool
@@ -339,6 +343,7 @@ func AttachTun(tunFD int) (err error) {
 	tcpOnly := sess.tcpOnly
 	ipv6Egress := sess.ipv6Egress
 	dns := globalCore.pendingDNS.Load()
+	countryBlock := globalCore.countryBlock.Load()
 	tunnelMTU := int(globalCore.pendingMTU.Load())
 	globalCore.mu.Unlock()
 
@@ -358,6 +363,8 @@ func AttachTun(tunFD int) (err error) {
 	}
 	bridge.tcpOnly.Store(tcpOnly)
 	bridge.ipv6Egress.Store(ipv6Egress)
+	// Before Start, so no flow is ever judged without the user's list.
+	bridge.countryBlock.Store(countryBlock)
 	if dns != nil {
 		bridge.SetDNSConfig(*dns)
 	}

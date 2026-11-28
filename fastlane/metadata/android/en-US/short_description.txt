@@ -1,1 +1,1 @@
-Tailcat VPN: use your gateway, or share this phone as one
+Self-hosted Tailcat VPN client and temporary device exit node

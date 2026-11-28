@@ -22,10 +22,10 @@ object QrCodeDecoder {
             try {
                 reader.decodeMultiple(BinaryBitmap(HybridBinarizer(source.invert())), hints)
             } catch (_: NotFoundException) {
-                throw IllegalArgumentException("No QR code found. Choose a clear QR image.")
+                throw IllegalArgumentException("No QR code found in the image.")
             }
         }
-        require(results.size == 1) { "Choose an image containing exactly one QR code." }
+        require(results.size == 1) { "The image must contain exactly one QR code." }
         return results.single().text
     }
 }

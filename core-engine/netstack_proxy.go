@@ -365,9 +365,24 @@ func (p *netstackProxy) rejectPublicIPv6WithoutEgress(dst netip.AddrPort) bool {
 	return true
 }
 
-// resolveFlowDestination applies the DNS redirect and then the IPv6-egress
-// gate to the redirected address, so a query to an IPv6 resolver that is
-// redirected to an IPv4 forced resolver still works without gateway IPv6.
+// rejectBlockedCountry refuses a destination inside the ranges the user chose
+// to block (see country_block.go). TCP gets a RST and UDP is dropped, exactly
+// like the other policy refusals, so applications fail fast and fall back.
+func (p *netstackProxy) rejectBlockedCountry(dst netip.AddrPort) bool {
+	if p.bridge == nil {
+		return false
+	}
+	if !p.bridge.countryBlock.Load().contains(dst.Addr()) {
+		return false
+	}
+	p.bridge.policyRejections.Add(1)
+	return true
+}
+
+// resolveFlowDestination applies the DNS redirect, then the IPv6-egress gate
+// and the country gate to the redirected address, so a query to an IPv6
+// resolver that is redirected to an IPv4 forced resolver still works without
+// gateway IPv6, and a redirected query is judged by where it will really go.
 // Returns false (and counts a policy rejection) when the flow must be refused.
 func (p *netstackProxy) resolveFlowDestination(dst netip.AddrPort) (netip.AddrPort, bool) {
 	resolved, ok := p.resolveDNSDestination(dst)
@@ -376,6 +391,9 @@ func (p *netstackProxy) resolveFlowDestination(dst netip.AddrPort) (netip.AddrPo
 		return netip.AddrPort{}, false
 	}
 	if p.rejectPublicIPv6WithoutEgress(resolved) {
+		return netip.AddrPort{}, false
+	}
+	if p.rejectBlockedCountry(resolved) {
 		return netip.AddrPort{}, false
 	}
 	return resolved, true

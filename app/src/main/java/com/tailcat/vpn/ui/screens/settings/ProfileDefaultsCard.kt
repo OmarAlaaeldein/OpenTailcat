@@ -32,7 +32,7 @@ internal fun ProfileDefaultsCard(
 ) {
     SettingsCard(icon = Icons.Default.Dns, title = "Defaults for new profiles") {
         Text(
-            "MTU 1280 is the safe default for mobile and nested tunnels.",
+            "1280 is the recommended MTU for mobile networks and nested tunnels.",
             style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
         )
         Spacer(Modifier.height(10.dp))
@@ -68,12 +68,12 @@ internal fun ProfileDefaultsCard(
                     store.defaultDns = input.trim()
                 }
             },
-            label = { Text("Default DNS Resolver IP") },
+            label = { Text("Default DNS resolver IP") },
             supportingText = {
                 if (dnsValidation is DnsValidationResult.Invalid) {
                     Text(dnsValidation.reason, color = RedDegraded, fontSize = 11.sp)
                 } else {
-                    Text("Default DNS for new profiles (e.g. 1.1.1.1, 9.9.9.9)", color = TextSecondary, fontSize = 11.sp)
+                    Text("Default resolver for new profiles (for example, 1.1.1.1)", color = TextSecondary, fontSize = 11.sp)
                 }
             },
             isError = dnsValidation is DnsValidationResult.Invalid,

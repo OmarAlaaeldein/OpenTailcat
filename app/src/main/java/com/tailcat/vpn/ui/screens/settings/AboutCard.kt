@@ -23,7 +23,7 @@ import com.tailcat.vpn.ui.theme.TextSecondary
 internal fun AboutCard() {
     var showLicenses by remember { mutableStateOf(false) }
 
-    SettingsCard(icon = Icons.Default.Info, title = "About & legal") {
+    SettingsCard(icon = Icons.Default.Info, title = "About and licenses") {
         Text(
             "OpenTailcat • v${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.bodyMedium.copy(

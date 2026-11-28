@@ -6,6 +6,9 @@ What the patch changes:
 
 - Keeps `netns.SetEnabled(true)` on Android during engine initialization and DERP region selection (`opentailcat_android.go` / `opentailcat_other.go`), so STUN, DERP, and Magicsock sockets run the registered `VpnService.protect` callback at creation before bind/connect. Non-Android builds keep upstream behavior.
 - Adds a typed `Client.NetworkMonitor()` method so `core-engine` can trigger Magicsock link-change rebinds without reflection or `unsafe.Pointer`.
+- Keeps client initialization failing when `netmon.New` fails. Since v0.8.0 upstream silently substitutes a static monitor that never reports network changes; the patch restores the earlier `netmon.New: ...` error for `Client` only, so `Prepare` still fails closed ("Missing monitor support fails `Prepare`"). The `Server` (exit node) keeps upstream's fallback. No automated test forces a `netmon.New` failure, so re-read this hunk on every upstream update.
+- Adds `tailcat.DERPMapFilter`, called on every DERP map decoded from JSON (fetched or cached), so `derp_filter.go` can vet and prune endpoints whatever URL or redirect they came from.
+- Records a `DisconnectClient` that lands while `AllowClient` is still running for the same key (`removedAllow`), so the disconnected client is not added once the hook returns.
 
 Regenerate and check from `core-engine/`:
 

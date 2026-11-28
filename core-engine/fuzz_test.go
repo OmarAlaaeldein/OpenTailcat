@@ -377,3 +377,65 @@ func FuzzOutboundPacket(f *testing.F) {
 		}
 	})
 }
+
+// FuzzParseCountryBlocklist checks the parser against a brute-force scan: a
+// list that parses must answer exactly like a linear search of its own
+// prefixes, at the edges of every prefix and at fuzz-chosen addresses, and a
+// list that does not parse must come back as an error, never a panic.
+func FuzzParseCountryBlocklist(f *testing.F) {
+	for _, seed := range []string{
+		"",
+		"10.0.0.0/8",
+		"1.0.1.0/24 1.0.2.0/23 2001:db8::/32",
+		"10.0.0.0/25 10.0.0.128/25 10.0.0.0/24",
+		"240.0.0.0/4 255.255.255.0/24 ff00::/8 ffff::/16",
+		"64:ff9b::/96 ::1/128 1.2.3.4/32",
+		"0.0.0.0/0",
+		"10.0.0.0/8,11.0.0.0/8",
+		"1.2.3.4/24",
+		"::ffff:1.2.3.0/120",
+	} {
+		f.Add(seed, "10.1.2.3")
+	}
+	f.Fuzz(func(t *testing.T, text, probe string) {
+		list, err := parseCountryBlocklist(text)
+		if err != nil {
+			if list != nil {
+				t.Fatalf("an error must come with a nil list, got %+v", list)
+			}
+			return
+		}
+		var prefixes []netip.Prefix
+		for _, token := range strings.Fields(text) {
+			p, perr := netip.ParsePrefix(token)
+			if perr != nil {
+				t.Fatalf("parser accepted %q but ParsePrefix says %v", token, perr)
+			}
+			prefixes = append(prefixes, p)
+		}
+		if list == nil {
+			if len(prefixes) != 0 {
+				t.Fatal("a non-empty list must not parse to nil")
+			}
+			return
+		}
+		check := func(ip netip.Addr) {
+			if got, want := list.contains(ip), linearBlocked(prefixes, ip); got != want {
+				t.Fatalf("contains(%s) = %v, brute force says %v (list %q)", ip, got, want, text)
+			}
+		}
+		for _, p := range prefixes {
+			check(p.Addr())
+			check(lastAddr(p))
+			if before, ok := addrStep(p.Addr(), -1); ok {
+				check(before)
+			}
+			if after, ok := addrStep(lastAddr(p), 1); ok {
+				check(after)
+			}
+		}
+		if ip, perr := netip.ParseAddr(probe); perr == nil {
+			check(ip)
+		}
+	})
+}

@@ -74,7 +74,7 @@ fun HomeTopBar(
                     style = MaterialTheme.typography.headlineLarge
                 )
                 Text(
-                    text = "Private gateway for Tailcat",
+                    text = "Tailcat gateway client",
                     style = MaterialTheme.typography.labelMedium
                 )
             }
@@ -88,7 +88,7 @@ fun HomeTopBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Share,
-                        contentDescription = if (isSharing) "Sharing this phone. Manage" else "Share this phone",
+                        contentDescription = if (isSharing) "Sharing active. Manage sharing" else "Share this phone",
                         tint = if (isSharing) EmeraldConnected else TextSecondary
                     )
                 }
@@ -101,7 +101,7 @@ fun HomeTopBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Speed,
-                        contentDescription = "Speed Test",
+                        contentDescription = "Speed test",
                         tint = AccentCyan
                     )
                 }
@@ -143,7 +143,7 @@ fun HomeTopBar(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "No Internet Connection • Connect to Wi-Fi or mobile data",
+                        text = "No internet connection. Connect to Wi-Fi or mobile data.",
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = RedDegraded,
                             fontWeight = FontWeight.Medium

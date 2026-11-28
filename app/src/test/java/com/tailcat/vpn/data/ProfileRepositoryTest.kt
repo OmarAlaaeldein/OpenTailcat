@@ -15,6 +15,7 @@ class FakePreferencesStorage : PreferencesStorage {
     override var defaultMtu: Int = 1280
     override var defaultDns: String = "1.1.1.1"
     override var splitTunnelExcludedApps: Set<String> = emptySet()
+    override var blockedCountries: Set<String> = emptySet()
     override var savedProfilesJson: String? = null
     override var vpnWanted: Boolean = false
     override var debugMode: Boolean = false

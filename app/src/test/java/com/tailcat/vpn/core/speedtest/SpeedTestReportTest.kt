@@ -41,7 +41,7 @@ class SpeedTestReportTest {
         )
         val report = SpeedTestReport.build(result, nowUnixSec = 1_000L, appVersion = "1.3.7")
 
-        assertTrue(report.contains("OpenTailcat troubleshooter report"))
+        assertTrue(report.contains("OpenTailcat diagnostic report"))
         assertTrue(report.contains("app=1.3.7"))
         assertTrue(report.contains("stage=COMPLETED"))
         assertTrue(report.contains("viaGateway=true"))
