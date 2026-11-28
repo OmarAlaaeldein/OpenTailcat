@@ -1,14 +1,15 @@
-<p>OpenTailcat is an Android app for <a href="https://github.com/tailscale/tailcat">Tailcat</a> exit gateways. Paste a <code>tc…</code> token to route your phone through your own gateway over WireGuard with Magicsock NAT traversal and DERP relay fallback, or use <b>Share this phone</b> to generate a temporary code and lend your phone's connection to another device. No accounts or hosted control plane are needed.</p>
+<p>OpenTailcat is an Android client for <a href="https://github.com/tailscale/tailcat">Tailcat</a> exit gateways. A <code>tc…</code> token routes device traffic through a self-hosted gateway over WireGuard, with Magicsock NAT traversal and DERP relay fallback. <b>Share this phone</b> issues a temporary code so another device can use this phone as an exit node. No accounts or hosted control plane are required.</p>
 <p>Features:</p>
 <ul>
-<li>Share this phone as an exit node with per-device approval, optional time limit, public or custom DERP relay, live device/traffic counters, and one-tap stop</li>
-<li>Whole-device IPv4 and IPv6 VPN through your self-hosted Tailcat gateway</li>
+<li>Share this phone as an exit node with per-device approval, optional time limit, public or custom DERP relay, live device and traffic counters, and immediate stop</li>
+<li>Whole-device IPv4 and IPv6 VPN through a self-hosted Tailcat gateway</li>
 <li>Multiple saved gateway profiles with per-profile DNS resolver, DNS policy, and MTU</li>
 <li>Token pairing via paste or on-device QR image import (no camera permission), plus QR display for saved profiles</li>
 <li>Per-app split tunneling exclusions</li>
+<li>Optional country filter that refuses tunneled app connections to selected countries' IP ranges using bundled offline registry data (best effort)</li>
 <li>Live stats: RTT, jitter, direct vs. DERP relay region, traffic counters, and exit IP</li>
 <li>Built-in speed test through the tunnel when connected, or over device routes when disconnected</li>
 <li>Android Always-on VPN and "Block connections without VPN" support, with lock-screen disconnect protection</li>
 <li>No ads, analytics, accounts, or crash reporting; saved profiles and tokens are encrypted with Android Keystore</li>
 </ul>
-<p>OpenTailcat is an independent community project and is not affiliated with Tailscale Inc. It is a development preview: physical leak testing is still in progress and GitHub APKs are currently signed with a development key, so do not rely on it for sensitive traffic yet. Your gateway operator can see traffic exiting through it, and excluded apps bypass the tunnel. When sharing your phone, sites see your IP address and guest traffic uses your data plan, so share only with people you trust.</p>
+<p>OpenTailcat is an independent community project and is not affiliated with Tailscale Inc. It is a development preview: physical leak testing is still in progress and GitHub APKs are currently signed with a development key, so it is not suitable for sensitive traffic yet. The gateway operator can observe traffic exiting through the gateway, and excluded apps bypass the tunnel. While this phone is shared, destinations see its IP address and guest traffic uses its data plan. Share only with trusted parties.</p>

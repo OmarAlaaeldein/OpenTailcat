@@ -27,9 +27,9 @@ Test) are not shipped and are not listed there.
 ## Tailcat provenance
 
 `github.com/tailscale/tailcat` is a git submodule pinned to the unmodified
-upstream commit `52fbad323e9d352f1febb623e0975368e9a8cbdd` (17 commits after
-the signed `v0.7.0` tag, not yet released upstream), licensed under the BSD
-3-Clause License. See `third_party/PROVENANCE.md`.
+upstream commit `b9491c13c63925af4119aca70bd21b1691ff3d5b`, the signed
+`v0.8.0` tag, licensed under the BSD 3-Clause License. See
+`third_party/PROVENANCE.md`.
 
 ## External services
 

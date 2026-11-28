@@ -71,6 +71,32 @@ def outputs():
 // JSON (fetched or cached). An error discards the map. Set it once at
 // program start, before any client or server runs.
 var DERPMapFilter func(*tailcfg.DERPMap) error''')
+            # Upstream falls back to a static monitor when netmon.New fails.
+            # A client with a static monitor never rebinds Magicsock on a
+            # network change, so keep failing client initialization instead.
+            # The server (exit node) keeps the upstream fallback.
+            text = replace_once(text, '''	lb.hybrid = ci.Hybrid
+
+	sys := &lb.sys
+	bus := eventbus.New()
+	sys.Set(bus)
+	sys.Set(health.NewTracker(bus))
+
+	sys.Set(newNetMon(bus, logf))
+''', '''	lb.hybrid = ci.Hybrid
+
+	sys := &lb.sys
+	bus := eventbus.New()
+	sys.Set(bus)
+	sys.Set(health.NewTracker(bus))
+
+	netMon, err := netmonNew(bus, logf)
+	if err != nil {
+		lb.Close() // closes the subsystems started so far
+		return fmt.Errorf("netmon.New: %w", err)
+	}
+	sys.Set(netMon)
+''')
             text = replace_once(text, "// nodeKeyLocked returns", '''// NetworkMonitor returns the monitor owned by this initialized client.
 // This application-owned integration API deliberately uses ordinary typed
 // access. Call after Ping initialized the client; absence is an explicit error.

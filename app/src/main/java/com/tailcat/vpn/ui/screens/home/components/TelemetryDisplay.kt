@@ -13,13 +13,13 @@ object TelemetryDisplay {
 
     fun statusLabel(state: TunnelState, deviceOffline: Boolean, engineAvailable: Boolean): String = when {
         deviceOffline && state == TunnelState.DISCONNECTED -> "OFFLINE • NO INTERNET"
-        !engineAvailable && state == TunnelState.DISCONNECTED -> "ENGINE REQUIRED • VPN DISABLED"
+        !engineAvailable && state == TunnelState.DISCONNECTED -> "ENGINE UNAVAILABLE • VPN DISABLED"
         state == TunnelState.CONNECTED -> "CONNECTED"
         state == TunnelState.CONNECTING -> "ESTABLISHING TUNNEL..."
         state == TunnelState.RECONNECTING -> "RECONNECTING..."
         // discoStale means the gateway stopped answering, not that traffic is relayed.
         state == TunnelState.DEGRADED -> "DEGRADED • GATEWAY NOT RESPONDING"
-        else -> "TAP TO CONNECT"
+        else -> "READY TO CONNECT"
     }
 
     data class Egress(val label: String, val value: String)

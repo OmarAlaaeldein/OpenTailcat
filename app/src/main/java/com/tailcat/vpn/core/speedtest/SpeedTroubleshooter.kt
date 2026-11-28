@@ -153,40 +153,40 @@ object SpeedTroubleshooter {
             when {
                 metrics == null -> findings += TroubleshootFinding(
                     FindingSeverity.WARNING,
-                    "No live tunnel telemetry — cannot attribute a slow or failed gateway benchmark"
+                    "No live tunnel telemetry. A slow or failed gateway benchmark cannot be attributed."
                 )
                 !metrics.isLiveRunning(nowUnixSec) -> findings += TroubleshootFinding(
                     FindingSeverity.ERROR,
-                    "Tunnel health is not live (state=${metrics.state.ifBlank { "unknown" }}) — gateway speed tests will fail"
+                    "Tunnel health is not live (state=${metrics.state.ifBlank { "unknown" }}). Gateway speed tests will fail."
                 )
                 else -> {
                     if (metrics.discoStale) {
                         findings += TroubleshootFinding(
                             FindingSeverity.WARNING,
-                            "The gateway did not answer recent discovery pings — the shown RTT and path are not current"
+                            "The gateway did not answer recent discovery pings. The shown RTT and path are not current."
                         )
                     }
                     when (metrics.transportType) {
                         TransportType.DERP_RELAY -> findings += TroubleshootFinding(
                             FindingSeverity.WARNING,
-                            "Relaying through DERP (region ${metrics.derpRegionCode ?: metrics.derpRegionId ?: "?"}) — expect higher latency than a direct path"
+                            "Relaying through DERP (region ${metrics.derpRegionCode ?: metrics.derpRegionId ?: "?"}). Expect higher latency than a direct path."
                         )
                         TransportType.UNKNOWN -> findings += TroubleshootFinding(
                             FindingSeverity.WARNING,
-                            "Transport path is unknown — direct vs relay cannot be confirmed"
+                            "Transport path is unknown. Direct and relayed paths cannot be distinguished."
                         )
                         TransportType.DIRECT_P2P -> Unit
                     }
                     if (metrics.tcpOnly) {
                         findings += TroubleshootFinding(
                             FindingSeverity.WARNING,
-                            "Gateway is TCP-only for this session — non-DNS UDP is dropped; DNS uses TCP"
+                            "The gateway is TCP-only for this session. Non-DNS UDP is dropped; DNS uses TCP."
                         )
                     }
                     if (metrics.rttLatencyMs > 0 && metrics.rttLatencyMs >= 250) {
                         findings += TroubleshootFinding(
                             FindingSeverity.WARNING,
-                            "Tunnel RTT is ${metrics.rttLatencyMs} ms — slow path or long relay"
+                            "Tunnel RTT is ${metrics.rttLatencyMs} ms. The path is slow or the relay is distant."
                         )
                     }
                     val drops = metrics.dropCounters
@@ -207,7 +207,7 @@ object SpeedTroubleshooter {
                     if (!metrics.ipv6Egress && stage == SpeedTestStage.FAILED) {
                         findings += TroubleshootFinding(
                             FindingSeverity.INFO,
-                            "Gateway IPv6 egress is off — IPv6 destinations fall back to tunneled IPv4"
+                            "Gateway IPv6 egress is off. IPv6 destinations fall back to tunneled IPv4."
                         )
                     }
                 }
@@ -215,14 +215,14 @@ object SpeedTroubleshooter {
         } else if (tunnelState != TunnelState.DISCONNECTED) {
             findings += TroubleshootFinding(
                 FindingSeverity.WARNING,
-                "The tunnel was up but not CONNECTED — this run used the device routes, which go into the VPN interface; it is not a gateway measurement"
+                "The tunnel was not connected. This run used device routes, which enter the VPN interface while it is active; it is not a gateway measurement"
             )
         }
 
         if (stage == SpeedTestStage.FAILED && viaGateway) {
             findings += TroubleshootFinding(
                 FindingSeverity.INFO,
-                "Re-test on the physical path (disconnect first) to compare gateway vs device network"
+                "Re-test on the physical path (disconnect first) to compare the gateway and device networks."
             )
         }
 

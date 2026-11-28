@@ -58,10 +58,10 @@ object UpdatePolicy {
 
     /** Returns null when [asset] may be downloaded, otherwise the reason to refuse. */
     fun assetRejection(asset: ReleaseAsset): String? = when {
-        !isSafeApkName(asset.name) -> "Release asset has an unexpected name"
-        asset.size <= 0 || asset.size > MAX_APK_BYTES -> "Release asset has an unexpected size"
-        asset.sha256 == null -> "Release has no SHA-256 digest; refusing to download"
-        !isAllowedDownloadUrl(asset.browserDownloadUrl) -> "Release asset is not hosted on GitHub"
+        !isSafeApkName(asset.name) -> "The release asset has an unexpected name."
+        asset.size <= 0 || asset.size > MAX_APK_BYTES -> "The release asset has an unexpected size."
+        asset.sha256 == null -> "The release has no SHA-256 digest. The download was refused."
+        !isAllowedDownloadUrl(asset.browserDownloadUrl) -> "The release asset is not hosted on GitHub."
         else -> null
     }
 
@@ -101,10 +101,10 @@ object UpdatePolicy {
         archiveHistory: List<String>?,
         trusted: Set<String> = TRUSTED_SIGNER_SHA256
     ): String? {
-        if (archiveCurrent.isEmpty()) return "Downloaded APK has no readable signature"
-        if (installedCurrent.isEmpty()) return "Could not read this app's signing certificate"
+        if (archiveCurrent.isEmpty()) return "The downloaded APK has no readable signature."
+        if (installedCurrent.isEmpty()) return "The signing certificate of this app could not be read."
         if (!trusted.containsAll(archiveCurrent)) {
-            return "APK is not signed with a trusted OpenTailcat release key"
+            return "The APK is not signed with a trusted OpenTailcat release key."
         }
         if (archiveCurrent == installedCurrent) return null
         val rotatesFromInstalled = installedCurrent.size == 1 &&
@@ -115,7 +115,7 @@ object UpdatePolicy {
         return if (rotatesFromInstalled) {
             null
         } else {
-            "APK is not signed with this app's key (install would fail)"
+            "The APK is not signed with this app's key; installation would fail."
         }
     }
 }

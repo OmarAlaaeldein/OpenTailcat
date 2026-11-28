@@ -18,15 +18,19 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tailcat.vpn.BuildConfig
+import com.tailcat.vpn.core.update.LatestRelease
 import com.tailcat.vpn.ui.theme.AccentCyan
 import com.tailcat.vpn.ui.theme.TailcatButtons
 import com.tailcat.vpn.ui.theme.BorderSubtle
@@ -41,6 +45,23 @@ internal fun SettingsUpdatesCard(
 ) {
     val context = LocalContext.current
     val state by viewModel.updateState.collectAsStateWithLifecycle()
+    val release = when (val current = state) {
+        is UpdateState.Available -> current.release
+        is UpdateState.Downloading -> current.release
+        is UpdateState.Ready -> current.release
+        else -> null
+    }
+    var showNotes by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(release) {
+        if (release == null) showNotes = false
+    }
+    if (showNotes && release != null) {
+        ReleaseNotesDialog(
+            version = release.normalizedVersion(),
+            notes = release.notes,
+            onDismiss = { showNotes = false }
+        )
+    }
 
     SettingsCard(icon = Icons.Default.SystemUpdate, title = "Updates") {
         when (val s = state) {
@@ -54,9 +75,9 @@ internal fun SettingsUpdatesCard(
                     Button(
                         onClick = { viewModel.checkForUpdate() },
                         colors = TailcatButtons.filled()
-                    ) { Text("Check for update") }
+                    ) { Text("Check for updates") }
                     OutlinedButton(onClick = { viewModel.openReleasePage(context) }) {
-                        Text("Release page")
+                        Text("Release notes")
                     }
                 }
             }
@@ -73,14 +94,14 @@ internal fun SettingsUpdatesCard(
             }
             is UpdateState.UpToDate -> {
                 Text(
-                    "You're up to date (v${s.current}).",
+                    "OpenTailcat is up to date (v${s.current}).",
                     style = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary)
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { viewModel.resetUpdate() }) { Text("Check again") }
                     OutlinedButton(onClick = { viewModel.openReleasePage(context) }) {
-                        Text("Release page")
+                        Text("Release notes")
                     }
                 }
             }
@@ -92,15 +113,7 @@ internal fun SettingsUpdatesCard(
                         fontWeight = FontWeight.SemiBold
                     )
                 )
-                if (s.release.notes.isNotBlank()) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        s.release.notes.take(400),
-                        style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary),
-                        maxLines = 6,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                ReleaseNotesAction(s.release) { showNotes = true }
                 Spacer(Modifier.height(8.dp))
                 @OptIn(ExperimentalLayoutApi::class)
                 FlowRow(
@@ -129,17 +142,19 @@ internal fun SettingsUpdatesCard(
                     "Downloading ${s.release.normalizedVersion()}… ${(s.fraction * 100).toInt()}%",
                     style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
                 )
+                ReleaseNotesAction(s.release) { showNotes = true }
             }
             is UpdateState.Ready -> {
                 Text(
-                    "APK ready. Install ${s.release.normalizedVersion()}?",
+                    "Update downloaded. Install ${s.release.normalizedVersion()}?",
                     style = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary)
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Android will ask you to allow installs from this source if needed.",
+                    "Android will request permission to install from this source if needed.",
                     style = MaterialTheme.typography.bodySmall.copy(color = TextMuted)
                 )
+                ReleaseNotesAction(s.release) { showNotes = true }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
@@ -158,10 +173,17 @@ internal fun SettingsUpdatesCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { viewModel.checkForUpdate() }) { Text("Retry") }
                     OutlinedButton(onClick = { viewModel.openReleasePage(context) }) {
-                        Text("Release page")
+                        Text("Release notes")
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ReleaseNotesAction(release: LatestRelease, onRead: () -> Unit) {
+    if (release.notes.isBlank()) return
+    Spacer(Modifier.height(8.dp))
+    OutlinedButton(onClick = onRead) { Text("Release notes") }
 }

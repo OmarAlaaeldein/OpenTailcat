@@ -112,7 +112,7 @@ class ExitNodeService : Service() {
             }
             ExitNodeConfig(ttl, admission, relay)
         }.getOrElse {
-            controller.fail(it.message ?: "Invalid sharing configuration")
+            controller.fail(it.message ?: "Invalid sharing configuration.")
             finish(generation)
             return
         }

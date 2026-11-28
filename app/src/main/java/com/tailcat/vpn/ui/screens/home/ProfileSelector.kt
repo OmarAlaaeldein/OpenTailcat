@@ -79,7 +79,7 @@ fun ProfileSelector(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = activeProfile?.name ?: "No Gateway Paired",
+                text = activeProfile?.name ?: "No gateway paired",
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodyMedium.copy(
@@ -141,7 +141,7 @@ fun ProfileSelector(
                                 ) {
                                     Icon(
                                         Icons.Default.QrCode2,
-                                        contentDescription = "Show QR for ${profile.name}",
+                                        contentDescription = "Show QR code for ${profile.name}",
                                         tint = AccentCyan
                                     )
                                 }
@@ -163,7 +163,7 @@ fun ProfileSelector(
                 }
                 HorizontalDivider(color = BorderSubtle)
                 DropdownMenuItem(
-                    text = { Text("Pair another gateway", color = AccentCyan) },
+                    text = { Text("Add another gateway", color = AccentCyan) },
                     leadingIcon = {
                         Icon(Icons.Default.Add, contentDescription = null, tint = AccentCyan)
                     },
@@ -197,8 +197,8 @@ fun DeleteProfileDialog(
         title = { Text("Delete ${profile.name}?", color = TextPrimary) },
         text = {
             Text(
-                "Its token is removed from this device and cannot be recovered here. " +
-                    "A running VPN on this gateway is disconnected.",
+                "The token will be removed from this device and cannot be recovered here. " +
+                    "An active connection to this gateway will be disconnected.",
                 color = TextSecondary
             )
         },

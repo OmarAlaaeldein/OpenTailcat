@@ -16,7 +16,7 @@ object QrImageImporter {
     private const val MAX_SOURCE_DIMENSION = 16384
 
     suspend fun read(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
-        require(uri.scheme == "content") { "Choose an image using the image picker." }
+        require(uri.scheme == "content") { "The image must come from the image picker." }
         val stream = context.contentResolver.openInputStream(uri)
             ?: throw IllegalArgumentException("Could not open the QR image.")
         stream.use(::decode)

@@ -30,7 +30,7 @@ enum class ShareDuration(val label: String, val seconds: Long?) {
     HOUR("1 hour", 60 * 60L),
     FOUR_HOURS("4 hours", 4 * 60 * 60L),
     DAY("24 hours", ExitNodeConfig.MAX_TTL_SECONDS),
-    NO_LIMIT("Until I stop", null);
+    NO_LIMIT("No time limit", null);
 
     val isTimed: Boolean get() = seconds != null
 }

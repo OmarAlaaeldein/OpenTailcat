@@ -43,7 +43,7 @@ class ExitNodeNotificationTextTest {
 
     @Test
     fun describesAnEmptyShare() {
-        assertEquals("no devices yet · 0 B · 1 h 0 min left", ExitNodeNotificationText.sharingText(stats(), now))
+        assertEquals("no devices · 0 B · 1 h 0 min left", ExitNodeNotificationText.sharingText(stats(), now))
     }
 
     @Test
@@ -70,7 +70,7 @@ class ExitNodeNotificationTextTest {
 
     @Test
     fun aShareWithoutATimeLimitSaysSoInsteadOfACountdown() {
-        assertEquals("1 device · 0 B · until you stop",
+        assertEquals("1 device · 0 B · no time limit",
             ExitNodeNotificationText.sharingText(stats(activeGuests = 1, expiresIn = null), now))
     }
 

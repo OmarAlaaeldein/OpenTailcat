@@ -23,6 +23,11 @@ interface PreferencesStorage {
     var defaultMtu: Int
     var defaultDns: String
     var splitTunnelExcludedApps: Set<String>
+    /**
+     * ISO 3166-1 alpha-2 codes (upper case) of the countries whose IP ranges the
+     * tunnel refuses to connect to. Applied when the tunnel starts; empty = off.
+     */
+    var blockedCountries: Set<String>
     var savedProfilesJson: String?
     var vpnWanted: Boolean
     /**
@@ -42,6 +47,10 @@ interface PreferencesStorage {
         return true
     }
 }
+
+/** Only upper-case ISO 3166-1 alpha-2 shaped values are ever stored or read back as countries. */
+private fun isCountryCode(value: String): Boolean =
+    value.length == 2 && value.all { it in 'A'..'Z' }
 
 /**
  * Preferences sealed with an AES-256-GCM key in the Android Keystore. If the
@@ -96,6 +105,17 @@ class PreferencesStore internal constructor(
             }.getOrNull()
         } ?: emptySet()
         set(value) { store.putString(KEY_SPLIT_TUNNEL_EXCLUDED, SealedPreferences.encode(value)) }
+
+    override var blockedCountries: Set<String>
+        get() = store.getString(KEY_BLOCKED_COUNTRIES)?.let { json ->
+            runCatching {
+                val array = JSONArray(json)
+                (0 until array.length()).map { array.getString(it) }.filter(::isCountryCode).toSet()
+            }.getOrNull()
+        } ?: emptySet()
+        set(value) {
+            store.putString(KEY_BLOCKED_COUNTRIES, SealedPreferences.encode(value.filter(::isCountryCode).toSet()))
+        }
 
     override var savedProfilesJson: String?
         get() = store.getString(KEY_SAVED_PROFILES)
@@ -162,6 +182,7 @@ class PreferencesStore internal constructor(
         private const val KEY_DEFAULT_MTU = "key_default_mtu"
         private const val KEY_DEFAULT_DNS = "key_default_dns"
         private const val KEY_SPLIT_TUNNEL_EXCLUDED = "key_split_tunnel_excluded"
+        private const val KEY_BLOCKED_COUNTRIES = "key_blocked_countries"
         private const val KEY_SAVED_PROFILES = "key_saved_profiles"
         private const val KEY_VPN_WANTED = "key_vpn_wanted"
         private const val KEY_DEBUG_MODE = "key_debug_mode"

@@ -96,7 +96,7 @@ class TailcatVpnService : VpnService() {
             // is validated; the start loop below retries the handshake instead.
             val validationError = app.tunnelController.validateStartRequest(requireOnline = false)
             if (profile == null || validationError != null) {
-                validationError ?: "No gateway profile is selected"
+                validationError ?: "No gateway profile is selected."
             } else if (prepare(this) != null) {
                 // Sticky/always-on restores do not pass through the UI consent launcher.
                 // Consent can also be revoked between the UI callback and service start.
@@ -139,7 +139,7 @@ class TailcatVpnService : VpnService() {
             // startForeground executes later than startForegroundService, so the
             // controller's catch cannot handle Android rejecting this service.
             rejectStart(
-                error.message ?: "Android could not start the VPN service"
+                error.message ?: "Android could not start the VPN service."
             )
             return START_NOT_STICKY
         }
@@ -241,7 +241,7 @@ class TailcatVpnService : VpnService() {
                     abandonStaleStart(epoch)
                     throw CancellationException("VPN start superseded by shutdown")
                 }
-                val message = error.message ?: "VPN engine failed to start"
+                val message = error.message ?: "The VPN engine failed to start."
                 val permanent = error is PermanentStartFailure ||
                     StartRetry.isPermanentEngineError(message) ||
                     prepare(this) != null
@@ -373,7 +373,7 @@ class TailcatVpnService : VpnService() {
                 val profile = app.profileRepository.activeProfile.value
                 val validationError = app.tunnelController.validateStartRequest(requireOnline = false)
                 if (profile == null || validationError != null) {
-                    if (!failStart(epoch, validationError ?: "No gateway profile is selected")) {
+                    if (!failStart(epoch, validationError ?: "No gateway profile is selected.")) {
                         abandonStaleStart(epoch)
                     }
                     return@launchSerializedStart
@@ -394,12 +394,20 @@ class TailcatVpnService : VpnService() {
         val dnsValidation = DnsValidator.validate(profile.customDns)
         if (dnsValidation !is DnsValidationResult.Valid) {
             val reason = (dnsValidation as? DnsValidationResult.Invalid)?.reason ?: "unknown error"
-            throw PermanentStartFailure("Invalid DNS resolver in profile: $reason")
+            throw PermanentStartFailure("Invalid DNS resolver in the profile: $reason")
         }
 
         // Provide current validated Android LinkProperties, interface state, and DNS policy to native engine
         app.tunnelEngine.updateNetworkState(buildNetworkStateJson(app, profile, dnsValidation.ip))
         app.tunnelEngine.setSocketProtector { fd -> protect(fd) }
+
+        // The user's blocked countries are installed before prepare, so no
+        // session, warm or routed, can exist without them. One snapshot is
+        // used for the install and for the status the settings screen shows.
+        val blockedCountries = app.preferencesStore.blockedCountries
+        CountryBlockInstaller.install(
+            blockedCountries, dnsValidation.ip, app.countryRanges, app.tunnelEngine::setCountryBlocklist
+        )
 
         // Last check before a native session exists (TLA+ finding F2).
         currentCoroutineContext().ensureActive()
@@ -453,6 +461,7 @@ class TailcatVpnService : VpnService() {
             app.tunnelController.sessionFailureHandler = { _ -> reconnectAfterFailure() }
             app.tunnelController.onEngineConnected(metrics)
             app.tunnelController.setAppliedExclusions(excludedApps.toSet())
+            app.tunnelController.setAppliedBlockedCountries(blockedCountries)
             publishAlwaysOnStatus()
             startMetricsNotificationUpdater(profile, epoch)
         }
@@ -488,7 +497,7 @@ class TailcatVpnService : VpnService() {
         synchronized(interfaceLock) {
             checkNotShuttingDown(epoch)
             val established = builder.establish()
-                ?: throw IllegalStateException("Android could not establish the VPN interface")
+                ?: throw IllegalStateException("Android could not establish the VPN interface.")
             vpnInterface = established
             established
         }
@@ -506,7 +515,7 @@ class TailcatVpnService : VpnService() {
         app.tunnelEngine.updateNetworkState(buildNetworkStateJson(app, profile, dnsIp))
         val metrics = app.tunnelEngine.getStats()
         check(EngineHealth.shouldConnect(metrics, TunnelController.unixNow())) {
-            "VPN engine did not become live after attach"
+            "The VPN engine did not become live after attaching the interface."
         }
         return metrics
     }
@@ -615,6 +624,7 @@ class TailcatVpnService : VpnService() {
         TailcatApplication.instance.tunnelController.sessionFailureHandler = null
         TailcatApplication.instance.tunnelController.setAlwaysOnStatus(null)
         TailcatApplication.instance.tunnelController.setAppliedExclusions(null)
+        TailcatApplication.instance.tunnelController.setAppliedBlockedCountries(null)
         synchronized(startLock) { startJob?.cancel() }
         metricsCollectorJob?.cancel()
         TailcatApplication.instance.tunnelController.stopPolling()
@@ -685,7 +695,7 @@ class TailcatVpnService : VpnService() {
 
     companion object {
         const val VPN_PERMISSION_REQUIRED =
-            "VPN permission is required. Tap Connect to allow the VPN connection."
+            "VPN permission is required before the connection can start."
         const val ACTION_START_VPN = "com.tailcat.vpn.ACTION_START"
         const val ACTION_STOP_VPN = "com.tailcat.vpn.ACTION_STOP"
         const val EXTRA_USER_INITIATED = "com.tailcat.vpn.extra.USER_INITIATED"

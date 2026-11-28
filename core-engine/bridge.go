@@ -42,6 +42,9 @@ type TunBridge struct {
 	mtu        int
 	tcpOnly    atomic.Bool
 	ipv6Egress atomic.Bool
+	// countryBlock is the destination list snapshotted at attach (nil blocks
+	// nothing). It is immutable once stored.
+	countryBlock atomic.Pointer[countryBlocklist]
 
 	// udpUnanswered counts UDP flows in a row that ended without a reply;
 	// udpRelatching guards the probe it starts (noteUDPFlowEnded).

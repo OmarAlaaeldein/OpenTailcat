@@ -6,11 +6,11 @@ import com.tailcat.vpn.core.speedtest.SpeedTestStage
 /** Which path the speed test measures, stated before and after a run. */
 object SpeedTestBanner {
     const val GATEWAY =
-        "Gateway tunnel benchmark: traffic uses Tailcat DialTCP through the connected gateway."
+        "Gateway benchmark: traffic is measured through the connected gateway."
     const val DEVICE =
-        "Device-route benchmark: the tunnel is off, so this measures the device's own network path."
+        "Device benchmark: the tunnel is off, so this measures the device's own network path."
     const val HALF_UP =
-        "The tunnel is not CONNECTED: this run uses the device routes, which go into the VPN interface while it is up. It is not a gateway measurement."
+        "The tunnel is not connected. This run uses device routes, which enter the VPN interface while it is active; it is not a gateway measurement."
 
     fun text(stage: SpeedTestStage, viaGateway: Boolean, tunnelState: TunnelState): String = when {
         // A started or finished run reports the path it actually used.

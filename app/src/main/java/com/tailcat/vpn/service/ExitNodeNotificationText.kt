@@ -9,11 +9,11 @@ import com.tailcat.vpn.core.metrics.TrafficFormat
  * notification is visible to anyone who can see the lock screen.
  */
 object ExitNodeNotificationText {
-    const val TITLE = "OpenTailcat: sharing this phone"
+    const val TITLE = "Sharing this phone"
     const val STARTING = "Starting…"
-    const val PENDING_TITLE = "A device wants to connect"
-    const val PENDING_TEXT = "Open OpenTailcat to approve or deny it."
-    const val NO_LIMIT = "until you stop"
+    const val PENDING_TITLE = "Device connection request"
+    const val PENDING_TEXT = "Open OpenTailcat to review the request."
+    const val NO_LIMIT = "no time limit"
 
     /** Body of the ongoing notification while a session is live. */
     fun sharingText(stats: ExitNodeStats, nowSec: Long): String {
@@ -24,7 +24,7 @@ object ExitNodeNotificationText {
             stats.pending.isNotEmpty() -> "${stats.pending.size} waiting for approval"
             devices == 1 -> "1 device"
             devices > 1 -> "$devices devices"
-            else -> "no devices yet"
+            else -> "no devices"
         }
         return "$who · ${TrafficFormat.formatBytes(stats.totalBytes)} · $left"
     }

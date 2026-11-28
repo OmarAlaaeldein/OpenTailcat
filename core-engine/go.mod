@@ -8,13 +8,14 @@ require (
 	github.com/fxamacker/cbor/v2 v2.10.0
 	github.com/tailscale/tailcat v0.0.0-00010101000000-000000000000
 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745
-	gvisor.dev/gvisor v0.0.0-20260915211658-a6f909f08a72
-	tailscale.com v1.105.0-pre.0.20261013225543-fb79793d99f5
+	gvisor.dev/gvisor v0.0.0-20261117040555-0303b2605d5e
+	tailscale.com v1.105.0-pre.0.20261118173401-6a92f86aceb2
 )
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/akutz/memconn v0.1.0 // indirect
+	github.com/alexbrainman/sspi v0.0.0-20250919150558-7d374ff0d59e // indirect
 	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be // indirect
 	github.com/axiomhq/hyperloglog v0.2.6 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
@@ -41,19 +42,19 @@ require (
 	github.com/pkg/sftp v1.13.11 // indirect
 	github.com/safchain/ethtool v0.7.0 // indirect
 	github.com/tailscale/certstore v0.1.1-0.20260409135935-3638fb84b77d // indirect
-	github.com/tailscale/gliderssh v0.3.4-0.20260716005906-1a0f895faf28 // indirect
+	github.com/tailscale/gliderssh v0.3.4-0.20261026144310-31f7cf365d3a // indirect
 	github.com/tailscale/go-winio v0.0.0-20231025203758-c4f33415bf55 // indirect
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f // indirect
 	github.com/tailscale/peercred v0.0.0-20250107143737-35a0c7bd7edc // indirect
 	github.com/tailscale/web-client-prebuilt v0.0.0-20260917222731-e0ed2d0d0fea // indirect
-	github.com/tailscale/wireguard-go v0.0.0-20260928213353-e61b6b78110b // indirect
+	github.com/tailscale/wireguard-go v0.0.0-20261117232807-a1800e9c5305 // indirect
 	github.com/u-root/u-root v0.16.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go4.org/netipx v0.0.0-20260823151212-3075585bcbeb // indirect
 	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
 	golang.org/x/mobile v0.0.0-20260821190718-4776eadac327 // indirect
-	golang.org/x/mod v0.42.0 // indirect
+	golang.org/x/mod v0.43.0 // indirect
 	golang.org/x/net v0.63.0 // indirect
 	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect

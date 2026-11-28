@@ -33,14 +33,15 @@ internal fun EngineStatusCard(engineAvailability: EngineAvailability) {
         if (engineAvailability.testRouting) {
             Spacer(Modifier.height(6.dp))
             Text(
-                "Test-routing build: data-plane capabilities are implemented and enabled for Connect. Phase 8 physical leak acceptance is still pending — not a production/leak-free claim.",
+                "Test-routing build: the data plane is enabled for connections. Physical leak " +
+                    "acceptance testing is still pending; this is not a production or leak-free claim.",
                 style = MaterialTheme.typography.bodySmall.copy(color = YellowWarning)
             )
         }
         if (!engineAvailability.isAvailable) {
             Spacer(Modifier.height(6.dp))
             Text(
-                "Connections stay disabled until a compatible libtailcat AAR advertises a working WireGuard and Magicsock data plane.",
+                "Connections remain disabled until a compatible engine library reports a working WireGuard and Magicsock data plane.",
                 style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
             )
         }

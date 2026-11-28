@@ -162,7 +162,7 @@ fun ShareScreen(
                     blockedReason = when {
                         !viewModel.availability.isAvailable -> viewModel.availability.message
                         tunnelState != TunnelState.DISCONNECTED ->
-                            "Disconnect the VPN first. Sharing and the VPN cannot run together."
+                            "Disconnect the VPN first. Sharing and the VPN cannot run simultaneously."
                         else -> null
                     },
                     onDuration = viewModel::selectDuration,
@@ -192,7 +192,7 @@ fun ShareScreen(
                     onDeny = viewModel::deny,
                     onRevoke = viewModel::revoke,
                     onStop = viewModel::stop,
-                    onCopied = { scope.launch { snackbar.showSnackbar("Code copied") } }
+                    onCopied = { scope.launch { snackbar.showSnackbar("Code copied to clipboard") } }
                 )
                 is ExitNodeUiState.Ended -> EndedContent(s.message, viewModel::acknowledgeEnded)
             }
@@ -217,11 +217,11 @@ private fun SetupContent(
     onStart: () -> Unit
 ) {
     Card {
-        Text("Let someone use this phone's connection", style = MaterialTheme.typography.titleMedium)
+        Text("Share this phone's internet connection", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(6.dp))
         Text(
-            "They scan a code and their traffic leaves through this phone. Sites see your IP " +
-                "address, and everything they do counts against your data plan and battery.",
+            "Guests scan a code, and their traffic exits through this phone. Destinations see " +
+                "this phone's IP address, and guest traffic uses this phone's data plan and battery.",
             style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary)
         )
     }
@@ -245,10 +245,10 @@ private fun SetupContent(
         Spacer(Modifier.height(4.dp))
         Text(
             if (duration.isTimed) {
-                "The code stops working when time runs out, and sharing ends by itself."
+                "The code expires when the selected time elapses, and sharing stops automatically."
             } else {
-                "Sharing lasts until you tap Stop sharing. It also ends if Android closes the app, " +
-                    "and the code then stops working. Each new device still needs your approval."
+                "Sharing continues until Stop sharing is selected. It also ends if Android closes " +
+                    "the app, after which the code is invalid. Each new device still requires approval."
             },
             style = MaterialTheme.typography.bodySmall.copy(color = TextMuted)
         )
@@ -260,17 +260,17 @@ private fun SetupContent(
         AdmissionOption(
             selected = admission == ExitNodeAdmission.APPROVAL,
             title = "Approve each device",
-            body = "A new device waits until you tap Approve. A leaked code alone is not enough.",
+            body = "New devices remain pending until approved. A leaked code alone is not sufficient.",
             recommended = true,
             onClick = { onAdmission(ExitNodeAdmission.APPROVAL) }
         )
         AdmissionOption(
             selected = admission == ExitNodeAdmission.OPEN,
-            title = "Anyone with the code",
+            title = "No approval required",
             body = if (duration.isTimed) {
-                "No approval step. Anyone who sees the code can connect until it expires."
+                "No approval step. Anyone with the code can connect until it expires."
             } else {
-                "Needs a time limit, so a leaked code cannot be used forever. Pick a duration above."
+                "Requires a time limit so a leaked code cannot be used indefinitely."
             },
             recommended = false,
             enabled = duration.isTimed,
@@ -287,9 +287,9 @@ private fun SetupContent(
     )
 
     Text(
-        "Keep the screen on or the phone charging for the best results. If you use Always-on VPN " +
-            "with \u2018Block connections without VPN\u2019, turn that off while sharing: Android would " +
-            "block this app's own connection.",
+        "Keep the screen on or the device charging. If Always-on VPN with " +
+            "\u2018Block connections without VPN\u2019 is enabled, disable it while sharing; Android would " +
+            "otherwise block this app's own connection.",
         style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
         modifier = Modifier.padding(horizontal = 4.dp)
     )
@@ -327,21 +327,21 @@ private fun RelayCard(
         Eyebrow("RELAY")
         Spacer(Modifier.height(4.dp))
         Text(
-            "A guest reaches this phone through a relay. Automatic picks the nearest public one; " +
-                "your own keeps that traffic on a server you control.",
+            "Guests reach this phone through a relay. Automatic selects the nearest public relay; " +
+                "a custom relay keeps that traffic on an operator-controlled server.",
             style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
         )
         AdmissionOption(
             selected = !relay.enabled,
             title = "Automatic",
-            body = "Nearest public relay, chosen by this phone's latency. Works on any network.",
+            body = "Nearest public relay, selected by measured latency. Works on any network.",
             recommended = true,
             onClick = { onEnabled(false) }
         )
         AdmissionOption(
             selected = relay.enabled,
-            title = "My own relay",
-            body = "It must be reachable from the guest and serve a valid TLS certificate for its name.",
+            title = "Custom relay",
+            body = "The relay must be reachable by guests and serve a valid TLS certificate for its host name.",
             recommended = false,
             onClick = { onEnabled(true) }
         )
@@ -381,7 +381,7 @@ private fun RelayCard(
             Spacer(Modifier.height(6.dp))
             Text(
                 relay.problem
-                    ?: "The name is baked into the code, so guests need no setup.",
+                    ?: "The host name is embedded in the code, so guests need no additional configuration.",
                 style = MaterialTheme.typography.bodySmall.copy(
                     color = if (relay.problem != null) RedDegraded else TextMuted
                 )
@@ -469,12 +469,12 @@ private fun SharingContent(
 
     if (stats.pending.isNotEmpty()) {
         Card(border = YellowWarning.copy(alpha = 0.5f)) {
-            Eyebrow("WAITING FOR YOU")
+            Eyebrow("PENDING APPROVAL")
             if (stats.suspiciousRequests) {
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "More than one device is asking. You gave this code to one person, so the " +
-                        "code may have been shared. Approve only a device you recognise.",
+                    "More than one device is requesting access. The code may have been shared. " +
+                        "Approve only recognized devices.",
                     style = MaterialTheme.typography.bodySmall.copy(color = YellowWarning)
                 )
             }
@@ -487,8 +487,8 @@ private fun SharingContent(
         if (stats.guests.isEmpty()) {
             Spacer(Modifier.height(6.dp))
             Text(
-                if (stats.openAdmission) "No one has connected yet."
-                else "No approved devices yet. A device appears above when it asks to connect.",
+                if (stats.openAdmission) "No devices connected."
+                else "No approved devices. New devices appear above for approval.",
                 style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary)
             )
         }
@@ -506,7 +506,7 @@ private fun SharingContent(
         if (stats.policyRejections > 0) {
             Spacer(Modifier.height(8.dp))
             Text(
-                "${stats.policyRejections} attempt(s) to reach this phone or its network were blocked.",
+                "${stats.policyRejections} blocked attempts to reach this phone or its network.",
                 style = MaterialTheme.typography.bodySmall.copy(color = TextMuted)
             )
         }
@@ -520,7 +520,7 @@ private fun SharingContent(
         Text("Stop sharing")
     }
     Text(
-        "Stopping discards this code's keys, so it can never be used again.",
+        "Stopping discards the session keys; this code cannot be reused.",
         style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
         modifier = Modifier.padding(horizontal = 4.dp)
     )
@@ -549,11 +549,10 @@ private fun CodeCard(token: String, openAdmission: Boolean, onCopied: () -> Unit
         }
         Spacer(Modifier.height(10.dp))
         if (openAdmission) {
-            Notice("Anyone who sees this code can use your connection until time runs out.", RedDegraded)
+            Notice("Anyone with this code can use this connection until it expires.", RedDegraded)
         } else {
             Text(
-                "Show this to the person you are sharing with. Their device will appear below for " +
-                    "you to approve.",
+                "The guest scans this code. Their device then appears below for approval.",
                 style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
             )
         }
@@ -568,7 +567,7 @@ private fun PendingRow(device: PendingDevice, onApprove: (String) -> Unit, onDen
     ) {
         Column(Modifier.weight(1f)) {
             Text(deviceShortId(device.key), style = TailcatText.Metric)
-            Text("asking to connect", style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary))
+            Text("connection request", style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary))
         }
         TextButton(onClick = { onDeny(device.key) }) { Text("Deny", color = TextSecondary) }
         Button(
@@ -588,7 +587,7 @@ private fun GuestRow(device: GuestDevice, onRevoke: (String) -> Unit) {
             Text(deviceShortId(device.key), style = TailcatText.Metric)
             Text(
                 when {
-                    device.flows == 0L -> "approved, not connected yet"
+                    device.flows == 0L -> "approved, no active connection"
                     device.activeFlows > 0 -> "${device.activeFlows} open · ${TrafficFormat.formatBytes(device.totalBytes)}"
                     else -> "idle · ${TrafficFormat.formatBytes(device.totalBytes)}"
                 },
@@ -613,7 +612,7 @@ private fun EndedContent(message: String, onDone: () -> Unit) {
         Text(message, style = MaterialTheme.typography.bodyLarge)
         Spacer(Modifier.height(4.dp))
         Text(
-            "The code you shared no longer works.",
+            "This code is no longer valid.",
             style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary)
         )
     }
@@ -621,7 +620,7 @@ private fun EndedContent(message: String, onDone: () -> Unit) {
         onClick = onDone,
         colors = TailcatButtons.filled(),
         modifier = Modifier.fillMaxWidth().height(52.dp)
-    ) { Text("Done") }
+    ) { Text("Close") }
 }
 
 // ---- small pieces -------------------------------------------------------------

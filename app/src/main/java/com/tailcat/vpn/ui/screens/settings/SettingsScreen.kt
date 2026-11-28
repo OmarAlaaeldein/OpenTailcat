@@ -37,6 +37,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tailcat.vpn.TailcatApplication
+import com.tailcat.vpn.core.geo.CountryInfo
 import com.tailcat.vpn.ui.theme.AccentCyan
 import com.tailcat.vpn.ui.theme.BgDark
 import com.tailcat.vpn.ui.theme.SurfaceDark
@@ -44,6 +45,8 @@ import com.tailcat.vpn.ui.theme.TextPrimary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private const val COUNTRIES_TAB = 2
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,6 +73,16 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
     var excludedApps by remember { mutableStateOf(store.splitTunnelExcludedApps) }
     var appQuery by rememberSaveable { mutableStateOf("") }
     var debugMode by remember { mutableStateOf(store.debugMode) }
+    var blockedCountries by remember { mutableStateOf(store.blockedCountries) }
+    var countryQuery by rememberSaveable { mutableStateOf("") }
+
+    // The country data is a few MB; read it only once the Countries tab opens.
+    var countryLoad by remember { mutableStateOf<Result<List<CountryInfo>>?>(null) }
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == COUNTRIES_TAB && countryLoad == null) {
+            countryLoad = withContext(Dispatchers.IO) { runCatching { app.countryRanges.countries() } }
+        }
+    }
 
     // Every package installed for this user, not only apps with a launcher
     // icon; headless/background apps must be selectable for exclusions.
@@ -114,6 +127,11 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                     onClick = { selectedTab = 1 },
                     text = { Text("Apps (${excludedApps.size})") }
                 )
+                Tab(
+                    selected = selectedTab == COUNTRIES_TAB,
+                    onClick = { selectedTab = COUNTRIES_TAB },
+                    text = { Text("Countries (${blockedCountries.size})") }
+                )
             }
 
             if (selectedTab == 0) {
@@ -153,6 +171,19 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
 
                     AboutCard()
                 }
+            } else if (selectedTab == COUNTRIES_TAB) {
+                CountryBlockTab(
+                    app = app,
+                    countries = countryLoad?.getOrNull(),
+                    loadFailed = countryLoad?.isFailure == true,
+                    query = countryQuery,
+                    onQueryChange = { countryQuery = it },
+                    blocked = blockedCountries,
+                    onBlockedChange = { updated ->
+                        blockedCountries = updated
+                        store.blockedCountries = updated
+                    }
+                )
             } else {
                 AppExclusionsTab(
                     app = app,

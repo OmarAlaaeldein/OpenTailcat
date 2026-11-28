@@ -145,7 +145,7 @@ fun SpeedometerGauge(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             val stageLabel = when (stage) {
                 SpeedTestStage.IDLE -> "READY"
-                SpeedTestStage.MEASURING_PING -> "PINGING..."
+                SpeedTestStage.MEASURING_PING -> "MEASURING PING"
                 SpeedTestStage.TESTING_DOWNLOAD -> "DOWNLOAD"
                 SpeedTestStage.TESTING_UPLOAD -> "UPLOAD"
                 SpeedTestStage.COMPLETED -> "TEST COMPLETE"

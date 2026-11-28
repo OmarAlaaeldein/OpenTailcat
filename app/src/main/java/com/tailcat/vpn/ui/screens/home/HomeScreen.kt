@@ -112,7 +112,7 @@ fun HomeScreen(
                 viewModel.connect()
             }
         } catch (e: Exception) {
-            viewModel.showMessage(e.message ?: "Android could not request VPN permission")
+            viewModel.showMessage(e.message ?: "Android could not request VPN permission.")
         }
     }
 
