@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Security
@@ -15,6 +16,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tailcat.vpn.TailcatApplication
 import com.tailcat.vpn.service.LockdownProbe
@@ -49,9 +51,15 @@ internal fun AlwaysOnCard() {
         OutlinedButton(
             onClick = {
                 runCatching { context.startActivity(Intent(Settings.ACTION_VPN_SETTINGS)) }
-            }
+            },
+            modifier = Modifier.fillMaxWidth().height(40.dp)
         ) {
-            Text("Open Android VPN settings")
+            Text(
+                "Open Android VPN settings",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                softWrap = false
+            )
         }
     }
 }

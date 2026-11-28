@@ -16,7 +16,6 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PowerSettingsNew
@@ -171,9 +170,11 @@ fun PowerToggleRing(
                         startY = center.y - radius * 0.67f,
                         endY = center.y
                     )
-                    val ringStroke = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
-                    val trackStroke = Stroke(width = 2.dp.toPx())
-                    val hairline = Stroke(width = 1.dp.toPx())
+                    // Strokes are sized for a 220dp ring and scale with it.
+                    val unit = size.minDimension / 220.dp.toPx()
+                    val ringStroke = Stroke(width = 3.dp.toPx() * unit, cap = StrokeCap.Round)
+                    val trackStroke = Stroke(width = 2.dp.toPx() * unit)
+                    val hairline = Stroke(width = 1.dp.toPx() * unit)
                     onDrawBehind {
                         val pulse = if (isConnecting && !reducedMotion) {
                             // Triangle wave 0..1..0 from the linear phase.
@@ -220,7 +221,7 @@ fun PowerToggleRing(
             imageVector = Icons.Default.PowerSettingsNew,
             contentDescription = null,
             tint = iconTint,
-            modifier = Modifier.size(56.dp)
+            modifier = Modifier.fillMaxSize(56f / 220f)
         )
     }
 }

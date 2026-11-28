@@ -93,14 +93,26 @@ fun TelemetryCard(
                         text = "${egress.label}: ${egress.value}",
                         color = TextPrimary,
                         style = TailcatText.Metric,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        softWrap = false
                     )
                     if (tunnelActive) {
                         Text(
-                            text = "VPN address: ${VpnInterfaceSpec.IPV4_ADDRESS} / ${VpnInterfaceSpec.IPV6_ADDRESS}",
+                            text = "VPN ${VpnInterfaceSpec.IPV4_ADDRESS}",
                             color = TextSecondary,
-                            style = TailcatText.Eyebrow
+                            style = TailcatText.Eyebrow,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            softWrap = false
+                        )
+                        Text(
+                            text = VpnInterfaceSpec.IPV6_ADDRESS,
+                            color = TextSecondary,
+                            style = TailcatText.Eyebrow,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            softWrap = false
                         )
                     } else if (egressInfo.city != null || egressInfo.country != null) {
                         val location = listOfNotNull(egressInfo.city, egressInfo.country).joinToString(", ")
@@ -144,7 +156,7 @@ fun TelemetryCard(
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f, fill = false)
+                modifier = Modifier.weight(1f)
             ) {
                 Box(
                     modifier = Modifier
@@ -157,7 +169,9 @@ fun TelemetryCard(
                     color = badgeColor,
                     style = TailcatText.Eyebrow,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    softWrap = false,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
                 // Measured UDP capability: when the engine latched TCP-only
                 // (gateway UDP unreachable at handshake), non-DNS UDP is
@@ -165,11 +179,23 @@ fun TelemetryCard(
                 // green in this mode, so say so instead of looking healthy.
                 if (tunnelActive && metrics.tcpOnly) {
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = "TCP-only", color = TextSecondary, style = TailcatText.Eyebrow)
+                    Text(
+                        text = "TCP-only",
+                        color = TextSecondary,
+                        style = TailcatText.Eyebrow,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
                 if (tunnelActive && !metrics.ipv6Egress) {
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = "IPv4 egress", color = TextSecondary, style = TailcatText.Eyebrow)
+                    Text(
+                        text = "IPv4 egress",
+                        color = TextSecondary,
+                        style = TailcatText.Eyebrow,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
             }
             Spacer(modifier = Modifier.width(8.dp))
@@ -177,7 +203,8 @@ fun TelemetryCard(
                 text = TelemetryDisplay.rtt(metrics, nowSec),
                 color = TextSecondary,
                 style = TailcatText.Eyebrow,
-                maxLines = 1
+                maxLines = 1,
+                softWrap = false
             )
         }
 
@@ -262,9 +289,23 @@ private fun StatTile(
             modifier = Modifier.size(18.dp)
         )
         Spacer(modifier = Modifier.width(6.dp))
-        Column {
-            Text(text = primary, color = TextPrimary, style = TailcatText.Metric, maxLines = 1)
-            Text(text = secondary, color = TextMuted, style = TailcatText.Eyebrow, maxLines = 1)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = primary,
+                color = TextPrimary,
+                style = TailcatText.Metric,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                softWrap = false
+            )
+            Text(
+                text = secondary,
+                color = TextMuted,
+                style = TailcatText.Eyebrow,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                softWrap = false
+            )
         }
     }
 }

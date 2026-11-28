@@ -14,8 +14,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -67,6 +65,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -229,19 +228,7 @@ private fun SetupContent(
     Card {
         Eyebrow("HOW LONG")
         Spacer(Modifier.height(8.dp))
-        @OptIn(ExperimentalLayoutApi::class)
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ShareDuration.entries.forEach { option ->
-                FilterChip(
-                    selected = option == duration,
-                    onClick = { onDuration(option) },
-                    label = { Text(option.label) }
-                )
-            }
-        }
+        DurationChoices(duration, onDuration)
         Spacer(Modifier.height(4.dp))
         Text(
             if (duration.isTimed) {
@@ -302,7 +289,7 @@ private fun SetupContent(
         colors = TailcatButtons.filled(),
         modifier = Modifier.fillMaxWidth().height(52.dp)
     ) {
-        Text("Start sharing")
+        Text("Start sharing", maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
     }
 }
 
@@ -362,7 +349,7 @@ private fun RelayCard(
                 OutlinedTextField(
                     value = relay.derpPort,
                     onValueChange = onDerpPort,
-                    label = { Text("DERP port") },
+                    label = { FieldLabel("DERP port") },
                     singleLine = true,
                     isError = !derpOk,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -371,7 +358,7 @@ private fun RelayCard(
                 OutlinedTextField(
                     value = relay.stunPort,
                     onValueChange = onStunPort,
-                    label = { Text("STUN port") },
+                    label = { FieldLabel("STUN port") },
                     singleLine = true,
                     isError = !stunOk,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -621,6 +608,41 @@ private fun EndedContent(message: String, onDone: () -> Unit) {
         colors = TailcatButtons.filled(),
         modifier = Modifier.fillMaxWidth().height(52.dp)
     ) { Text("Close") }
+}
+
+/** Two fixed rows, so a narrower phone does not wrap one chip and stretch the next. */
+@Composable
+private fun DurationChoices(duration: ShareDuration, onDuration: (ShareDuration) -> Unit) {
+    val options = ShareDuration.entries
+    DurationRow(options.take(3), duration, onDuration)
+    Spacer(Modifier.height(8.dp))
+    DurationRow(options.drop(3), duration, onDuration)
+}
+
+@Composable
+private fun DurationRow(
+    options: List<ShareDuration>,
+    duration: ShareDuration,
+    onDuration: (ShareDuration) -> Unit
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        options.forEach { option ->
+            FilterChip(
+                selected = option == duration,
+                onClick = { onDuration(option) },
+                label = { FieldLabel(option.label) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun FieldLabel(text: String) {
+    Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
 }
 
 // ---- small pieces -------------------------------------------------------------
